@@ -49,6 +49,7 @@ const ROUTES: &[(&str, &str)] = &[
     ("POST", "/api/immich/sync"),
     ("GET", "/api/immich/status"),
     ("POST", "/api/immich/exclude-trash"),
+    ("POST", "/api/immich/detect-prefix"),
 ];
 
 fn error_code(body: &Value) -> &Value {

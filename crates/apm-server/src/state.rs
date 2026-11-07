@@ -63,7 +63,7 @@ impl AppState {
 
         let plans = plans::PlanService::new();
 
-        let immich = immich::ImmichService::new();
+        let immich = immich::ImmichService::new(db.clone(), config.data_dir.clone());
 
         let trash = trash::TrashService::new();
 
