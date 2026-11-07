@@ -91,7 +91,6 @@ dependencies = [
  "rustix",
  "serde",
  "serde_json",
- "sha1",
  "sqlx",
  "tempfile",
  "thiserror",

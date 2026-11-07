@@ -67,6 +67,7 @@ if printf '%s\n' "$CHANGED" | grep -qE '^(crates/|Cargo\.|\.cargo/|rust-toolchai
 fi
 if printf '%s\n' "$CHANGED" | grep -qE '^(web/|crates/apm-core/src/dto/)'; then
   echo ">> gate: make check-web"
+  scripts/ensure-web-deps.sh || { echo "GATE_FAILED(web): 'npm ci' failed, fix the cause and re-run scripts/wt-land.sh"; exit 4; }
   make check-web || { echo "GATE_FAILED(web): fix it, commit, and re-run scripts/wt-land.sh"; exit 4; }
 fi
 if [ -n "$(git status --porcelain)" ]; then
