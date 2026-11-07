@@ -1,0 +1,5 @@
+[env]
+# ts-rs writes the generated TypeScript here (resolved against the repo root).
+TS_RS_EXPORT_DIR = { value = "web/src/api/generated", relative = true }
+# i64/u64 are exported as `number`, not `bigint`: ids and sizes stay below 2^53.
+TS_RS_LARGE_INT = "number"

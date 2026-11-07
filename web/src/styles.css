@@ -1,0 +1,9 @@
+@import "tailwindcss" source("./");
+@source "../index.html";
+@source not "./**/*.test.ts";
+@source not "./api/generated";
+@plugin "daisyui" {
+  themes:
+    light --default,
+    dark --prefersdark;
+}

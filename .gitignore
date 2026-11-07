@@ -1,0 +1,13 @@
+/target
+/web/node_modules
+/web/dist
+/fixtures/out
+/.data
+.DS_Store
+*.db
+*.db-shm
+*.db-wal
+*.apm-part
+.env
+/test-results
+/playwright-report
