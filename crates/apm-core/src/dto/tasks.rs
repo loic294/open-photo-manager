@@ -62,7 +62,8 @@ pub struct TaskDto {
 }
 
 /// Event pushed on `GET /api/events` (server-sent events). The JSON payload is
-/// tagged by a `type` field.
+/// tagged by a `type` field. There are exactly two types: indexing is a task of
+/// kind `index`, so its progress arrives as a `task` event.
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize, TS)]
 #[serde(tag = "type", rename_all = "snake_case")]
 #[ts(export)]
@@ -73,12 +74,6 @@ pub enum ServerEvent {
     FsChange {
         volume_id: VolumeId,
         dirs: Vec<String>,
-    },
-    /// Indexing progress.
-    Index {
-        state: String,
-        files_total: i64,
-        files_done: i64,
     },
 }
 
@@ -138,15 +133,25 @@ mod tests {
             change,
             json!({ "type": "fs_change", "volume_id": 1, "dirs": ["2024", "2024/Trip"] })
         );
+    }
 
-        let index = roundtrip(&ServerEvent::Index {
-            state: "scanning".to_owned(),
-            files_total: 100,
-            files_done: 40,
+    #[test]
+    fn indexing_is_a_task_not_a_separate_event_type() {
+        let wire = roundtrip(&ServerEvent::Task {
+            task: TaskDto {
+                kind: TaskKind::Index,
+                ..sample_task()
+            },
         });
-        assert_eq!(
-            index,
-            json!({ "type": "index", "state": "scanning", "files_total": 100, "files_done": 40 })
-        );
+        assert_eq!(wire["type"], json!("task"));
+        assert_eq!(wire["task"]["kind"], json!("index"));
+
+        let retired = json!({
+            "type": "index",
+            "state": "scanning",
+            "files_total": 100,
+            "files_done": 40,
+        });
+        assert!(serde_json::from_value::<ServerEvent>(retired).is_err());
     }
 }

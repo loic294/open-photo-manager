@@ -3,6 +3,7 @@ import type { TaskDto } from "./TaskDto";
 
 /**
  * Event pushed on `GET /api/events` (server-sent events). The JSON payload is
- * tagged by a `type` field.
+ * tagged by a `type` field. There are exactly two types: indexing is a task of
+ * kind `index`, so its progress arrives as a `task` event.
  */
-export type ServerEvent = { "type": "task", task: TaskDto, } | { "type": "fs_change", volume_id: number, dirs: Array<string>, } | { "type": "index", state: string, files_total: number, files_done: number, };
+export type ServerEvent = { "type": "task", task: TaskDto, } | { "type": "fs_change", volume_id: number, dirs: Array<string>, };

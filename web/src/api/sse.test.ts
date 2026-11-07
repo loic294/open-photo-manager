@@ -94,43 +94,48 @@ describe('connection lifecycle', () => {
 });
 
 describe('events', () => {
-  it('delivers each event only to the handlers of its type, narrowed', () => {
+  it('delivers a task event to the task handlers only, narrowed', () => {
     const events = started();
     const onTask = vi.fn();
     const onFs = vi.fn();
-    const onIndex = vi.fn();
     events.on('task', onTask);
     events.on('fs_change', onFs);
-    events.on('index', onIndex);
     const source = FakeEventSource.last();
     source.open();
 
     source.message({ type: 'task', task });
-    source.message({ type: 'fs_change', volume_id: 2, dirs: ['a', 'b/c'] });
-    source.message({ type: 'index', state: 'scanning', files_total: 10, files_done: 4 });
 
     expect(onTask).toHaveBeenCalledExactlyOnceWith({ type: 'task', task });
+    expect(onFs).not.toHaveBeenCalled();
+  });
+
+  it('delivers an fs_change event to the fs_change handlers only, narrowed', () => {
+    const events = started();
+    const onTask = vi.fn();
+    const onFs = vi.fn();
+    events.on('task', onTask);
+    events.on('fs_change', onFs);
+    const source = FakeEventSource.last();
+    source.open();
+
+    source.message({ type: 'fs_change', volume_id: 2, dirs: ['a', 'b/c'] });
+
     expect(onFs).toHaveBeenCalledExactlyOnceWith({
       type: 'fs_change',
       volume_id: 2,
       dirs: ['a', 'b/c'],
     });
-    expect(onIndex).toHaveBeenCalledExactlyOnceWith({
-      type: 'index',
-      state: 'scanning',
-      files_total: 10,
-      files_done: 4,
-    });
+    expect(onTask).not.toHaveBeenCalled();
   });
 
   it('notifies every subscriber and stops after unsubscribe', () => {
     const events = started();
     const first = vi.fn();
     const second = vi.fn();
-    const off = events.on('index', first);
-    events.on('index', second);
+    const off = events.on('fs_change', first);
+    events.on('fs_change', second);
     const source = FakeEventSource.last();
-    const message = { type: 'index', state: 'idle', files_total: 0, files_done: 0 };
+    const message = { type: 'fs_change', volume_id: 1, dirs: ['a'] };
 
     source.message(message);
     off();
@@ -143,11 +148,11 @@ describe('events', () => {
   it('treats the same handler subscribed twice as two independent subscriptions', () => {
     const events = client();
     const handler = vi.fn();
-    const offFirst = events.on('index', handler);
-    events.on('index', handler);
+    const offFirst = events.on('fs_change', handler);
+    events.on('fs_change', handler);
     offFirst();
 
-    events.emit({ type: 'index', state: 'idle', files_total: 0, files_done: 0 });
+    events.emit({ type: 'fs_change', volume_id: 1, dirs: [] });
 
     expect(handler).toHaveBeenCalledOnce();
   });
@@ -156,12 +161,12 @@ describe('events', () => {
     const error = vi.spyOn(console, 'error').mockImplementation(() => {});
     const events = client();
     const after = vi.fn();
-    events.on('index', () => {
+    events.on('fs_change', () => {
       throw new Error('boom');
     });
-    events.on('index', after);
+    events.on('fs_change', after);
 
-    events.emit({ type: 'index', state: 'idle', files_total: 0, files_done: 0 });
+    events.emit({ type: 'fs_change', volume_id: 1, dirs: [] });
 
     expect(after).toHaveBeenCalledOnce();
     expect(error).toHaveBeenCalledOnce();
@@ -170,26 +175,30 @@ describe('events', () => {
   it('lets a handler unsubscribe itself while being dispatched', () => {
     const events = client();
     const calls: string[] = [];
-    const offA = events.on('index', () => {
+    const offA = events.on('fs_change', () => {
       calls.push('a');
       offA();
     });
-    events.on('index', () => calls.push('b'));
+    events.on('fs_change', () => calls.push('b'));
 
-    events.emit({ type: 'index', state: 'idle', files_total: 0, files_done: 0 });
-    events.emit({ type: 'index', state: 'idle', files_total: 0, files_done: 0 });
+    events.emit({ type: 'fs_change', volume_id: 1, dirs: [] });
+    events.emit({ type: 'fs_change', volume_id: 1, dirs: [] });
 
     expect(calls).toEqual(['a', 'b', 'b']);
   });
 
   it('emit() delivers without a connection', () => {
     const events = client();
-    const handler = vi.fn();
-    events.on('fs_change', handler);
+    const onFs = vi.fn();
+    const onTask = vi.fn();
+    events.on('fs_change', onFs);
+    events.on('task', onTask);
 
     events.emit({ type: 'fs_change', volume_id: 1, dirs: [] });
+    events.emit({ type: 'task', task });
 
-    expect(handler).toHaveBeenCalledOnce();
+    expect(onFs).toHaveBeenCalledOnce();
+    expect(onTask).toHaveBeenCalledOnce();
   });
 });
 
@@ -199,36 +208,42 @@ describe('malformed messages', () => {
     const events = started();
     const handler = vi.fn();
     events.on('task', handler);
-    events.on('index', handler);
+    events.on('fs_change', handler);
     const source = FakeEventSource.last();
     source.open();
 
     source.message('not json {');
     source.message('42');
     source.message({ type: 'task' });
+    source.message({ type: 'task', task: null });
     source.message({ type: 'fs_change', volume_id: 'x', dirs: [] });
-    source.message({ type: 'index', state: 'scanning' });
+    source.message({ type: 'fs_change', volume_id: 1 });
     source.message({ nothing: true });
 
     expect(handler).not.toHaveBeenCalled();
-    expect(warn).toHaveBeenCalledTimes(6);
+    expect(warn).toHaveBeenCalledTimes(7);
     expect(events.connection.value).toBe('open');
 
-    source.message({ type: 'index', state: 'idle', files_total: 1, files_done: 1 });
+    source.message({ type: 'fs_change', volume_id: 1, dirs: ['a'] });
     expect(handler).toHaveBeenCalledOnce();
   });
 
-  it('ignores well-formed events of an unknown type without warning', () => {
-    const warn = vi.spyOn(console, 'warn').mockImplementation(() => {});
-    const events = started();
-    const handler = vi.fn();
-    events.on('task', handler);
+  // `index` is a retired event type: indexing progress is a `task` event of kind `index`.
+  it.each(['from_the_future', 'index'])(
+    'ignores a well-formed "%s" event without warning',
+    (type) => {
+      const warn = vi.spyOn(console, 'warn').mockImplementation(() => {});
+      const events = started();
+      const handler = vi.fn();
+      events.on('task', handler);
+      events.on('fs_change', handler);
 
-    FakeEventSource.last().message({ type: 'from_the_future', payload: 1 });
+      FakeEventSource.last().message({ type, payload: 1 });
 
-    expect(handler).not.toHaveBeenCalled();
-    expect(warn).not.toHaveBeenCalled();
-  });
+      expect(handler).not.toHaveBeenCalled();
+      expect(warn).not.toHaveBeenCalled();
+    },
+  );
 });
 
 describe('reconnect', () => {
@@ -339,10 +354,10 @@ describe('reconnect', () => {
     const resync = vi.fn();
     events.onResync(resync);
     const received = vi.fn();
-    events.on('index', received);
+    events.on('fs_change', received);
 
     stale.open();
-    stale.message({ type: 'index', state: 'idle', files_total: 0, files_done: 0 });
+    stale.message({ type: 'fs_change', volume_id: 1, dirs: [] });
     stale.error();
 
     expect(resync).not.toHaveBeenCalled();

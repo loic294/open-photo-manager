@@ -1,5 +1,5 @@
 //! `GET /api/events`: server-sent events carrying `ServerEvent` JSON
-//! (task progress, filesystem changes, index progress).
+//! (task progress and filesystem changes; indexing is a task of kind `index`).
 //!
 //! Owned by todo `building-task-engine`. The stream must end when
 //! `AppState::begin_shutdown` is called, otherwise graceful shutdown waits for

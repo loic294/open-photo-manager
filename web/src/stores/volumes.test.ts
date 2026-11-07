@@ -1,6 +1,9 @@
 import { effect } from '@preact/signals-core';
 import { afterEach, describe, expect, it, type MockInstance, vi } from 'vitest';
 import { ApiError } from '@/api/errors';
+import type { ServerEvent } from '@/api/generated/ServerEvent';
+import type { TaskDto } from '@/api/generated/TaskDto';
+import type { TaskKind } from '@/api/generated/TaskKind';
 import type { VolumeDto } from '@/api/generated/VolumeDto';
 import { SERVER_RETRY_MS } from '@/api/sse';
 import { FakeEventSource } from '@/test/fake-event-source';
@@ -43,6 +46,32 @@ function deferred<T>() {
 function boom(message = 'boom') {
   return new ApiError({ status: 500, code: 'internal', message });
 }
+
+// An index task by default; override what a test cares about.
+function taskEvent(overrides: Partial<TaskDto> = {}): ServerEvent {
+  return {
+    type: 'task',
+    task: {
+      id: 1,
+      kind: 'index',
+      title: 'Index photos',
+      state: 'running',
+      items_done: 0,
+      items_total: 100,
+      bytes_done: 0,
+      bytes_total: null,
+      speed: null,
+      eta_secs: null,
+      error: null,
+      started_at: 1,
+      finished_at: null,
+      ...overrides,
+    },
+  };
+}
+
+// Lets a load that was just started, and the reload it may have coalesced, finish.
+const settle = () => new Promise<void>((resolve) => setTimeout(resolve, 0));
 
 afterEach(() => {
   current?.events.stop();
@@ -304,6 +333,15 @@ describe('lookups', () => {
 });
 
 describe('startVolumes', () => {
+  // The store has loaded once, so `get` has been called exactly once.
+  async function started() {
+    const loaded = await setup();
+    loaded.get.mockResolvedValue([photos]);
+    const stop = loaded.store.startVolumes();
+    await vi.waitFor(() => expect(loaded.store.volumesStatus.value).toBe('ready'));
+    return { ...loaded, stop };
+  }
+
   it('loads straight away', async () => {
     const { store, get } = await setup();
     get.mockResolvedValue([photos]);
@@ -336,30 +374,105 @@ describe('startVolumes', () => {
     stop();
   });
 
-  it('refreshes when the indexer changes state, not on every progress update', async () => {
-    const { store, get, events } = await setup();
-    get.mockResolvedValue([photos]);
-    const stop = store.startVolumes();
-    await vi.waitFor(() => expect(store.volumesStatus.value).toBe('ready'));
+  it('refreshes when an index task appears and every time its state changes', async () => {
+    const { get, events, stop } = await started();
 
-    events.emit({ type: 'index', state: 'scanning', files_total: 10, files_done: 1 });
-    events.emit({ type: 'index', state: 'scanning', files_total: 10, files_done: 2 });
-    await Promise.resolve();
-    expect(get).toHaveBeenCalledTimes(1);
+    events.emit(taskEvent({ state: 'queued' }));
+    await settle();
+    expect(get).toHaveBeenCalledTimes(2);
 
-    events.emit({ type: 'index', state: 'idle', files_total: 10, files_done: 10 });
-    await vi.waitFor(() => expect(get).toHaveBeenCalledTimes(2));
+    events.emit(taskEvent({ state: 'running' }));
+    await settle();
+    expect(get).toHaveBeenCalledTimes(3);
+
+    events.emit(taskEvent({ state: 'done', finished_at: 2 }));
+    await settle();
     stop();
+
+    expect(get).toHaveBeenCalledTimes(4);
   });
 
+  it.each(['queued', 'running'] as const)(
+    'does not refresh for progress-only updates of a %s index task',
+    async (state) => {
+      const { get, events, stop } = await started();
+      events.emit(taskEvent({ state }));
+      await settle();
+      expect(get).toHaveBeenCalledTimes(2);
+
+      for (const itemsDone of [1, 2, 3]) {
+        events.emit(taskEvent({ state, items_done: itemsDone, speed: 10, eta_secs: 5 }));
+      }
+      await settle();
+      stop();
+
+      expect(get).toHaveBeenCalledTimes(2);
+    },
+  );
+
+  it('tracks the state of each index task by its id', async () => {
+    const { get, events, stop } = await started();
+
+    events.emit(taskEvent({ id: 1, state: 'running' }));
+    await settle();
+    events.emit(taskEvent({ id: 2, state: 'running' }));
+    await settle();
+    expect(get).toHaveBeenCalledTimes(3);
+
+    events.emit(taskEvent({ id: 1, state: 'running', items_done: 5 }));
+    events.emit(taskEvent({ id: 2, state: 'running', items_done: 7 }));
+    await settle();
+    expect(get).toHaveBeenCalledTimes(3);
+
+    events.emit(taskEvent({ id: 1, state: 'done' }));
+    await settle();
+    expect(get).toHaveBeenCalledTimes(4);
+
+    events.emit(taskEvent({ id: 2, state: 'running', items_done: 9 }));
+    await settle();
+    stop();
+
+    expect(get).toHaveBeenCalledTimes(4);
+  });
+
+  it.each(['done', 'failed', 'cancelled', 'interrupted'] as const)(
+    'forgets an index task once it is %s, so the ids cannot pile up',
+    async (state) => {
+      const { get, events, stop } = await started();
+      events.emit(taskEvent({ state: 'running' }));
+      await settle();
+      events.emit(taskEvent({ state }));
+      await settle();
+      expect(get).toHaveBeenCalledTimes(3);
+
+      // A forgotten id is a new one: its next event counts as a first sighting.
+      events.emit(taskEvent({ state }));
+      await settle();
+      stop();
+
+      expect(get).toHaveBeenCalledTimes(4);
+    },
+  );
+
   it('ignores events that have nothing to do with volumes', async () => {
-    const { store, get, events } = await setup();
-    get.mockResolvedValue([photos]);
-    const stop = store.startVolumes();
-    await vi.waitFor(() => expect(store.volumesStatus.value).toBe('ready'));
+    const { get, events, stop } = await started();
+    const otherKinds: readonly TaskKind[] = [
+      'fs_move',
+      'fs_trash',
+      'fs_rmdir',
+      'plan_execute',
+      'immich_sync',
+      'immich_cleanup',
+      'trash_empty',
+    ];
 
     events.emit({ type: 'fs_change', volume_id: 1, dirs: ['2024'] });
-    await Promise.resolve();
+    for (const kind of otherKinds) {
+      events.emit(taskEvent({ kind, state: 'queued' }));
+      events.emit(taskEvent({ kind, state: 'running' }));
+      events.emit(taskEvent({ kind, state: 'done' }));
+    }
+    await settle();
     stop();
 
     expect(get).toHaveBeenCalledTimes(1);
@@ -375,15 +488,16 @@ describe('startVolumes', () => {
     await vi.waitFor(() => expect(store.volumesStatus.value).toBe('ready'));
     events.start();
     FakeEventSource.last().open();
-    events.emit({ type: 'index', state: 'scanning', files_total: 1, files_done: 0 });
+    events.emit(taskEvent({ state: 'running' }));
+    await vi.waitFor(() => expect(get).toHaveBeenCalledTimes(2));
 
     stop();
-    events.emit({ type: 'index', state: 'idle', files_total: 1, files_done: 1 });
+    events.emit(taskEvent({ state: 'done' }));
     FakeEventSource.last().error();
     vi.advanceTimersByTime(SERVER_RETRY_MS * 2);
     FakeEventSource.last().open();
     await Promise.resolve();
 
-    expect(get).toHaveBeenCalledTimes(1);
+    expect(get).toHaveBeenCalledTimes(2);
   });
 });

@@ -1,6 +1,7 @@
 import { computed, type ReadonlySignal, signal } from '@preact/signals-core';
 import { api } from '@/api/client';
 import { errorMessage } from '@/api/errors';
+import type { TaskState } from '@/api/generated/TaskState';
 import type { VolumeDto } from '@/api/generated/VolumeDto';
 import { events } from '@/api/sse';
 
@@ -92,19 +93,33 @@ export function loadVolumes(): Promise<void> {
   return inFlight;
 }
 
+// A record, so a state added to the backend enum fails the type check until it is classified here.
+const IS_TERMINAL: Readonly<Record<TaskState, boolean>> = {
+  queued: false,
+  running: false,
+  done: true,
+  failed: true,
+  cancelled: true,
+  interrupted: true,
+};
+
 /**
  * Loads the volumes now and keeps them fresh: after the event stream reconnects (events may
- * have been missed) and when the indexer's `state` changes. The shell calls this once;
- * the returned function stops it.
+ * have been missed) and whenever an `index` task changes state, a task seen for the first time
+ * included. Progress-only updates of a task do not refresh. The shell calls this once; the
+ * returned function stops it.
  */
 export function startVolumes(): () => void {
   void loadVolumes();
-  let lastIndexState: string | undefined;
+  // The last state seen per index task; an id is forgotten once its state is terminal.
+  const indexStates = new Map<number, TaskState>();
   const stops = [
     events.onResync(() => void loadVolumes()),
-    events.on('index', ({ state }) => {
-      const changed = lastIndexState !== undefined && state !== lastIndexState;
-      lastIndexState = state;
+    events.on('task', ({ task }) => {
+      if (task.kind !== 'index') return;
+      const changed = indexStates.get(task.id) !== task.state;
+      if (IS_TERMINAL[task.state]) indexStates.delete(task.id);
+      else indexStates.set(task.id, task.state);
       if (changed) void loadVolumes();
     }),
   ];

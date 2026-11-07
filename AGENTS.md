@@ -92,7 +92,7 @@ A second caller of a concern uses or extends the existing building block, never 
   JSON 405 (`method_not_allowed`); bad bodies, paths and queries answer `invalid_json`,
   `invalid_path` and `invalid_query`. Unimplemented endpoints answer 501 `not_implemented`.
 - SSE (`GET /api/events`): every message is a single `data:` line holding one `ServerEvent` JSON
-  object (tagged by `type`: `task`, `fs_change`, `index`) and NO `event:` field, so a client uses one
+  object (tagged by `type`: `task`, `fs_change`) and NO `event:` field, so a client uses one
   `onmessage` and dispatches on `type`. The server sends `retry: 3000` once, a `: keep-alive`
   comment every 15 s, never replays missed events (after a reconnect the client refetches what it
   shows) and ends the stream when `AppState::begin_shutdown` fires.

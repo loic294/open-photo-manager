@@ -183,7 +183,8 @@ subscribing.
   names from macOS) and must match them exactly.
 - `volumes`: `volumes`, `volumesStatus` (`idle | loading | ready | error`), `volumesError`,
   `volumeByName(name)`, `loadVolumes()` (never rejects). The shell loads it and refreshes it after an
-  SSE reconnect and when the indexer state changes.
+  SSE reconnect and whenever an `index` task changes state (its first event included, progress-only
+  updates not).
 - `toasts`: state behind `toast.*` (see Shared components). Use the `toast` facade, not the store.
 
 ## API client (`@/api/client`)
@@ -205,9 +206,10 @@ subscribing.
 
 ## Live events (`@/api/sse`)
 One shared `events` client; the shell starts it, so never call `events.start()` yourself.
-- `events.on('task' | 'fs_change' | 'index', handler)` returns an unsubscribe function; the handler gets
-  the narrowed generated `ServerEvent` variant. Subscribe in `connectedCallback`, unsubscribe in
-  `disconnectedCallback`.
+- `events.on('task' | 'fs_change', handler)` returns an unsubscribe function; the handler gets the
+  narrowed generated `ServerEvent` variant. Subscribe in `connectedCallback`, unsubscribe in
+  `disconnectedCallback`. These are the only two event types: indexing arrives as a `task` event
+  whose `task.kind` is `'index'` (there is no separate index event).
 - `events.onResync(handler)` returns an unsubscribe function. It runs after every connection that
   follows a failure or a stop. Events are not replayed, so refetch whatever you cache there.
 - `events.connection` is a signal: `connecting | open | reconnecting | closed`.
