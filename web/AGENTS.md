@@ -423,3 +423,46 @@ followed; a missing or unknown id opens the first tab). Today there is one secti
   re-enables itself in its own, later update: in the parent's `updated()` await the child's
   `updateComplete` before calling `focus()` on it. (3) Do not give a method the name of a native member
   (`remove`, `normalize`, `update`): TypeScript or the DOM will clash with it.
+
+## File grid
+`<apm-file-grid>` (`@/components/apm-file-grid`) shows one listing as cards (`<apm-file-card>`), read
+page by page through `PagedItems` (`@/stores/paged-items`). Both panes use it.
+```ts
+html`<apm-file-grid .request=${request} sort=${sort} order=${order} size=${size}
+  .selectedIds=${selecting.selectedIds} .selectionActive=${selecting.active}></apm-file-grid>`;
+```
+- Properties: `request` (`BrowseRequest`; `undefined` shows placeholders), `sort`, `order`, `size` (card
+  width in px, clamped to `GRID_SIZE` of `@/stores/prefs`: 96 to 320, step 16, default 160),
+  `.selectedIds`, `selection-active`, `empty-text`, `label`. A new `request`, `sort` or `order` starts
+  a new listing (an equal `request` in a new object does not). Also `columns` (read-only, cards per
+  row), `focusItem(index)` and `focus()`.
+- Events, both bubbling: `card-activate` from the cards (`{ id, index, via: 'checkbox' | 'card' |
+  'space' | 'enter', shift, toggle }`) and `grid-state` (`{ total, loading, error }`, when one of them
+  changes; `total` is `null` until the first page and counts ghosts). The grid keeps no selection and
+  opens nothing: `SelectionController` (see Selection) turns `card-activate` into `item-open`.
+- A ghost (`overlay.planned`) is a file the plan will create: dashed and dimmed, listed after the real
+  files, never selectable, never emitting, counted in `total` but absent from `fetchIds`.
+- NOT a scroller: it is as tall as its listing and the pane body (`min-h-0 flex-1 overflow-y-auto`)
+  scrolls it, with the folder list above. It scrolls only to bring a focused card into view; a new
+  listing keeps the scroll position the browser clamps, so the pane resets `body.scrollTop = 0` when
+  the folder, the sort or the filter changes. A failed fetch shows an `alert` with Retry (alone on a
+  first page, sticky above the list otherwise).
+- Up to 200 items (`VIRTUALIZE_ABOVE`) it is a plain CSS grid, above that `@lit-labs/virtualizer`
+  renders only the cards near the view. `virtualize()` looks for the scrolling ancestors ONCE when it
+  starts, and a Lit template renders into a detached fragment that has none, so a virtualiser started
+  in the first render never follows the pane: the grid renders its host first and starts `virtualize()`
+  on the next render. Keep that, and never put the grid in a shadow root. happy-dom has no layout, so
+  the unit tests cover the plain grid and the pure helpers; check the virtualised path in a browser.
+- Keyboard: one tab stop (roving tabindex). Arrows, Home, End, PageUp and PageDown move the focus
+  (`gridFocusTarget`), Shift only moves it, Space and Enter are the card's.
+- `PagedItems`: `reset(request, sort, order): boolean`, `get(index)`, `retry()`, `invalidate()`,
+  `dispose()`, read-only signals `total`, `version`, `error`, `loading`. It refetches itself after a
+  matching `fs_change` (debounced) or a stream resync and swaps the data in without an empty frame: a
+  pane never calls `invalidate()` for that. `fsChangeAffects(scope, event, { subtree })`
+  (`@/util/fs-change`) is the one "does this `fs_change` change what I show" rule: use it for the
+  folder list (with `subtree`) and for `reconcile()`.
+- `@/api/files`: `fetchItems`, `fetchIds` (every real file id in display order: select-all, the
+  viewer), `thumbUrl(item, 'sm' | 'lg')`, `thumbSizeFor(cssPx)`. `@/util/format`: `formatCaptureDate`,
+  `formatFileSize`, `formatDuration`. `cardBadges(item)` is the one place to add a card badge and
+  `cardFrameClasses` documents the border precedence. `fileItem()` (`@/test/file-item`) builds a
+  `FileItem` for tests.
