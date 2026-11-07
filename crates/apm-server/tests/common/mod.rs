@@ -5,6 +5,8 @@
 
 #![allow(dead_code, clippy::unwrap_used, clippy::expect_used)]
 
+pub mod seed;
+
 use apm_server::app;
 use apm_server::config::Config;
 use apm_server::state::AppState;

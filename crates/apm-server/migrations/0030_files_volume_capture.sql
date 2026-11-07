@@ -1,0 +1,11 @@
+-- 0030_files_volume_capture: the newest-first timeline of a whole volume.
+--
+-- `FileQuery` (src/query) orders a date-sorted page by `capture_ts DESC NULLS LAST, name_norm, id`. This
+-- index returns the files of a volume in exactly that order (NULLs sort last in a descending index, the rowid
+-- is the implicit last key), so a page of an unfiltered volume-wide listing stops after `offset + limit`
+-- rows instead of sorting every file of the volume. Measured on 200,000 files (156,000 in the volume):
+-- 114 ms -> 1 ms.
+--
+-- Filtered, per-folder and every-volume listings do not use it (see `query::items`); the other sorts have no
+-- index of their own: their cost is the scan of the scope, about 25 ms at 150,000 files.
+CREATE INDEX files_volume_capture ON files (volume_id, capture_ts DESC, name_norm);
