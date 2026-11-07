@@ -23,6 +23,12 @@ pub fn normalize_name(name: &str) -> String {
         .collect()
 }
 
+/// The value stored in the `stem_norm` column: [`normalize_name`] of the stem of `name` (see
+/// [`split_name`]). `IMG_0001.CR3` gives `img_0001`, `IMG_0001.CR3.xmp` gives `img_0001.cr3`.
+pub fn stem_norm(name: &str) -> String {
+    normalize_name(split_name(name).0)
+}
+
 /// Lowercased extension without the dot; empty when the name has none.
 pub fn extension_lower(name: &str) -> String {
     split_name(name)
@@ -61,6 +67,18 @@ mod tests {
         assert_eq!(normalize_name(nfc), normalize_name(nfd));
         assert_eq!(normalize_name("Photo.JPG"), normalize_name("photo.jpg"));
         assert_ne!(normalize_name("IMG_0001"), normalize_name("IMG_00012"));
+    }
+
+    #[test]
+    fn stem_norm_normalises_the_stem_only() {
+        assert_eq!(stem_norm("IMG_0001.CR3"), "img_0001");
+        assert_eq!(stem_norm("IMG_0001.CR3.xmp"), "img_0001.cr3");
+        assert_eq!(stem_norm(".Bashrc"), ".bashrc");
+        assert_eq!(stem_norm("noext"), "noext");
+        assert_eq!(
+            stem_norm("e\u{301}te\u{301}.JPG"),
+            stem_norm("\u{e9}t\u{e9}.jpg")
+        );
     }
 
     #[test]
