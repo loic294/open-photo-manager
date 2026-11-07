@@ -2,6 +2,9 @@ import { fileURLToPath } from 'node:url';
 import tailwindcss from '@tailwindcss/vite';
 import { defineConfig } from 'vite';
 
+// Parallel worktrees each run their own stack: point the proxy at that backend's `APM_LISTEN`.
+const apiTarget = process.env.APM_API_TARGET ?? 'http://127.0.0.1:8080';
+
 export default defineConfig({
   plugins: [tailwindcss()],
   resolve: {
@@ -15,7 +18,7 @@ export default defineConfig({
     port: 5173,
     proxy: {
       '/api': {
-        target: 'http://127.0.0.1:8080',
+        target: apiTarget,
         // The backend's CSRF check compares Origin to Host, so Host must stay as the browser sent it.
         changeOrigin: false,
         configure: (proxy) => {

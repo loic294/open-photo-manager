@@ -8,7 +8,10 @@ files (`package.json`, configs, `src/base/`) alone unless your task says so.
 
 ## Commands
 - `npm run dev`: Vite on :5173. Proxies `/api` to 127.0.0.1:8080 and keeps the browser's Host header
-  (the backend's CSRF check compares Origin to Host).
+  (the backend's CSRF check compares Origin to Host). Several worktrees can run a full stack side by
+  side on their own ports: `APM_LISTEN=127.0.0.1:18080 make dev-server` and
+  `APM_API_TARGET=http://127.0.0.1:18080 npm --prefix web run dev -- --port 15173 --strictPort`
+  (any `localhost` port passes the Host check). Never reuse 8080/5173 from a worktree.
 - `npm run format`: Biome auto-fix (single quotes, 2 spaces, width 100, sorted imports). Run it
   before the gate; `npm run lint` only reports.
 - `npm run typecheck`, `npm test` (one file: `npx vitest run src/x/apm-y.test.ts`), `npm run build`.

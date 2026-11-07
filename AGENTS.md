@@ -168,6 +168,9 @@ the parallel work protocol at the end of this file). Never edit a merged migrati
 ## Dev loop and runtime
 1. Edit, then iterate with a narrow `cargo test -p <crate> <name>`; finish with `make check`.
 2. UI against the real backend: `make dev-server` plus `make dev-web`, open http://localhost:5173.
+   Agents in worktrees use their own ports instead (see `web/AGENTS.md`, Commands), and a
+   destructive check runs on a COPY of `fixtures/out/volumes` (`APM_VOLUMES_DIR`, with a throwaway
+   `APM_DATA_DIR`), never on the shared fixture output.
 3. Config comes from env (`config.rs`): `APM_VOLUMES_DIR` (/volumes), `APM_DATA_DIR` (/data),
    `APM_LISTEN` (0.0.0.0:8080), `APM_ALLOWED_HOSTS`, `APM_INDEX_CONCURRENCY`, `APM_LOG` (info),
    `APM_WEB_DIR` (`./web/dist`; the Docker image sets `APM_WEB_DIR=/app/web`).
