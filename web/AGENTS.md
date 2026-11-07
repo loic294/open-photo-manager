@@ -67,7 +67,7 @@ declare global {
 
 ## Layout (`@/` = `src/`, also in tests)
 - `base/` ApmElement and other base classes. `app/` shell, route table, router, theme. `util/` pure
-  helpers.
+  helpers. `controllers/` reusable Lit `ReactiveController`s.
 - `api/` `client.ts` (fetch wrapper), `errors.ts` (`ApiError`), `sse.ts` (EventSource wrapper),
   `generated/` (DTO types).
 - `stores/` signals, one file per store. `components/` shared reusable components.
@@ -294,3 +294,42 @@ violation in `index.html` or `src/**`.
 - happy-dom does no layout: assert the layout contract through classes (`min-h-0`, `overflow-hidden`),
   as `app/apm-app.test.ts` does. `app/apm-app.test.ts` is also the reference for a full shell test
   (stubbed `EventSource`, stubbed `api.get`, stub route loaders).
+
+## Selection
+One `PaneSelection` per pane, `selection.source` and `selection.comparison` (`@/stores/selection`), and
+`activePane`, a signal holding the pane the user touched last (the target of the shortcuts). The set of
+selected item ids survives scrolling, sorting and refetching.
+- Read the read-only signals `ids` (a NEW `ReadonlySet<number>` on every change: hand it to the grid as
+  is), `count`, `active` (something is selected: a plain click selects instead of opening) and `busy`
+  (waiting for ids), or `has(id)` / `toArray()`. Read inside `render()` they subscribe the element.
+- Change it with `toggle(id)`, `add(ids)`, `set(ids)`, `clear()` (synchronous) and `rangeTo(id)`,
+  `selectAll()`, `reconcile()` (return a `Promise<void>` that never rejects). The async three ask the
+  ids provider for the whole ordered list; calls in flight share one request; `clear()`, `set()` and a
+  new context discard it; a failure shows one error toast (a failed `reconcile()` stays silent).
+- `interpret(activation, { active })` (`@/util/selection-rules`) is the pure click table: Shift = range,
+  Cmd/Ctrl = toggle, a plain click toggles while `active` and opens otherwise, Enter always opens.
+- `SelectionController` (`@/controllers/selection-controller`) turns the grid's bubbling `card-activate`
+  into a selection change, or into a bubbling `item-open { id, index }` event from the host (the viewer
+  listens for it). It marks its pane active on `pointerdown` and `focusin`.
+- `installSelectionShortcuts()` (`@/controllers/selection-shortcuts`): Cmd/Ctrl+A selects everything in
+  the active pane, Escape clears the active pane, then the other. Both stand aside in text fields and
+  while a `dialog[open]` exists. Arrows, Space and Enter belong to the grid.
+
+Wiring in the pane element:
+```ts
+private readonly selecting = new SelectionController(this, { pane: () => this.pane });
+
+// whenever the request changes: volume, dir and filter, NOT plan or sort
+selection[this.pane].setContext(selectionContextKey(request));
+// connectedCallback; `null` in disconnectedCallback. Real files only, current sort; read the
+// current request when it is called, and pass `signal` to the `POST /api/browse/ids` call.
+selection[this.pane].setIdsProvider((signal) => loadIds(signal));
+// after an `fs_change` for which `fsChangeAffects` is true (it does nothing when empty)
+void selection[this.pane].reconcile();
+```
+In `render()` pass `.selectedIds=${this.selecting.selectedIds} .selectionActive=${this.selecting.active}`
+to the grid. Footer: `selectedCount = selecting.count`, `selecting = selecting.busy`,
+`active = selecting.isActivePane`; `select-all` calls `selecting.selectAll()` and `clear-selection`
+calls `selecting.clear()` (both also mark the pane active). The tool view calls
+`installSelectionShortcuts()` once in `connectedCallback` and the returned function in
+`disconnectedCallback`. Tests call `resetSelectionForTests()` in `afterEach`.
