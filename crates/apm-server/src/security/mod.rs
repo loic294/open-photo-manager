@@ -122,8 +122,14 @@ fn is_api_path(path: &str) -> bool {
 /// The whole middleware stack, see the module documentation for what it holds
 /// and in which order.
 ///
-/// ```ignore
-/// let router = Router::new().route(...).layer(security::layers(options));
+/// ```
+/// use apm_server::security::{self, SecurityOptions};
+/// use axum::Router;
+/// use axum::routing::get;
+///
+/// let router: Router = Router::new()
+///     .route("/hello", get(|| async { "hello" }))
+///     .layer(security::layers(SecurityOptions::default()));
 /// ```
 pub fn layers(
     options: SecurityOptions,
