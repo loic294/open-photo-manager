@@ -160,8 +160,35 @@ describe('errors', () => {
       code: 'http_error',
       message: 'Request failed with status 502',
       requestId: undefined,
+      fields: [],
     });
     await expect(shape.get('/api/x')).rejects.toMatchObject({ status: 500, code: 'http_error' });
+  });
+
+  it('keeps the rejected fields of a validation_failed response', async () => {
+    const fields = [
+      { field: 'index.concurrency', message: 'must be between 1 and 16' },
+      { field: 'sidecar_extensions[2]', message: 'must not contain a dot' },
+    ];
+    const client = createApiClient({
+      fetch: stubFetch(() =>
+        json(
+          {
+            error: {
+              code: 'validation_failed',
+              message: fields.map((f) => `${f.field}: ${f.message}`).join('; '),
+              fields,
+            },
+          },
+          { status: 422 },
+        ),
+      ),
+    });
+
+    const error = await client.put('/api/settings', { body: {} }).catch((e: unknown) => e);
+
+    expect(error).toBeInstanceOf(ApiError);
+    expect(error).toMatchObject({ status: 422, code: 'validation_failed', fields });
   });
 
   it('maps network failures to code "network" with status 0 and keeps the cause', async () => {

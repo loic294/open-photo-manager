@@ -1,4 +1,4 @@
-import { ApiError, isAbortError, parseErrorBody } from '@/api/errors';
+import { ApiError, isAbortError, parseErrorBody, parseFieldErrors } from '@/api/errors';
 
 /** Header the server requires on every state-changing request (CSRF guard). */
 export const CSRF_HEADER = 'x-apm-request';
@@ -50,17 +50,19 @@ export function withQuery(path: string, query?: Query): string {
 }
 
 function failure(status: number, text: string, requestId: string | undefined): ApiError {
-  let parsed: ReturnType<typeof parseErrorBody> = null;
+  let body: unknown;
   try {
-    parsed = parseErrorBody(JSON.parse(text));
+    body = JSON.parse(text);
   } catch {
     // Not JSON (a proxy's HTML page, an empty body): fall through to the generic error.
   }
+  const parsed = parseErrorBody(body);
   return new ApiError({
     status,
     code: parsed?.code ?? 'http_error',
     message: parsed?.message ?? `Request failed with status ${status}`,
     requestId,
+    fields: parsed ? parseFieldErrors(body) : [],
   });
 }
 

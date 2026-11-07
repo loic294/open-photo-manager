@@ -47,7 +47,14 @@ export const routes: readonly AppRoute[] = [
   comingSoon('/format', 'Folder formatting', 'folder-tree', 'tools'),
   comingSoon('/cleanup', 'Empty folder cleanup', 'folder-x', 'tools'),
   comingSoon('/trash', 'Trash', 'trash-2', 'footer'),
-  comingSoon('/settings', 'Settings', 'settings', 'footer'),
+  {
+    path: '/settings',
+    tag: 'apm-settings-page',
+    load: () => import('@/tools/settings/apm-settings-page'),
+    label: 'Settings',
+    icon: 'settings',
+    menu: 'footer',
+  },
 ];
 
 /** Shown for any address that no route matches. */

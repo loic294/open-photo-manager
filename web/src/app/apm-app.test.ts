@@ -203,7 +203,8 @@ describe('main menu', () => {
   });
 
   it('marks a footer entry as current too', async () => {
-    const app = await mountApp('/settings');
+    const settings = stubRoute('/settings', { label: 'Settings', menu: 'footer' });
+    const app = await mountApp('/settings', { routes: [settings] });
 
     expect(text(app.querySelector('aside [aria-current="page"]'))).toBe('Settings');
   });
@@ -500,15 +501,17 @@ describe('app services', () => {
   });
 
   it('follows the address bar: Back and Forward change the page', async () => {
-    const app = await mountApp('/browse');
+    const alpha = stubRoute('/alpha', { label: 'Alpha', menu: 'tools' });
+    const beta = stubRoute('/beta', { label: 'Beta', menu: 'tools' });
+    const app = await mountApp('/alpha', { routes: [alpha, beta] });
 
-    window.history.pushState(null, '', '/settings');
+    window.history.pushState(null, '', '/beta');
     window.dispatchEvent(new PopStateEvent('popstate'));
     await app.updateComplete;
 
-    expect(currentPath.value).toBe('/settings');
-    expect(heading(app)).toBe('Settings');
-    await until(() => expect(text(app.querySelector('main h2'))).toBe('Settings'));
+    expect(currentPath.value).toBe('/beta');
+    expect(heading(app)).toBe('Beta');
+    await until(() => expect(app.querySelector(beta.tag)).not.toBeNull());
   });
 
   it('stops everything it started once it is removed', async () => {

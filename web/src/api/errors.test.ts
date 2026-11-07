@@ -1,5 +1,12 @@
 import { describe, expect, it } from 'vitest';
-import { ApiError, errorMessage, isAbortError, isApiError, parseErrorBody } from '@/api/errors';
+import {
+  ApiError,
+  errorMessage,
+  isAbortError,
+  isApiError,
+  parseErrorBody,
+  parseFieldErrors,
+} from '@/api/errors';
 
 describe('ApiError', () => {
   it('carries status, code, requestId and an optional cause', () => {
@@ -15,6 +22,15 @@ describe('ApiError', () => {
     expect(error.cause).toBe(cause);
     expect(isApiError(error)).toBe(true);
     expect(isApiError(new Error('x'))).toBe(false);
+  });
+
+  it('has no rejected fields unless it is given some', () => {
+    const fields = [{ field: 'name_max_len', message: 'must be between 16 and 255' }];
+
+    expect(new ApiError({ status: 500, code: 'internal', message: 'x' }).fields).toEqual([]);
+    expect(
+      new ApiError({ status: 422, code: 'validation_failed', message: 'x', fields }).fields,
+    ).toEqual(fields);
   });
 });
 
@@ -48,5 +64,34 @@ describe('parseErrorBody', () => {
     expect(parseErrorBody({ error: 'a' })).toBeNull();
     expect(parseErrorBody(null)).toBeNull();
     expect(parseErrorBody('x')).toBeNull();
+  });
+});
+
+describe('parseFieldErrors', () => {
+  it('reads error.fields and drops entries that are not { field, message } strings', () => {
+    const body = {
+      error: {
+        code: 'validation_failed',
+        message: 'index.concurrency: must be between 1 and 16',
+        fields: [
+          { field: 'index.concurrency', message: 'must be between 1 and 16' },
+          { field: 'junk_names[1]' },
+          { field: 7, message: 'x' },
+          null,
+          'sidecar_extensions[0]',
+        ],
+      },
+    };
+
+    expect(parseFieldErrors(body)).toEqual([
+      { field: 'index.concurrency', message: 'must be between 1 and 16' },
+    ]);
+  });
+
+  it('is empty when there is no list', () => {
+    expect(parseFieldErrors({ error: { code: 'a', message: 'b' } })).toEqual([]);
+    expect(parseFieldErrors({ error: { fields: 'nope' } })).toEqual([]);
+    expect(parseFieldErrors({ error: null })).toEqual([]);
+    expect(parseFieldErrors(undefined)).toEqual([]);
   });
 });

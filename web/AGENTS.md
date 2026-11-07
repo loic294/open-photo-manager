@@ -186,16 +186,21 @@ subscribing.
   SSE reconnect and whenever an `index` task changes state (its first event included, progress-only
   updates not).
 - `toasts`: state behind `toast.*` (see Shared components). Use the `toast` facade, not the store.
+- `settings`: the server-wide settings document (`settings`, `loadSettings()`, `saveSettings(doc)`); see
+  Settings below.
 
 ## API client (`@/api/client`)
 `api.get/post/put/delete<T>(path, options?)`. `path` is the full `/api/...` path; `options` is
 `{ query, body, signal, headers }`.
 - `query` skips `null`/`undefined` and repeats array keys; `body` is sent as JSON. It resolves with the
   parsed JSON (`undefined` for 204). Non-GET requests carry `x-apm-request: 1` automatically.
-- Failures reject with `ApiError { status, code, message, requestId? }` (`isApiError`). The server's
-  `{ error: { code, message } }` is kept (`requestId` is the `x-request-id` header); a network failure is
+- Failures reject with `ApiError { status, code, message, fields, requestId? }` (`isApiError`). The server's
+  `{ error: { code, message, fields? } }` is kept (`requestId` is the `x-request-id` header; `fields` is the
+  `{ field, message }[]` of a 422 `validation_failed`, `[]` otherwise, with paths such as
+  `index.concurrency` or `sidecar_extensions[2]`); a network failure is
   `status 0, code 'network'`; a non-JSON error body is `'http_error'`; an unreadable 2xx body is
   `'invalid_response'`. `errorMessage(error, fallback?)` gives user-facing text for anything thrown.
+  Branch on `code`, never on the HTTP status (`invalid_json` can be a 400, 415 or 422).
 - Cancel stale requests with `signal`. An aborted call rejects with the platform `AbortError`: ignore it
   with `if (isAbortError(error)) return;` and never show a toast for it.
 - Each feature area adds thin typed wrappers in `src/api/{area}.ts`, typed with the generated DTOs:
@@ -248,6 +253,8 @@ One shared `events` client; the shell starts it, so never call `events.start()` 
   action in `confirmLabel` ("Delete 12 files") and put counts and sizes in `message`.
 - `apm-route-placeholder`: DaisyUI hero (`heading`, `message`, `icon`, `actionHref`, `actionLabel`) for
   pages that do not exist yet.
+- `apm-chip-input`: a labelled list of short texts edited as removable chips, with validation (see
+  Settings below).
 - New component checklist: file `apm-x.ts` with tag `apm-x` and class `ApmX`; extends `ApmElement`;
   side-effect imports of every component it renders (`apm-icon` included); `customElements.define` and the
   `HTMLElementTagNameMap` entry; complete Tailwind class names; an accessible name on every control; a
@@ -375,3 +382,44 @@ menu upwards to select another one.
   the CSS optimiser. The focus ring and the hover still look right (checked in a built page): ignore it.
 - Tests: `mount('apm-split-button', { options })`; reset `lastAction.value = {}` and
   `localStorage.clear()` in `afterEach`. Move a bar slider by setting `value`, then dispatch `input`.
+
+## Settings (`src/tools/settings/`, `stores/settings.ts`)
+`/settings` is `apm-settings-page`: a title, DaisyUI `tabs-border` built from `settingsSections`
+(`tools/settings/sections.ts`) and the open section below. The open id lives in `?section=<id>` (written
+with `replaceState`, so no history entry; the other query keys and the hash stay; Back/Forward are
+followed; a missing or unknown id opens the first tab). Today there is one section, `general`
+(`apm-settings-general`: three cards, "Files and sidecars", "Moving and deleting", "Indexing").
+- **Add a section** (for example the Immich connection): append ONE entry to `settingsSections` and change
+  nothing else, not the page, not `routes.ts`:
+  ```ts
+  { id: 'immich', label: 'Immich', icon: 'plug', tag: 'apm-settings-immich',
+    load: () => import('@/tools/settings/apm-settings-immich') },
+  ```
+  The page draws the tab, imports the module the first time the tab opens (a failed import shows a Retry)
+  and renders `<tag></tag>` with no properties or children. A section loads and saves its own data and
+  reports its own errors. It stays in the page, hidden, while another tab is open, so edits that are not
+  saved yet survive a switch of tabs: it is not disconnected, so it must not poll or hold a stream while
+  `this.checkVisibility()` is false. Tests: `sections` can be injected
+  (`mount('apm-settings-page', { sections })`), see `apm-settings-page.test.ts`.
+- `stores/settings.ts` holds the server-wide settings document: `settings` (`ReadonlySignal<SettingsDto |
+  null>`, `null` until a load or a save succeeded), `loadSettings()` (calls share one request; rejects
+  with an `ApiError`) and `saveSettings(doc)` (PUTs the WHOLE document, resolves with and stores the
+  document the server normalised: show that, not your draft; never run two saves at once). Other pages
+  read it too, for example the trash page's `trash_retention_days`. Edit a copy, never the signal's value.
+- `apm-settings-general` is the reference for a form on the server's data: a draft copy, a dirty flag,
+  a sticky Save/Discard bar only while dirty, a `beforeunload` guard only while dirty (the router has no
+  navigation veto), fields disabled while saving, and a 422 mapped through `ApiError.fields` to the
+  field or chip it names (what it cannot place goes in an alert; other failures in a toast).
+- `tools/settings/limits.ts` mirrors the server's bounds and normalisation (`SCAN_CONCURRENCY`,
+  `NAME_MAX_LEN`, `normalizeExtension`, `validateJunkName`, ...) only to warn before Save. The server is
+  the authority (`crates/apm-core/src/dto/settings.rs`): when they disagree, show its message.
+- `apm-chip-input` (`@/components/apm-chip-input`): `label`, `hint`, `placeholder`, `max`, `.values`,
+  `.normalizeEntry`, `.validateEntry`, `error`, `.errorIndexes`, `allow-spaces`, `disabled`; fires
+  `values-change` (`detail.values`). It renders the whole labelled field, never mutates `values` and
+  its `focus()` focuses its text box.
+- Test data: `sampleSettings(overrides?)` (`@/test/settings-fixtures`) is the document of a fresh server.
+- Gotchas learned here: (1) happy-dom ignores `selected` on `<option>`s that Lit renders in a first
+  render: give options only a `value` and set `select.value` in `updated()`. (2) A child component
+  re-enables itself in its own, later update: in the parent's `updated()` await the child's
+  `updateComplete` before calling `focus()` on it. (3) Do not give a method the name of a native member
+  (`remove`, `normalize`, `update`): TypeScript or the DOM will clash with it.

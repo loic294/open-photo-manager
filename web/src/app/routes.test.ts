@@ -70,24 +70,42 @@ describe('route table', () => {
 });
 
 describe('placeholders', () => {
+  const placeholders = routes.filter((route) => route.tag === 'apm-route-placeholder');
+
   it('load the placeholder module lazily, and it defines the tag', async () => {
     expect(customElements.get('apm-route-placeholder')).toBeUndefined();
 
-    await routes[0]?.load();
+    await notFound.load();
 
     expect(customElements.get('apm-route-placeholder')).toBeDefined();
   });
 
   it('share one loader, so the placeholder is fetched once for all of them', () => {
-    expect(new Set(routes.map((route) => route.load)).size).toBe(1);
-    expect(notFound.load).toBe(routes[0]?.load);
+    expect(new Set([...placeholders, notFound].map((route) => route.load)).size).toBe(1);
   });
 
   it('introduce themselves with their label and icon', () => {
-    for (const route of routes) {
-      expect(route.tag).toBe('apm-route-placeholder');
+    for (const route of placeholders) {
       expect(route.props).toEqual({ heading: route.label, icon: route.icon });
     }
+  });
+});
+
+describe('settings', () => {
+  it('opens the settings page from the footer menu, and loads it on demand', async () => {
+    const route = routeAt('/settings');
+
+    expect(route).toMatchObject({
+      tag: 'apm-settings-page',
+      label: 'Settings',
+      icon: 'settings',
+      menu: 'footer',
+    });
+    expect(customElements.get('apm-settings-page')).toBeUndefined();
+
+    await route?.load();
+
+    expect(customElements.get('apm-settings-page')).toBeDefined();
   });
 });
 

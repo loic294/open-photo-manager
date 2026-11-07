@@ -1,10 +1,12 @@
 import type { ErrorBody } from '@/api/generated/ErrorBody';
+import type { FieldError } from '@/api/generated/FieldError';
 
 export interface ApiErrorInit {
   status: number;
   code: string;
   message: string;
   requestId?: string | undefined;
+  fields?: readonly FieldError[] | undefined;
   cause?: unknown;
 }
 
@@ -18,6 +20,11 @@ export class ApiError extends Error {
   readonly code: string;
   /** From the `x-request-id` response header: quote it when reporting a server problem. */
   readonly requestId: string | undefined;
+  /**
+   * The rejected fields of a 422 `validation_failed` response (`{ field, message }`, the field being
+   * a path such as `index.concurrency` or `sidecar_extensions[2]`). Empty for every other error.
+   */
+  readonly fields: readonly FieldError[];
 
   constructor(init: ApiErrorInit) {
     super(init.message, init.cause === undefined ? undefined : { cause: init.cause });
@@ -25,6 +32,7 @@ export class ApiError extends Error {
     this.status = init.status;
     this.code = init.code;
     this.requestId = init.requestId;
+    this.fields = init.fields ?? [];
   }
 }
 
@@ -51,4 +59,20 @@ export function parseErrorBody(value: unknown): ErrorBody['error'] | null {
   if (typeof error !== 'object' || error === null) return null;
   const { code, message } = error as { code?: unknown; message?: unknown };
   return typeof code === 'string' && typeof message === 'string' ? { code, message } : null;
+}
+
+/** The `error.fields` list of a `validation_failed` body; entries that are not strings are dropped. */
+export function parseFieldErrors(value: unknown): FieldError[] {
+  if (typeof value !== 'object' || value === null) return [];
+  const error = (value as { error?: unknown }).error;
+  if (typeof error !== 'object' || error === null) return [];
+  const fields = (error as { fields?: unknown }).fields;
+  if (!Array.isArray(fields)) return [];
+  const parsed: FieldError[] = [];
+  for (const entry of fields) {
+    if (typeof entry !== 'object' || entry === null) continue;
+    const { field, message } = entry as { field?: unknown; message?: unknown };
+    if (typeof field === 'string' && typeof message === 'string') parsed.push({ field, message });
+  }
+  return parsed;
 }
