@@ -5,6 +5,8 @@
 
 #![allow(dead_code, clippy::unwrap_used, clippy::expect_used)]
 
+pub mod browse;
+pub mod fake_plan;
 pub mod seed;
 
 use apm_server::app;

@@ -5,19 +5,24 @@
 
 use apm_core::dto::FileDetail;
 use apm_core::paths::FileId;
+use axum::extract::State;
 use axum::routing::get;
 use axum::{Json, Router};
 
 use super::extract::ApiPath;
-use crate::error::{AppError, AppResult};
+use crate::error::AppResult;
+use crate::query;
 use crate::state::AppState;
-
-const OWNER: &str = "building-browse-api";
 
 pub fn routes() -> Router<AppState> {
     Router::new().route("/files/{id}", get(detail))
 }
 
-async fn detail(ApiPath(_id): ApiPath<FileId>) -> AppResult<Json<FileDetail>> {
-    Err(AppError::not_implemented(OWNER))
+/// The details of one indexed file; an unknown id is 404 `not_found`, a malformed one 400
+/// `invalid_path`.
+async fn detail(
+    State(state): State<AppState>,
+    ApiPath(id): ApiPath<FileId>,
+) -> AppResult<Json<FileDetail>> {
+    Ok(Json(query::file_detail(&state.db, id).await?))
 }

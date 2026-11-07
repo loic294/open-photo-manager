@@ -144,6 +144,7 @@ mod folders;
 mod items;
 #[cfg(test)]
 mod plan_tests;
+pub mod volumes;
 
 pub use detail::file_detail;
 pub use folders::FolderRow;

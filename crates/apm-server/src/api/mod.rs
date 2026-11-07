@@ -10,7 +10,7 @@ use axum::Router;
 
 use crate::state::AppState;
 
-mod browse;
+pub mod browse;
 pub mod events;
 pub mod extract;
 mod files;
