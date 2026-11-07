@@ -6,6 +6,8 @@
 
 use std::sync::Arc;
 
+use tokio_util::sync::CancellationToken;
+
 use crate::config::Config;
 use crate::db;
 use crate::fsops;
@@ -29,6 +31,8 @@ pub struct AppState {
     pub media: media::MediaService,
     pub plans: plans::PlanService,
     pub settings: settings::SettingsService,
+    /// Cancelled by `begin_shutdown`: background services and open streams stop on it.
+    pub shutdown: CancellationToken,
     pub tasks: tasks::TaskEngine,
     pub trash: trash::TrashService,
     pub volumes: indexer::VolumeRegistry,
@@ -45,7 +49,9 @@ impl AppState {
 
         let settings = settings::SettingsService::load(db.clone(), &config).await?;
 
-        let tasks = tasks::TaskEngine::new();
+        let shutdown = CancellationToken::new();
+
+        let tasks = tasks::TaskEngine::new(db.clone(), shutdown.clone()).await?;
 
         let fsops = fsops::FsOps::new();
 
@@ -70,6 +76,7 @@ impl AppState {
             media,
             plans,
             settings,
+            shutdown,
             tasks,
             trash,
             volumes,
@@ -77,14 +84,18 @@ impl AppState {
     }
 
     /// Called synchronously when a termination signal arrives, before the HTTP
-    /// server drains: cancel background work and end long-lived streams (SSE)
-    /// so connections can close. Empty until a service needs it.
-    pub fn begin_shutdown(&self) {}
+    /// server drains: cancels `shutdown`, which asks every running task to stop
+    /// and ends the open event streams so connections can close. Services that
+    /// run their own loops watch the same token.
+    pub fn begin_shutdown(&self) {
+        self.shutdown.cancel();
+    }
 
     /// Called after the HTTP server has drained: await workers, flush journals
     /// and close the database. Await your own service's stop above the
     /// database line.
     pub async fn shutdown(&self) {
+        self.tasks.shutdown().await;
         // Keep last: every other service may still write while it stops.
         self.db.close().await;
     }
