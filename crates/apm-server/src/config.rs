@@ -10,6 +10,7 @@ use std::path::{Path, PathBuf};
 
 use thiserror::Error;
 
+use crate::security::host::parse_allowed_hosts;
 const DEFAULT_VOLUMES_DIR: &str = "/volumes";
 const DEFAULT_DATA_DIR: &str = "/data";
 const DEFAULT_LISTEN: &str = "0.0.0.0:8080";
@@ -46,8 +47,10 @@ pub struct Config {
     pub data_dir: PathBuf,
     /// `APM_LISTEN` (default `0.0.0.0:8080`).
     pub listen: SocketAddr,
-    /// `APM_ALLOWED_HOSTS`: comma-separated extra `Host` header values, trimmed
-    /// and lowercased. Matching semantics belong to `security`.
+    /// `APM_ALLOWED_HOSTS`: extra `Host` header values the server answers to,
+    /// separated by commas and/or spaces, validated and lowercased: `host`,
+    /// `host:port` or `*.domain` (see `security::host`). `localhost` and IP
+    /// literals are always allowed.
     pub allowed_hosts: Vec<String>,
     /// `APM_INDEX_CONCURRENCY` (default `min(2, cores)`, at least 1): files the
     /// indexer processes at once.
@@ -99,14 +102,11 @@ impl Config {
             },
         };
 
-        let allowed_hosts = var("APM_ALLOWED_HOSTS")
-            .map(|raw| {
-                raw.split(',')
-                    .map(|host| host.trim().to_ascii_lowercase())
-                    .filter(|host| !host.is_empty())
-                    .collect()
-            })
-            .unwrap_or_default();
+        let allowed_hosts = match var("APM_ALLOWED_HOSTS") {
+            None => Vec::new(),
+            Some(raw) => parse_allowed_hosts(&raw)
+                .map_err(|reason| ConfigError::new("APM_ALLOWED_HOSTS", &raw, reason))?,
+        };
 
         Ok(Self {
             volumes_dir: var("APM_VOLUMES_DIR")
@@ -233,6 +233,49 @@ mod tests {
             config.allowed_hosts,
             vec!["nas.local".to_owned(), "photos.example.com:8080".to_owned()]
         );
+    }
+
+    #[test]
+    fn allowed_hosts_accept_whitespace_wildcards_and_ports() {
+        let config = Config::from_lookup(
+            lookup(&[(
+                "APM_ALLOWED_HOSTS",
+                "nas.local\tPhotos.Example.com:8080\n*.Example.org, [::1]:9000",
+            )]),
+            4,
+        )
+        .unwrap();
+        assert_eq!(
+            config.allowed_hosts,
+            vec![
+                "nas.local".to_owned(),
+                "photos.example.com:8080".to_owned(),
+                "*.example.org".to_owned(),
+                "[::1]:9000".to_owned(),
+            ]
+        );
+    }
+
+    #[test]
+    fn unusable_allowed_hosts_are_refused_at_startup() {
+        for raw in [
+            "*",
+            "nas.local, *",
+            "https://nas.local",
+            "nas.local/photos",
+            "user@nas.local",
+            "nas.*",
+            "nas.local:0",
+            "nas.local:http",
+            "nas..local",
+            "*.",
+            "*.192.168.1.1",
+            "exa mple,\u{e9}.local",
+        ] {
+            let err = Config::from_lookup(lookup(&[("APM_ALLOWED_HOSTS", raw)]), 4).expect_err(raw);
+            assert_eq!(err.var, "APM_ALLOWED_HOSTS", "{raw}");
+            assert!(err.to_string().contains("APM_ALLOWED_HOSTS"), "{raw}");
+        }
     }
 
     #[test]

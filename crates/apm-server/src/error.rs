@@ -11,6 +11,8 @@ use axum::Json;
 use axum::http::StatusCode;
 use axum::response::{IntoResponse, Response};
 
+use crate::security::redact_urls_in;
+
 /// Result type of handlers and services that report API errors.
 pub type AppResult<T> = Result<T, AppError>;
 
@@ -63,8 +65,13 @@ impl AppError {
         )
     }
 
-    /// 500. The cause is logged and never sent to the client.
+    /// 500.
+    ///
+    /// The cause is logged, with any URL in it scrubbed of credentials and
+    /// query values (see [`crate::security::redact_urls_in`]), and never sent to
+    /// the client.
     pub fn internal(cause: impl fmt::Display) -> Self {
+        let cause = redact_urls_in(&cause.to_string());
         tracing::error!(error = %cause, "internal error");
         Self::new(
             StatusCode::INTERNAL_SERVER_ERROR,
