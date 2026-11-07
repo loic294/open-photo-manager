@@ -333,3 +333,45 @@ to the grid. Footer: `selectedCount = selecting.count`, `selecting = selecting.b
 calls `selecting.clear()` (both also mark the pane active). The tool view calls
 `installSelectionShortcuts()` once in `connectedCallback` and the returned function in
 `disconnectedCallback`. Tests call `resetSelectionForTests()` in `afterEach`.
+
+## Bottom bar and split button
+Both (`@/components/`) are presentational: properties in, bubbling events out. Show a count to a user
+with `formatCount(n)` (`@/util/format-count`, digit grouping).
+
+`<apm-bottom-bar>` (host `block`) is the footer of a tool: per pane the counts, the selection and the
+thumbnail size, at the far right the tool's actions. It keeps no state and reads no store.
+- `source: PaneFooter`, `comparison?: PaneFooter | null` (none = no second segment) and
+  `actions?: TemplateResult`, the far-right area (a property: there are no slots). Listeners inside an
+  `actions` template must be arrow functions, because Lit calls a method with the bar as `this`.
+- `PaneFooter { counts: FooterCounts | null; selectedCount; selecting; active; size; sizeMin; sizeMax;
+  sizeStep }`: `counts: null` is loading (skeletons, Select all off), `selecting` is a select-all in
+  flight, `active` is the pane the shortcuts act on (primary top border). Fill it from the selection.
+- Events, all bubbling, with `detail.pane` (`'source' | 'comparison'`): `size-change { pane, size }` on
+  EVERY slider `input` (a number, so the grid resizes live), `select-all { pane }` and
+  `clear-selection { pane }`. The bar changes nothing itself: the parent updates the properties.
+- Each segment is a `@container` and the bar never wraps: the counts truncate first (the full text is
+  in their tooltip), the slider shrinks and is hidden below 14rem, "Select all" shows its label from
+  `@lg` and the badge its word "selected" from `@sm`. The counts tooltip is `tooltip-start`: the
+  shell's `<main>` is `overflow-hidden`, so a centred tooltip is cut off at the left edge.
+
+`<apm-split-button>` (host `inline-flex`): the main button runs the SELECTED entry, the chevron opens a
+menu upwards to select another one.
+- `options: SplitOption[]`, `SplitOption { id; label; icon?: IconName; danger?; disabled?; hint? }`
+  (`danger` = red main button while selected, `hint` = tooltip on the entry), `default-id`,
+  `persist-key` (the tool id), `count` (badge in the main button), `busy` (spinner, both buttons off)
+  and `disabled`.
+- Events, bubbling, `detail` is `{ optionId }`: `split-action` comes ONLY from the main button,
+  `split-select` from a menu entry, which selects and remembers it but never runs it. The actions are
+  destructive, so the host owns the confirmation (`confirmDialog`) on `split-action`.
+- The chosen entry is stored in the `lastAction` pref (`localStorage['apm.v1.lastAction']`) under
+  `persist-key`; the typed `lastActionOf` needs a `ToolId`, so the element uses the signal. The entry
+  shown is the remembered one if it is enabled, else `default-id`, else the first enabled one; a
+  remembered entry that is disabled or gone is skipped, NOT forgotten. Without `persist-key` the
+  choice lives as long as the element. With no enabled entry the first one shows and both buttons are
+  off; without options nothing renders. Keyboard: Down/Up open and move, Home/End, Esc closes the menu
+  only (the event is stopped, so a page Esc shortcut does not also run).
+- `make check-web` prints "Found 2 warnings while optimizing generated CSS" (Invalid empty selector)
+  since `join` is used: DaisyUI's z-index rules for a focused or hovered `join` child are dropped by
+  the CSS optimiser. The focus ring and the hover still look right (checked in a built page): ignore it.
+- Tests: `mount('apm-split-button', { options })`; reset `lastAction.value = {}` and
+  `localStorage.clear()` in `afterEach`. Move a bar slider by setting `value`, then dispatch `input`.
