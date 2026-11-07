@@ -31,6 +31,7 @@ pub struct AppState {
     pub settings: settings::SettingsService,
     pub tasks: tasks::TaskEngine,
     pub trash: trash::TrashService,
+    pub volumes: indexer::VolumeRegistry,
 }
 
 impl AppState {
@@ -48,7 +49,9 @@ impl AppState {
 
         let fsops = fsops::FsOps::new();
 
-        let indexer = indexer::Indexer::new();
+        let volumes = indexer::VolumeRegistry::load(db.clone(), config.volumes_dir.clone()).await?;
+
+        let indexer = indexer::Indexer::new(db.clone(), settings.clone(), volumes.clone());
 
         let media = media::MediaService::new();
 
@@ -69,6 +72,7 @@ impl AppState {
             settings,
             tasks,
             trash,
+            volumes,
         })
     }
 
