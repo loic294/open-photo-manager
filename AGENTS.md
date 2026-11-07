@@ -73,6 +73,11 @@ A second caller of a concern uses or extends the existing building block, never 
 - Unknown `/api/*` paths answer JSON 404 (`route_not_found`), never the SPA; a wrong method answers
   JSON 405 (`method_not_allowed`); bad bodies, paths and queries answer `invalid_json`,
   `invalid_path` and `invalid_query`. Unimplemented endpoints answer 501 `not_implemented`.
+- SSE (`GET /api/events`): every message is a single `data:` line holding one `ServerEvent` JSON
+  object (tagged by `type`: `task`, `fs_change`, `index`) and NO `event:` field, so a client uses one
+  `onmessage` and dispatches on `type`. The server sends `retry: 3000` once, a `: keep-alive`
+  comment every 15 s, never replays missed events (after a reconnect the client refetches what it
+  shows) and ends the stream when `AppState::begin_shutdown` fires.
 
 ## Adding a DTO
 1. Define it in the `apm-core/src/dto/<area>.rs` of your area (all API types live there only).
