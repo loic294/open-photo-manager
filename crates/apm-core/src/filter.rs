@@ -44,11 +44,12 @@
 //! # Scope
 //!
 //! `Scope.dir` is a volume-relative `/`-separated directory (`""` is the volume
-//! root). [`Scope::normalise`] validates and canonicalises it, rejecting absolute
-//! paths, `..` components and NUL bytes. [`Scope::contains`] says whether a file's
-//! directory is inside the scope: a scope with a `volume_id` only covers that
-//! volume (`None` covers every volume, with the same directory in each), and
-//! `recursive` includes the subdirectories, otherwise the directory must be equal.
+//! root). [`Scope::validate`] only checks it and [`Scope::normalise`] also
+//! canonicalises it; both reject absolute paths, `..` components and NUL bytes.
+//! [`Scope::contains`] says whether a file's directory is inside the scope: a
+//! scope with a `volume_id` only covers that volume (`None` covers every volume,
+//! with the same directory in each), and `recursive` includes the subdirectories,
+//! otherwise the directory must be equal.
 
 use std::collections::btree_map::Entry;
 use std::collections::{BTreeMap, BTreeSet};
@@ -171,6 +172,11 @@ impl Scope {
     /// The directory as a validated path.
     pub fn dir_rel(&self) -> Result<RelPath, PathError> {
         RelPath::new(&self.dir)
+    }
+
+    /// Checks the directory: an error for absolute paths, `..` components and NUL bytes.
+    pub fn validate(&self) -> Result<(), PathError> {
+        self.dir_rel().map(|_| ())
     }
 
     /// The scope with `dir` in canonical form (no leading, trailing or repeated
@@ -754,6 +760,22 @@ mod tests {
         assert_eq!(bad("a/../b").normalise(), Err(PathError::ParentTraversal));
         assert_eq!(bad("a\0b").normalise(), Err(PathError::Nul));
         assert!(bad("..x").normalise().is_ok());
+    }
+
+    #[test]
+    fn scope_validate_accepts_exactly_what_normalise_accepts() {
+        let scope = |dir: &str| Scope {
+            dir: dir.to_owned(),
+            ..Scope::default()
+        };
+        for dir in ["", "a", "a//b/./c/", "..x", "a/b.."] {
+            assert_eq!(scope(dir).validate(), Ok(()), "{dir:?}");
+            assert!(scope(dir).normalise().is_ok(), "{dir:?}");
+        }
+        assert_eq!(scope("/etc").validate(), Err(PathError::Absolute));
+        assert_eq!(scope("../x").validate(), Err(PathError::ParentTraversal));
+        assert_eq!(scope("a/../b").validate(), Err(PathError::ParentTraversal));
+        assert_eq!(scope("a\0b").validate(), Err(PathError::Nul));
     }
 
     #[test]
