@@ -127,6 +127,23 @@ pub enum ConflictPolicy {
     Replace,
 }
 
+/// How the duplicate finder pairs a source item with comparison items. The rules are the contract
+/// of `apm_core::matching`.
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Hash, Serialize, Deserialize, TS)]
+#[serde(rename_all = "snake_case")]
+#[ts(export)]
+pub enum MatchMode {
+    /// Same SHA-1 of the content.
+    #[default]
+    Hash,
+    /// Same file name and same capture second.
+    NameAndTime,
+    /// Same file name, different capture second.
+    NameDifferentTime,
+    /// The comparison file name starts with the source file name (extensions ignored).
+    NamePrefix,
+}
+
 /// Reference to a materialized plan seen from one side.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize, TS)]
 #[ts(export)]
@@ -203,6 +220,19 @@ mod tests {
         assert_eq!(roundtrip(&PlanSide::Comparison), json!("comparison"));
         assert_eq!(roundtrip(&ConflictPolicy::Replace), json!("replace"));
         assert_eq!(ConflictPolicy::default(), ConflictPolicy::Smart);
+    }
+
+    #[test]
+    fn match_mode_uses_snake_case_and_defaults_to_hash() {
+        assert_eq!(roundtrip(&MatchMode::Hash), json!("hash"));
+        assert_eq!(roundtrip(&MatchMode::NameAndTime), json!("name_and_time"));
+        assert_eq!(
+            roundtrip(&MatchMode::NameDifferentTime),
+            json!("name_different_time")
+        );
+        assert_eq!(roundtrip(&MatchMode::NamePrefix), json!("name_prefix"));
+        assert_eq!(MatchMode::default(), MatchMode::Hash);
+        assert!(serde_json::from_value::<MatchMode>(json!("prefix")).is_err());
     }
 
     #[test]
