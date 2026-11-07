@@ -57,6 +57,7 @@ dependencies = [
  "proptest",
  "serde",
  "serde_json",
+ "sha1",
  "thiserror",
  "ts-rs",
  "unicode-normalization",

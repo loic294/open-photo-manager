@@ -5,7 +5,8 @@ filter, duplicates, move/format, empty-folder cleanup, trash, Immich sync) and a
 frontend, shipped as ONE Docker image. Frontend rules live in `web/AGENTS.md`.
 
 ## Layout
-- `crates/apm-core/`: pure domain logic and EVERY API type (`src/dto/`). No IO, no tokio, no sqlx.
+- `crates/apm-core/`: pure domain logic and EVERY API type (`src/dto/`). No filesystem, network,
+  database or tokio code of its own (`hash` only wraps readers it is handed).
 - `crates/apm-server/`: axum, sqlx, indexer, tasks, fsops, plans, immich. Library in `src/lib.rs`,
   thin binary in `src/main.rs`, SQL in `migrations/`, integration tests in `tests/`.
 - `web/`: Vite + TypeScript + Lit + DaisyUI. `web/src/api/generated/` is written by ts-rs.
@@ -34,6 +35,7 @@ frontend, shipped as ONE Docker image. Frontend rules live in `web/AGENTS.md`.
 | `RelPath` / `VolumeRoot` | every filesystem access |
 | `PatternFormatter` | move planner AND `POST /api/format/preview` (the UI never reimplements it) |
 | `SidecarMatcher` | scanner, move, delete |
+| `apm_core::hash` (`sha1_reader`, `HashingReader`, `Sha1Digest`) | indexer hashing, copy verification in `fsops`, Immich |
 
 A second caller of a concern uses or extends the existing building block, never a parallel copy.
 
@@ -54,6 +56,18 @@ A second caller of a concern uses or extends the existing building block, never 
 - No `unwrap` / `expect` in non-test code (clippy enforces it; tests are exempt). No `unsafe`
   (denied workspace-wide). Log with `tracing`; secrets (Immich key, tokens) are never logged.
 - No shell for external tools (exiftool, ffmpeg): pass arguments after `--` or as `./path`.
+- Hashing: `apm_core::hash` is the only SHA-1 code (`sha1_reader` with a cancel/progress callback,
+  `HashingReader` where the bytes are read anyway, hex helpers). Never write a second digest loop;
+  `apm-server` deliberately has no `sha1` dependency.
+- Only `fsops` changes user files: move, copy, trash, restore, delete and rmdir of volume paths all go
+  through `FsOps` (journaled, sidecar-aware, with hooks for the index and Immich). The scanner,
+  watcher, plan executors, trash and Immich code never call `std::fs` / `tokio::fs` mutators on a
+  volume path.
+- Index work (scan, extract, hash, thumbnails) is started by production code only through
+  `IndexJobs::submit` (`indexer/jobs.rs`, todo `building-index-controls`), which owns de-duplication,
+  concurrency and the task. Until it lands, `Indexer::run` is the entry point for tests.
+- Every foreign key column needs an index: `db/schema_tests.rs` fails the gate when a migration adds
+  an unindexed one.
 - Services are `Clone` structs held by `AppState` (`state.rs`). Background workers and SSE streams
   must stop on `AppState::begin_shutdown`, or shutdown waits for the 10 s grace timeout.
 - Shared wiring (`lib.rs`, `state.rs`, `app.rs`, `api/mod.rs`, root `Cargo.toml`) is one item per
@@ -83,6 +97,25 @@ A second caller of a concern uses or extends the existing building block, never 
   comment every 15 s, never replays missed events (after a reconnect the client refetches what it
   shows) and ends the stream when `AppState::begin_shutdown` fires.
 
+## Browse and media contracts
+Backend and frontend agents build against these in parallel; change them only in a coordinator commit.
+- Thumbnails: `GET /api/files/{id}/thumb?size=sm|lg&v={mtime}`. `sm` is a JPEG with a longest edge of
+  320 px, `lg` of 800 px, never upscaled. `v` is `FileItem.mtime` and only busts the browser cache (the
+  server derives its own cache key). `GET /api/files/{id}/preview` is the viewer rendition (the original
+  when a browser can show it, else a JPEG of at most 2560 px) and `GET /api/files/{id}/content` the
+  original, with Range. All three are plain URLs for `<img>`, `<video>` and links; the API client never
+  calls them. A ghost item's `id` is the id of the real file it stands for, so the same URLs work.
+- Browsing answers from the index and never touches the filesystem. A pane location is
+  `(volume_id, dir)`; `volume_id = null, dir = ""` is the virtual top level that lists the volumes as
+  folders. A directory that does not exist (any more) answers 404 `folder_not_found`, so the UI walks up
+  to the nearest ancestor that does.
+- Listing order: real files first, then ghost files (`overlay.planned`, from the plan overlay); folders,
+  real and planned, are merged and sorted by `names::normalize_name`. `ids` (select all) holds real files
+  only, in the order of `items`; a ghost never has a selectable id and is never counted. The `Overlay`
+  docs say what each flag means on a file row and on a folder row.
+- `dir` and file names are the exact on-disk bytes: never normalise, lowercase or trim one you pass back
+  to the server.
+
 ## Adding a DTO
 1. Define it in the `apm-core/src/dto/<area>.rs` of your area (all API types live there only).
 2. Derive `Debug, Clone, Serialize, Deserialize, TS` (plus `PartialEq, Eq, Default` where natural)
@@ -110,7 +143,7 @@ the parallel work protocol at the end of this file). Never edit a merged migrati
 - `implementing-core-domain` agent A: apm-core `pattern`, `conflict`, `datetime`.
 - `implementing-core-domain` agent B: apm-core `filter`, `sidecar`, `matching`, `junk`, `progress`,
   `kind`.
-- apm-core `paths` (`RelPath`, ids), `names` and `consts` are COMPLETE on `main`: reuse them, extend
+- apm-core `paths` (`RelPath`, ids), `names`, `consts` and `hash` are COMPLETE on `main`: reuse them, extend
   them only additively and with tests. Wire enums used by several modules (`FileKind`,
   `CaptureSource`, `FlagFilter`, `ConflictPolicy`, ...) live in `dto/common.rs`; never define a parallel enum.
 - `implementing-scanner`: `indexer/mod.rs`, `indexer/scanner.rs`.

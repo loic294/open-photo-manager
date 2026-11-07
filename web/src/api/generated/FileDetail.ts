@@ -11,10 +11,7 @@ export type FileDetail = { item: FileItem,
  */
 hash: string | null, mime: string | null, 
 /**
- * Modification time, epoch seconds.
- */
-mtime: number, 
-/**
- * Birth (creation) time, epoch seconds, when the filesystem reports it.
+ * Birth (creation) time, epoch seconds, when the filesystem reports it. The modification time
+ * is `item.mtime`.
  */
 btime: number | null, tags: Array<string>, sidecars: Array<SidecarDto>, };

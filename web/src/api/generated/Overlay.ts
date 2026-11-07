@@ -2,6 +2,19 @@
 
 /**
  * Plan overlay flags on a file or folder row. All false when no plan is active.
+ *
+ * On a FILE row:
+ * * `matched`: the file has a match on the other side of the active plan (a source file with a
+ *   counterpart, a comparison file that matches a source file).
+ * * `will_delete`: the plan trashes the file when it runs.
+ * * `planned`: a GHOST row. It is not on disk: it shows a file that will exist here once the plan
+ *   runs. Its `id` is the id of the real source file it derives from (so thumbnails work), ghosts
+ *   are listed after the real files of a folder, and they are never selectable, never openable and
+ *   never part of an id list, a selection or a count of real files.
+ *
+ * On a FOLDER row: `planned` marks a folder that does not exist yet and will be created,
+ * `will_delete` a folder the plan removes (empty-folder cleanup); the number of matches below it
+ * is `FolderEntry::matches`, and `matched` is not used.
  */
 export type Overlay = { 
 /**
@@ -9,7 +22,7 @@ export type Overlay = {
  */
 matched: boolean, 
 /**
- * The item is part of the active plan's actions.
+ * A ghost: the item does not exist yet and will once the plan runs.
  */
 planned: boolean, 
 /**

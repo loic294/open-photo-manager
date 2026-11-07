@@ -38,4 +38,14 @@ flag: number, width: number | null, height: number | null,
 /**
  * Duration of videos and audio in milliseconds.
  */
-duration_ms: number | null, overlay: Overlay, };
+duration_ms: number | null, 
+/**
+ * Modification time of the file, epoch seconds. Clients put it in the thumbnail URL (`?v=`), so
+ * a changed file is fetched again; a ghost item carries the mtime of the file it stands for.
+ */
+mtime: number, 
+/**
+ * True when Immich lists a live asset (neither offline nor trashed) at this file's path. Filled
+ * from the Immich sync tables; false while Immich is not connected, not mapped or not synced.
+ */
+in_immich: boolean, overlay: Overlay, };

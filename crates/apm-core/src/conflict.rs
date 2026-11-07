@@ -47,12 +47,13 @@
 //! sidecar names too:
 //!
 //! ```
-//! use apm_core::conflict::{SidecarNaming, sidecar_destination, unique};
+//! use apm_core::conflict::{sidecar_destination, unique};
+//! use apm_core::sidecar::LinkKind;
 //!
 //! let taken = ["IMG_0001.CR3", "IMG_0001_1.CR3.xmp"];
 //! let name = unique("IMG_0001.CR3", |candidate| {
 //!     let sidecar =
-//!         sidecar_destination(SidecarNaming::Exact, "IMG_0001.CR3", candidate, "IMG_0001.CR3.xmp");
+//!         sidecar_destination(LinkKind::Exact, "IMG_0001.CR3", candidate, "IMG_0001.CR3.xmp");
 //!     taken.contains(&candidate) || taken.contains(&sidecar.as_str())
 //! });
 //! assert_eq!(name.as_deref(), Ok("IMG_0001_2.CR3"));
@@ -63,7 +64,9 @@
 //! should pass a `max_bytes` smaller by the longest tail to the `*_within` functions.
 
 use crate::dto::ConflictPolicy;
+use crate::hash::Sha1Digest;
 use crate::names::{normalize_name, split_name};
+use crate::sidecar::LinkKind;
 
 /// Longest file name, in bytes, accepted by common filesystems. Encrypted Synology shares only allow
 /// 143; callers with such a share pass their own limit to the `*_within` functions and to
@@ -182,16 +185,13 @@ fn search(
         })
 }
 
-/// SHA-1 of a file's bytes (plan assumption 12), the same 20 bytes as the `files.hash` column.
-pub type ContentHash = [u8; 20];
-
 /// What [`decide`] needs to know about one side of a conflict.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct ContentInfo {
     /// Size in bytes.
     pub size: u64,
     /// SHA-1, when it is known. Without it two files are never considered identical.
-    pub hash: Option<ContentHash>,
+    pub hash: Option<Sha1Digest>,
 }
 
 /// The file already at the destination. Never the incoming file itself: a file that is already in
@@ -265,18 +265,11 @@ pub fn needs_hashes(
         })
 }
 
-/// How a sidecar's name is built from its owner's, matching the two link kinds of the sidecar
-/// matcher.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub enum SidecarNaming {
-    /// The owner's full name plus the sidecar extension: `IMG_0001.CR3.xmp`, `photo.jpg.json`.
-    Exact,
-    /// The owner's stem plus the sidecar extension: `IMG_0001.xmp` for `IMG_0001.CR3` and
-    /// `IMG_0001.JPG` alike.
-    Stem,
-}
-
 /// The name a sidecar takes when its owner goes from `old_owner_name` to `new_owner_name`.
+///
+/// `link` is how the matcher tied the sidecar to its owner ([`LinkKind`]): an exact sidecar is the
+/// owner's full name plus an extension (`IMG_0001.CR3.xmp`), a stem sidecar the owner's stem plus
+/// one (`IMG_0001.xmp`, shared by `IMG_0001.CR3` and `IMG_0001.JPG`).
 ///
 /// `sidecar_name` is the sidecar's current name. What follows the owner's old name (exact link) or
 /// old stem (stem link) in it, usually `.xmp`, is kept as it is and appended to the new name or new
@@ -288,14 +281,14 @@ pub enum SidecarNaming {
 /// The name can be longer than the owner's by the length of that tail; see the module docs for
 /// keeping it within a cap.
 pub fn sidecar_destination(
-    naming: SidecarNaming,
+    link: LinkKind,
     old_owner_name: &str,
     new_owner_name: &str,
     sidecar_name: &str,
 ) -> String {
-    let (old_prefix, new_prefix) = match naming {
-        SidecarNaming::Exact => (old_owner_name, new_owner_name),
-        SidecarNaming::Stem => (split_name(old_owner_name).0, split_name(new_owner_name).0),
+    let (old_prefix, new_prefix) = match link {
+        LinkKind::Exact => (old_owner_name, new_owner_name),
+        LinkKind::Stem => (split_name(old_owner_name).0, split_name(new_owner_name).0),
     };
     let tail = tail_after(sidecar_name, old_prefix).unwrap_or_else(|| extension_tail(sidecar_name));
     format!("{new_prefix}{tail}")
@@ -516,7 +509,7 @@ mod tests {
                 numbered("IMG_0001.CR3", n),
                 numbered("IMG_0001.JPG", n),
                 sidecar_destination(
-                    SidecarNaming::Stem,
+                    LinkKind::Stem,
                     "IMG_0001.CR3",
                     &numbered("IMG_0001.CR3", n),
                     "IMG_0001.xmp",
@@ -533,7 +526,7 @@ mod tests {
         let taken: HashSet<&str> = ["IMG_0001.CR3", "IMG_0001_1.CR3.xmp", "IMG_0001_2.CR3"].into();
         let got = unique("IMG_0001.CR3", |candidate| {
             let sidecar = sidecar_destination(
-                SidecarNaming::Exact,
+                LinkKind::Exact,
                 "IMG_0001.CR3",
                 candidate,
                 "IMG_0001.CR3.xmp",
@@ -664,7 +657,7 @@ mod tests {
 
     #[test]
     fn sidecars_follow_the_new_name_of_an_exact_owner() {
-        use SidecarNaming::Exact;
+        use LinkKind::Exact;
         for (old, new, sidecar, expected) in [
             (
                 "IMG_0001.CR3",
@@ -721,7 +714,7 @@ mod tests {
 
     #[test]
     fn sidecars_follow_the_new_stem_of_a_stem_owner() {
-        use SidecarNaming::Stem;
+        use LinkKind::Stem;
         for (old, new, sidecar, expected) in [
             (
                 "IMG_0001.CR3",
@@ -769,25 +762,15 @@ mod tests {
         let nfc = "\u{e9}t\u{e9}.jpg";
         let nfd_sidecar = "e\u{301}te\u{301}.jpg.xmp";
         assert_eq!(
-            sidecar_destination(SidecarNaming::Exact, nfc, "ete_1.jpg", nfd_sidecar),
+            sidecar_destination(LinkKind::Exact, nfc, "ete_1.jpg", nfd_sidecar),
             "ete_1.jpg.xmp"
         );
         assert_eq!(
-            sidecar_destination(
-                SidecarNaming::Stem,
-                nfc,
-                "ete_1.jpg",
-                "e\u{301}te\u{301}.xmp"
-            ),
+            sidecar_destination(LinkKind::Stem, nfc, "ete_1.jpg", "e\u{301}te\u{301}.xmp"),
             "ete_1.xmp"
         );
         assert_eq!(
-            sidecar_destination(
-                SidecarNaming::Stem,
-                "IMG_0001.CR3",
-                "IMG_0002.CR3",
-                "other.xmp"
-            ),
+            sidecar_destination(LinkKind::Stem, "IMG_0001.CR3", "IMG_0002.CR3", "other.xmp"),
             "IMG_0002.xmp"
         );
     }
@@ -855,8 +838,8 @@ mod tests {
             sidecar in "\\PC{0,30}",
             exact in any::<bool>(),
         ) {
-            let naming = if exact { SidecarNaming::Exact } else { SidecarNaming::Stem };
-            let _ = sidecar_destination(naming, &owner, &new_owner, &sidecar);
+            let link = if exact { LinkKind::Exact } else { LinkKind::Stem };
+            let _ = sidecar_destination(link, &owner, &new_owner, &sidecar);
         }
 
         #[test]
@@ -869,14 +852,14 @@ mod tests {
             let owner = format!("{stem}.{ext}");
             let renamed = numbered(&owner, n);
             let exact = sidecar_destination(
-                SidecarNaming::Exact,
+                LinkKind::Exact,
                 &owner,
                 &renamed,
                 &format!("{owner}.{sidecar_ext}"),
             );
             prop_assert_eq!(exact, format!("{renamed}.{sidecar_ext}"));
             let shared = sidecar_destination(
-                SidecarNaming::Stem,
+                LinkKind::Stem,
                 &owner,
                 &renamed,
                 &format!("{stem}.{sidecar_ext}"),

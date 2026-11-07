@@ -1,7 +1,8 @@
 //! Pure domain logic and API data types for Advanced Photo Manager.
 //!
-//! This crate performs no IO and has no async runtime or database dependency, so
-//! its unit tests are fast and deterministic. Every type that crosses the HTTP
+//! This crate performs no filesystem, network or database IO of its own and has no async runtime
+//! dependency (`hash` only wraps readers it is handed), so its unit tests are fast and
+//! deterministic. Every type that crosses the HTTP
 //! boundary lives in [`dto`] and is exported to TypeScript by `ts-rs`
 //! (`make gen-api`).
 
@@ -10,6 +11,7 @@ pub mod consts;
 pub mod datetime;
 pub mod dto;
 pub mod filter;
+pub mod hash;
 pub mod junk;
 pub mod kind;
 pub mod matching;

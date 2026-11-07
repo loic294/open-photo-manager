@@ -99,11 +99,9 @@
 //! ```
 
 use crate::dto::{FileKind, MatchMode, PlanSide};
+use crate::hash::Sha1Digest;
 use crate::names::{normalize_name, stem_norm};
 use crate::paths::FileId;
-
-/// SHA-1 digest of a file's bytes, as stored in the `files.hash` BLOB(20) column (A12).
-pub type Sha1 = [u8; 20];
 
 impl MatchMode {
     /// Every mode, in the order the UI lists them.
@@ -129,7 +127,7 @@ pub struct MatchFacts<'a> {
     /// File name with its extension (`files.name`). Normalised on the fly, any spelling works.
     pub name: &'a str,
     /// SHA-1 of the content; `None` until the file is hashed.
-    pub hash: Option<Sha1>,
+    pub hash: Option<Sha1Digest>,
     /// Resolved capture time, naive-local epoch seconds (`files.capture_ts`).
     pub capture_ts: Option<i64>,
     /// Size in bytes. Carried for the survivor checks of the plan engine, [`is_match`] does not
@@ -181,7 +179,7 @@ pub fn is_match(
 
 /// Key of [`MatchMode::Hash`]: the files sharing a `Some` key match each other; `None` matches
 /// nothing.
-pub fn hash_key(facts: &MatchFacts<'_>) -> Option<Sha1> {
+pub fn hash_key(facts: &MatchFacts<'_>) -> Option<Sha1Digest> {
     facts.hash
 }
 
@@ -339,8 +337,8 @@ mod tests {
 
     use super::*;
 
-    const H1: Sha1 = [1; 20];
-    const H2: Sha1 = [2; 20];
+    const H1: Sha1Digest = [1; 20];
+    const H2: Sha1Digest = [2; 20];
     const LOOSE: MatchOptions = MatchOptions {
         strict_prefix: false,
     };
@@ -365,7 +363,7 @@ mod tests {
         }
     }
 
-    fn hashed(facts: MatchFacts<'_>, hash: Sha1) -> MatchFacts<'_> {
+    fn hashed(facts: MatchFacts<'_>, hash: Sha1Digest) -> MatchFacts<'_> {
         MatchFacts {
             hash: Some(hash),
             ..facts
@@ -384,7 +382,7 @@ mod tests {
     #[derive(Debug, Clone)]
     struct Item {
         name: String,
-        hash: Option<Sha1>,
+        hash: Option<Sha1Digest>,
         capture_ts: Option<i64>,
         in_source: bool,
         in_comparison: bool,
