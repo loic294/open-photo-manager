@@ -1,0 +1,33 @@
+# Docker build context for docker/Dockerfile (context = repository root).
+# Deny everything first, then allow only what the image build reads. This keeps the context tiny and keeps
+# secrets (.env), databases (*.db*), caches, `.git`, `docs`, fixtures output and other worktrees out of the
+# image and out of the layer cache keys.
+*
+
+# Rust workspace: manifests, lockfile, cargo config and every crate (including migrations/ for sqlx::migrate!).
+!Cargo.toml
+!Cargo.lock
+!rust-toolchain.toml
+!.cargo
+!crates
+
+# Web app (built in the `web` stage).
+!web
+
+# Files the runtime image copies in.
+!docker/entrypoint.sh
+!docker/healthcheck.sh
+
+# Never ship build output, dependencies or local test artifacts, even inside the allowed trees above.
+**/target
+**/node_modules
+**/dist
+**/coverage
+**/test-results
+**/playwright-report
+**/.DS_Store
+**/*.db
+**/*.db-shm
+**/*.db-wal
+**/.env
+**/.env.*
