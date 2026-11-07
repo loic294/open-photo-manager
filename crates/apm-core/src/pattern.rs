@@ -903,6 +903,19 @@ impl Scanned {
             self.components.push(pieces);
         }
     }
+
+    /// Whether the pattern is empty: no component is left, or the only one is blank text. The
+    /// canonical text of the latter is blank, which `scan` refuses for a whole text, so it has to be
+    /// refused here too for `Display` to parse back (`./ ` is as empty as ` `).
+    fn is_blank(&self) -> bool {
+        match self.components.as_slice() {
+            [] => true,
+            [only] if !self.folder_only => only
+                .iter()
+                .all(|piece| matches!(piece, Piece::Literal(text) if text.trim().is_empty())),
+            _ => false,
+        }
+    }
 }
 
 fn scan(text: &str) -> Scanned {
@@ -996,7 +1009,7 @@ fn scan(text: &str) -> Scanned {
             },
         );
     }
-    if scanned.components.is_empty() && scanned.errors.is_empty() {
+    if scanned.errors.is_empty() && scanned.is_blank() {
         scanned.error(0, text.len(), PatternErrorKind::Empty);
     }
     scanned.errors.sort_by_key(|error| error.span.start);
@@ -1203,6 +1216,19 @@ mod tests {
     }
 
     #[test]
+    fn a_lone_blank_component_is_as_empty_as_blank_text() {
+        for text in [" ", "  ", "./ ", "././  ", ".//\u{3000}"] {
+            assert_eq!(error(text).code(), "empty", "{text:?}");
+            assert_eq!(validate(text).len(), 1, "{text:?}");
+        }
+        for text in [" /", "a/ ", " / ", " {name}", "{name} "] {
+            let parsed = pattern(text);
+            assert_eq!(parsed.to_string(), text, "{text:?}");
+            assert_eq!(pattern(&parsed.to_string()), parsed, "{text:?}");
+        }
+    }
+
+    #[test]
     fn dots_inside_a_component_are_literal_text() {
         assert_eq!(pattern("..a/b..").components().len(), 2);
         assert_eq!(pattern("...").to_string(), "...");
@@ -1298,6 +1324,7 @@ mod tests {
             ("", "empty", ""),
             ("   ", "empty", "   "),
             ("./", "empty", "./"),
+            ("./ ", "empty", "./ "),
         ] {
             let found = error(text);
             assert_eq!(found.code(), code, "{text:?}");
