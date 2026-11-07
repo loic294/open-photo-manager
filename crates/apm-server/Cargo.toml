@@ -34,6 +34,7 @@ serde.workspace = true
 serde_json.workspace = true
 sha1.workspace = true
 sqlx.workspace = true
+tempfile.workspace = true
 thiserror.workspace = true
 tokio.workspace = true
 tokio-stream.workspace = true
@@ -47,5 +48,4 @@ walkdir.workspace = true
 
 [dev-dependencies]
 proptest.workspace = true
-tempfile.workspace = true
 wiremock.workspace = true

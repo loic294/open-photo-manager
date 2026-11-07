@@ -42,6 +42,10 @@ A second caller of a concern uses or extends the existing building block, never 
   `query_as!` macros (the `macros` feature is for `FromRow` and `migrate!`). Bind values with
   `push_bind`; never format user data into SQL. SQLite allows 32766 binds per statement: chunk id
   lists (30_000 max, see `tests/sqlx_smoke.rs`).
+- Subtree idiom ("this directory and everything below it", `Scope { dir, recursive }`): never write
+  the `dir_path` range or a `LIKE` by hand. Push `db::subtree::Subtree::push_predicate` after
+  `volume_id = ?`: it is an index range over `files_volume_dir_name` that stays correct for sibling
+  names such as `2019.old` (reasons in the `db` module docs).
 - Handlers are thin: extract with `ApiJson` / `ApiPath` / `ApiQuery` (`api/extract.rs`, rejections
   become the JSON `ErrorBody`), call a service, return DTOs. Logic lives in services and `apm-core`.
 - All errors are `AppError` (`error.rs`): `bad_request`, `forbidden`, `not_found`, `conflict`

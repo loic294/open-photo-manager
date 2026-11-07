@@ -40,9 +40,9 @@ impl AppState {
     pub async fn new(config: Config) -> anyhow::Result<Self> {
         let config = Arc::new(config);
 
-        let db = db::Db::new();
+        let db = db::Db::from_config(&config).await?;
 
-        let settings = settings::SettingsService::new();
+        let settings = settings::SettingsService::load(db.clone(), &config).await?;
 
         let tasks = tasks::TaskEngine::new();
 
@@ -78,6 +78,10 @@ impl AppState {
     pub fn begin_shutdown(&self) {}
 
     /// Called after the HTTP server has drained: await workers, flush journals
-    /// and close the database. Empty until a service needs it.
-    pub async fn shutdown(&self) {}
+    /// and close the database. Await your own service's stop above the
+    /// database line.
+    pub async fn shutdown(&self) {
+        // Keep last: every other service may still write while it stops.
+        self.db.close().await;
+    }
 }
