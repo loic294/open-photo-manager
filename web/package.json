@@ -22,7 +22,9 @@
     "@tailwindcss/vite": "4.3.5",
     "daisyui": "5.7.50",
     "lit": "3.3.3",
-    "tailwindcss": "4.3.5"
+    "lucide": "1.70.0",
+    "tailwindcss": "4.3.5",
+    "urlpattern-polyfill": "10.1.0"
   },
   "devDependencies": {
     "@biomejs/biome": "2.6.6",

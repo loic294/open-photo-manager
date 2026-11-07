@@ -1,0 +1,6 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 32 32">
+  <title>Advanced Photo Manager</title>
+  <rect width="32" height="32" rx="7" fill="#4f46e5"/>
+  <circle cx="11" cy="12" r="3" fill="#fff"/>
+  <path d="M4 25l8-9 5 5 4-4 7 8z" fill="#fff"/>
+</svg>

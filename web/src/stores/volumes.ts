@@ -1,0 +1,114 @@
+import { computed, type ReadonlySignal, signal } from '@preact/signals-core';
+import { api } from '@/api/client';
+import { errorMessage } from '@/api/errors';
+import type { VolumeDto } from '@/api/generated/VolumeDto';
+import { events } from '@/api/sse';
+
+/**
+ * `idle`: never loaded. `loading`: the first load (or a retry after a failed first load) is in
+ * flight. `ready`: there is a list, possibly stale if `volumesError` is set. `error`: the first
+ * load failed and there is no list.
+ */
+export type VolumesStatus = 'idle' | 'loading' | 'ready' | 'error';
+
+const list = signal<readonly VolumeDto[]>([]);
+const status = signal<VolumesStatus>('idle');
+const error = signal<string | undefined>(undefined);
+
+/** The mounted volumes in server order. Empty until the first load succeeds. */
+export const volumes: ReadonlySignal<readonly VolumeDto[]> = list;
+export const volumesStatus: ReadonlySignal<VolumesStatus> = status;
+/** Message of the last failed load; cleared by the next successful one. */
+export const volumesError: ReadonlySignal<string | undefined> = error;
+
+const byName: ReadonlySignal<ReadonlyMap<string, VolumeDto>> = computed(
+  () => new Map(list.value.map((volume) => [volume.name, volume])),
+);
+
+/** Looks a volume up by its name, the identity used in URLs. Reactive inside `render()`. */
+export function volumeByName(name: string | null | undefined): VolumeDto | undefined {
+  return name == null ? undefined : byName.value.get(name);
+}
+
+/** The API identifies volumes by id, the URL by name: this translates. */
+export function volumeIdByName(name: string | null | undefined): number | undefined {
+  return volumeByName(name)?.id;
+}
+
+function sameVolumes(a: readonly VolumeDto[], b: readonly VolumeDto[]): boolean {
+  return (
+    a.length === b.length &&
+    a.every((volume, index) => {
+      const other = b[index];
+      return (
+        other !== undefined &&
+        volume.id === other.id &&
+        volume.name === other.name &&
+        volume.writable === other.writable &&
+        volume.online === other.online
+      );
+    })
+  );
+}
+
+async function fetchOnce(): Promise<void> {
+  if (status.peek() !== 'ready') status.value = 'loading';
+  try {
+    const response = await api.get<readonly VolumeDto[]>('/api/volumes');
+    if (!Array.isArray(response)) throw new Error('Unexpected response from /api/volumes');
+    // An unchanged list keeps its identity, so nothing re-renders for a no-op refresh.
+    if (!sameVolumes(list.peek(), response)) list.value = response;
+    error.value = undefined;
+    status.value = 'ready';
+  } catch (failure) {
+    error.value = errorMessage(failure, 'Could not load the volumes');
+    if (status.peek() !== 'ready') status.value = 'error';
+  }
+}
+
+let inFlight: Promise<void> | undefined;
+let reloadRequested = false;
+
+/**
+ * Fetches `GET /api/volumes` into the store. Never rejects: a failure lands in `volumesError`
+ * and the previous list stays. Calls made while a load is running share it, and cause exactly
+ * one more load afterwards so the result is never older than the call.
+ */
+export function loadVolumes(): Promise<void> {
+  if (inFlight) {
+    reloadRequested = true;
+    return inFlight;
+  }
+  inFlight = (async () => {
+    try {
+      do {
+        reloadRequested = false;
+        await fetchOnce();
+      } while (reloadRequested);
+    } finally {
+      inFlight = undefined;
+    }
+  })();
+  return inFlight;
+}
+
+/**
+ * Loads the volumes now and keeps them fresh: after the event stream reconnects (events may
+ * have been missed) and when the indexer's `state` changes. The shell calls this once;
+ * the returned function stops it.
+ */
+export function startVolumes(): () => void {
+  void loadVolumes();
+  let lastIndexState: string | undefined;
+  const stops = [
+    events.onResync(() => void loadVolumes()),
+    events.on('index', ({ state }) => {
+      const changed = lastIndexState !== undefined && state !== lastIndexState;
+      lastIndexState = state;
+      if (changed) void loadVolumes();
+    }),
+  ];
+  return () => {
+    for (const stop of stops) stop();
+  };
+}
