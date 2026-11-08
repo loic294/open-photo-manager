@@ -137,6 +137,17 @@ test('real v3.3.3 SQL path updates are visible through the mock API', {
   await writeFile(join(photos, 'scanned.jpg'), 'fixture');
   const firstScan = await mock.control.scan('Photos');
   assert.equal(firstScan[0]?.status, 'completed', firstScan[0]?.error ?? undefined);
+  const afterScan = await fetch(`${mock.url}/api/assets/${id}`, {
+    headers: { 'x-api-key': key.secret },
+  });
+  assert.equal(afterScan.status, 200);
+  const afterScanBody = (await afterScan.json()) as { localDateTime: string };
+  assert.equal(afterScanBody.localDateTime, '2024-01-02T04:04:05.000Z');
+  assert.equal(
+    await database.sql(`SELECT to_char("localDateTime" AT TIME ZONE 'UTC',
+      'YYYY-MM-DD"T"HH24:MI:SS') FROM public.asset WHERE id = '${id}'::uuid`),
+    '2024-01-02T04:04:05',
+  );
   const scanned = mock.state.assetByPath('/mnt/photos/scanned.jpg');
   assert.ok(scanned);
   const scannedId = String(scanned.id);

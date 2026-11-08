@@ -412,7 +412,7 @@ export class ImmichPostgres {
       THEN RAISE EXCEPTION 'disposable database marker missing'; END IF; END $$;`;
     const record = `id text, "ownerId" text, "libraryId" text, "originalPath" text,
       "originalFileName" text, type text, checksum text, "fileCreatedAt" double precision,
-      "fileModifiedAt" double precision, "updatedAt" double precision,
+      "fileModifiedAt" double precision, "localDateTime" double precision, "updatedAt" double precision,
       "deletedAt" double precision, "isOffline" boolean`;
     const library = sqlJson(scan.libraryId);
     const script = `
@@ -454,7 +454,7 @@ export class ImmichPostgres {
         (jsonb_populate_record(NULL::public.asset, jsonb_build_object('type', type))).type,
         "originalPath", "originalFileName", decode(checksum, 'base64'), 'sha1-path',
         to_timestamp("fileCreatedAt" / 1000.0), to_timestamp("fileModifiedAt" / 1000.0),
-        to_timestamp("fileCreatedAt" / 1000.0)::timestamp, to_timestamp("updatedAt" / 1000.0)
+        to_timestamp("localDateTime" / 1000.0), to_timestamp("updatedAt" / 1000.0)
       FROM proposed_scan
       ON CONFLICT (id) DO UPDATE SET
         "isOffline" = EXCLUDED."isOffline", "deletedAt" = EXCLUDED."deletedAt",
