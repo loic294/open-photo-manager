@@ -40,6 +40,10 @@ for (const selectionMode of ['source-only', 'both-panes'] as const) {
       await expect(comparison.card('vacation_copy.jpg').isSelected()).resolves.toBe(true);
 
     await duplicatesPage.chooseAction('Move files');
+    const movePlanResponse = page.waitForResponse(
+      (response) =>
+        response.request().method() === 'POST' && new URL(response.url()).pathname === '/api/plans',
+    );
     const selectionResponse = page.waitForResponse(
       (response) =>
         response.request().method() === 'POST' &&
@@ -49,10 +53,6 @@ for (const selectionMode of ['source-only', 'both-panes'] as const) {
     const selection = (await (await selectionResponse).json()) as SelectionDto;
     expect(selection.item_count).toBe(1);
 
-    const movePlanResponse = page.waitForResponse(
-      (response) =>
-        response.request().method() === 'POST' && new URL(response.url()).pathname === '/api/plans',
-    );
     await expect(page).toHaveURL(/\/move(?:\?|$)/);
     await expect(
       page.getByText(`${selection.item_count} files from Duplicate finder`),
