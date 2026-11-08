@@ -1081,3 +1081,17 @@ or leave the tool. Only explicit confirmation and Details open a modal.
 - Toasts accept `{ action: { label, run }, timeout? }`; an actionable toast stays at least
   10 s (`timeout: 0` remains persistent). Repeated messages update the action rather than
   keeping an obsolete Details target.
+
+## Duplicate finder
+- Asset move reuses `util/match-modes.ts` (`MATCH_MODES`, `isMatchMode`, `matchModeLabel`) and
+  controlled `apm-match-mode`: `mode`, `strict`, `label`, `disabled`, bubbling
+  `match-change { mode, strict }`, no store access.
+- `tools/framework/plan-notices.ts`: `renderPendingNotice(ctx, { code, text, title })`
+  words a pending warning and retries through the plan client. Duplicate finder uses `unhashed_files`.
+- Parameters use generated `DuplicateParams` with normalized effective filters per `SideParams`.
+  `strict_prefix` is false outside `name_prefix`, keeping hidden toggles out of plan keys.
+- Delete uses shared `executePlanAction` and server-counted confirmation. Move hands off explicit
+  files (active pane if both), otherwise comparison matches. Asset move consumes
+  `filters.selection_id`, the `tool-state` hand-off chip and pinned source through `handOffSelection`.
+- Persisted controls: `duplicates.mode` and `duplicates.strict`; the shared split button
+  remembers the action under `duplicates`, defaulting to comparison deletion.

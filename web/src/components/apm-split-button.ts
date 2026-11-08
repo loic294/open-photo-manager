@@ -100,7 +100,8 @@ export class ApmSplitButton extends ApmElement {
 
   override connectedCallback(): void {
     super.connectedCallback();
-    this.classList.add('inline-flex');
+    // Leave room for both pane footers' select-all controls on a narrow screen.
+    this.classList.add('inline-flex', 'min-w-0', 'max-w-[calc(100vw-6rem)]');
   }
 
   override disconnectedCallback(): void {
@@ -288,10 +289,11 @@ export class ApmSplitButton extends ApmElement {
     const colour = option.danger ? 'btn-error' : 'btn-primary';
     const menuId = `${this.uid}-menu`;
     return html`
-      <div class="join">
+      <div class="join min-w-0 max-w-full">
         <button
           type="button"
-          class="btn btn-lg join-item ${colour}"
+          class="btn btn-lg join-item min-w-0 flex-1 ${colour}"
+          title=${option.label}
           ?disabled=${locked}
           aria-busy=${this.busy ? 'true' : nothing}
           @click=${this.onMainClick}
@@ -303,12 +305,12 @@ export class ApmSplitButton extends ApmElement {
                 ? html`<apm-icon name=${option.icon} size="lg"></apm-icon>`
                 : nothing
           }
-          <span>${option.label}</span>
+          <span class="truncate">${option.label}</span>
           ${this.renderCount()}
         </button>
         <details
           ${ref(this.detailsRef)}
-          class="dropdown dropdown-top dropdown-end"
+          class="dropdown dropdown-top dropdown-end shrink-0"
           ?open=${this.menuOpen}
           @keydown=${this.onKeydown}
           @focusout=${this.onFocusOut}

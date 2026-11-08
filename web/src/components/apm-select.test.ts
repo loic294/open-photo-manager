@@ -9,6 +9,13 @@ const OPTIONS: SelectOption[] = [
   { value: 'size', label: 'Size', disabled: true },
 ];
 
+it('allows a long labelled control to shrink within its available width', async () => {
+  const el = await mount('apm-select', { options: OPTIONS, label: 'Match by', showLabel: true });
+  expect(el.querySelector('label')?.classList.contains('max-w-full')).toBe(true);
+  expect(el.querySelector('label')?.classList.contains('min-w-0')).toBe(true);
+  expect(el.querySelector('select')?.classList.contains('min-w-0')).toBe(true);
+});
+
 afterEach(() => {
   vi.restoreAllMocks();
 });

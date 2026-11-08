@@ -12,6 +12,18 @@ const OPTIONS: SplitOption[] = [
   { id: 'copy', label: 'Copy files', icon: 'copy' },
 ];
 
+it('keeps the action chooser reachable beside a long label without losing its accessible text', async () => {
+  const el = await mount('apm-split-button', {
+    options: [{ id: 'delete-comparison', label: 'Delete comparison items', danger: true }],
+  });
+  expect(el.classList.contains('max-w-[calc(100vw-6rem)]')).toBe(true);
+  const button = el.querySelector('.join > button');
+  expect(button?.classList.contains('flex-1')).toBe(true);
+  expect(button?.getAttribute('title')).toBe('Delete comparison items');
+  expect(button?.querySelector('.truncate')?.textContent).toBe('Delete comparison items');
+  expect(el.querySelector('details')?.classList.contains('shrink-0')).toBe(true);
+});
+
 const outsiders: HTMLElement[] = [];
 
 beforeEach(() => {
@@ -62,7 +74,7 @@ function item(host: ApmSplitButton, label: string): HTMLButtonElement {
 
 /** The label of a button, without its icon, spinner or badge. */
 function labelOf(button: HTMLElement): string | undefined {
-  return button.querySelector('span:not([class])')?.textContent ?? undefined;
+  return button.querySelector('span.truncate, span:not([class])')?.textContent ?? undefined;
 }
 
 async function openMenu(host: ApmSplitButton): Promise<void> {

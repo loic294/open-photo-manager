@@ -126,11 +126,11 @@ export class ApmSelect extends ApmElement {
 
   protected override render() {
     const size = SIZE_CLASS[this.size] ?? SIZE_CLASS.sm;
-    if (!this.showLabel) return this.renderSelect(`select ${size} w-auto`);
+    if (!this.showLabel) return this.renderSelect(`select ${size} w-auto max-w-full min-w-0`);
     return html`
-      <label class="select ${size} w-auto">
+      <label class="select ${size} w-auto max-w-full min-w-0">
         <span class="label">${this.label}</span>
-        ${this.renderSelect(undefined)}
+        ${this.renderSelect('min-w-0')}
       </label>
     `;
   }
