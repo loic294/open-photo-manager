@@ -563,7 +563,13 @@ impl FsOps {
     /// move across file systems, copies and verifies FIRST and trashes the existing file only
     /// right before the final rename, so a failed copy replaces nothing.
     async fn replace(&self, run: &mut Run<'_>, existing: FileStat) -> Result<Flow, FsOpError> {
-        if run.job.mode == Mode::Copy || existing.dev != run.src_stat.dev {
+        let crosses = self.mover.crosses_devices(
+            run.src_root.path(),
+            run.src_stat.dev,
+            run.dst_root.path(),
+            existing.dev,
+        );
+        if run.job.mode == Mode::Copy || crosses {
             return self.copy_path(run, Some(existing)).await;
         }
         // Do not trash what is there for a source that is gone or different.

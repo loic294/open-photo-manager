@@ -1008,8 +1008,15 @@ fn settle_copy(job: &CopyRecovery) -> Result<CopyOutcome, FsOpError> {
     let Some(recorded) = job.recorded else {
         return stop(Recovered::abandoned("the copy was never finished").scanning([dst_dir()]));
     };
+    // A part that was still there means the final rename never happened: a different file at the
+    // destination belongs to somebody else (a file about to be replaced, say), not to this copy.
     let not_the_copy = || {
-        Recovered::unclear("the destination is not the copy that was made").scanning([dst_dir()])
+        if parts_removed > 0 {
+            Recovered::abandoned("the copy never reached its destination")
+        } else {
+            Recovered::unclear("the destination is not the copy that was made")
+                .scanning([dst_dir()])
+        }
     };
     if job.size != Some(dst_stat.size) {
         return stop(not_the_copy());

@@ -23,6 +23,20 @@ pub trait Mover: Send + Sync {
     fn rename_same_inode(&self, from: &Path, to: &Path) -> io::Result<()> {
         std::fs::rename(from, to)
     }
+
+    /// Whether a rename from a file under the volume root `from_root` (on device `from_dev`) to
+    /// one under `to_root` (on `to_dev`) cannot work. The real answer is that the devices
+    /// differ; a test mover overrides it to make two directories of one file system look like
+    /// two file systems, consistently with [`rename_no_replace`](Mover::rename_no_replace).
+    fn crosses_devices(
+        &self,
+        _from_root: &Path,
+        from_dev: u64,
+        _to_root: &Path,
+        to_dev: u64,
+    ) -> bool {
+        from_dev != to_dev
+    }
 }
 
 /// The real rename: `renameat2(RENAME_NOREPLACE)` on Linux, `renamex_np(RENAME_EXCL)` on macOS,

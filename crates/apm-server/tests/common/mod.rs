@@ -7,6 +7,7 @@
 
 pub mod browse;
 pub mod fake_plan;
+pub mod fsops;
 pub mod media_fixtures;
 pub mod seed;
 
