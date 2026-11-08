@@ -395,6 +395,14 @@ pub(super) async fn build(ctx: &BuildContext, value: Value) -> Result<Built, Pla
     .await?;
     identities.commit().await?;
     *stats.entry("new_folders".into()).or_default() = new_folders.len() as u64;
+    let missing: bool = sqlx::query_scalar(
+        "SELECT EXISTS(SELECT 1 FROM move_items m WHERE m.plan_id = ? AND m.status = 'move' AND (NOT EXISTS(SELECT 1 FROM plan_file_identities i WHERE i.plan_id = m.plan_id AND i.file_id = m.file_id) OR (m.counterpart_id IS NOT NULL AND NOT EXISTS(SELECT 1 FROM plan_file_identities i WHERE i.plan_id = m.plan_id AND i.file_id = m.counterpart_id)) OR (m.replaced_id IS NOT NULL AND NOT EXISTS(SELECT 1 FROM plan_file_identities i WHERE i.plan_id = m.plan_id AND i.file_id = m.replaced_id))))",
+    ).bind(ctx.plan_id).fetch_one(ctx.db.read()).await?;
+    if missing {
+        return Err(PlanError::Internal(anyhow::anyhow!(
+            "move snapshot identity is incomplete"
+        )));
+    }
     *stats.entry("destination_folders".into()).or_default() = written_directories.len() as u64;
     warnings.insert("renames", stats["renamed"]);
     warnings.insert("replaces_existing", stats["replaced"]);

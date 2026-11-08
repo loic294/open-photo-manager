@@ -38,53 +38,51 @@ fn predicate(qb: &mut QueryBuilder<Sqlite>, plan: PlanId, view: &GhostView, recu
     }
 }
 
-#[cfg(test)]
-mod tests {
-    use super::*;
-    use sqlx::Execute;
-
-    #[tokio::test]
-    async fn name_page_and_exact_count_use_the_destination_index_without_a_temp_sort() {
-        let temp = Db::open_temp().await.unwrap();
-        let view = GhostView {
-            volume_id: 1,
-            dir: RelPath::new("out").unwrap(),
-            filter: Default::default(),
-            sort: SortKey::Name,
-            order: SortOrder::Asc,
-        };
-        let filter = filter(&view).unwrap();
-        for mut statement in [
-            count_statement(1, &view, &filter),
-            page_statement(1, &view, &filter, Window { skip: 0, take: 200 }),
-        ] {
-            let mut built = statement.build();
-            let arguments = built.take_arguments().unwrap().unwrap_or_default();
-            let sql = format!("EXPLAIN QUERY PLAN {}", built.sql().as_str());
-            let rows: Vec<(i64, i64, i64, String)> =
-                sqlx::query_as_with(sqlx::AssertSqlSafe(sql), arguments)
-                    .fetch_all(temp.read())
-                    .await
-                    .unwrap();
-            let details: Vec<_> = rows.into_iter().map(|(_, _, _, detail)| detail).collect();
-            assert!(
-                details.iter().any(|d| d.contains("move_items_destination")),
-                "{details:?}"
-            );
-            assert!(
-                !details.iter().any(|d| d.contains("TEMP B-TREE")),
-                "{details:?}"
-            );
-        }
-    }
-}
 fn count_statement(plan: PlanId, view: &GhostView, filter: &FileQuery) -> QueryBuilder<Sqlite> {
-    let mut qb = QueryBuilder::<Sqlite>::new(
-        "SELECT COUNT(*) FROM move_items m JOIN files f ON f.id = m.file_id JOIN plan_file_tracking t ON t.plan_id = m.plan_id JOIN plan_file_identities i ON i.plan_id = t.plan_id AND i.file_id = m.file_id AND i.live = 1 WHERE ",
-    );
+    let unfiltered = view.filter == apm_core::dto::Filter::default();
+    if unfiltered {
+        // Build completion verifies membership. Count the covering range, then subtract
+        // rare dead dependencies; no live-file lookup is needed for an unfiltered total.
+        let mut qb = QueryBuilder::new(
+            "SELECT CASE WHEN EXISTS(SELECT 1 FROM plan_file_tracking WHERE plan_id = ",
+        );
+        qb.push_bind(plan)
+            .push(") THEN (SELECT COUNT(*) FROM move_items m WHERE ");
+        predicate(&mut qb, plan, view, false);
+        qb.push(") - (SELECT COUNT(*) FROM (");
+        for (index, (column, lookup)) in [
+            ("file_id", "sqlite_autoindex_move_items_1"),
+            ("counterpart_id", "move_items_counterpart"),
+            ("replaced_id", "move_items_replaced"),
+        ]
+        .into_iter()
+        .enumerate()
+        {
+            if index > 0 {
+                qb.push(" UNION ");
+            }
+            qb.push("SELECT m.file_id FROM plan_file_identities i INDEXED BY plan_file_identities_dead CROSS JOIN move_items m INDEXED BY ")
+                .push(lookup).push(" ON m.plan_id = i.plan_id AND m.").push(column)
+                .push(" = i.file_id WHERE i.plan_id = ").push_bind(plan)
+                .push(" AND i.live = 0 AND ");
+            if column != "file_id" {
+                qb.push("m.").push(column).push(" IS NOT NULL AND ");
+            }
+            predicate(&mut qb, plan, view, false);
+        }
+        qb.push(")) ELSE 0 END");
+        return qb;
+    }
+    let mut qb = QueryBuilder::<Sqlite>::new("SELECT COUNT(*) FROM move_items m ");
+    if !unfiltered {
+        qb.push("JOIN files f ON f.id = m.file_id ");
+    }
+    qb.push("JOIN plan_file_tracking t ON t.plan_id = m.plan_id JOIN plan_file_identities i ON i.plan_id = t.plan_id AND i.file_id = m.file_id AND i.live = 1 LEFT JOIN plan_file_identities ci ON ci.plan_id = m.plan_id AND ci.file_id = m.counterpart_id LEFT JOIN plan_file_identities ri ON ri.plan_id = m.plan_id AND ri.file_id = m.replaced_id WHERE (m.counterpart_id IS NULL OR ci.live = 1) AND (m.replaced_id IS NULL OR ri.live = 1) AND ");
     predicate(&mut qb, plan, view, false);
-    qb.push(" AND ");
-    filter.push_where(&mut qb, "f");
+    if !unfiltered {
+        qb.push(" AND ");
+        filter.push_where(&mut qb, "f");
+    }
     qb
 }
 
@@ -95,7 +93,7 @@ fn page_statement(
     window: Window,
 ) -> QueryBuilder<Sqlite> {
     let mut qb = QueryBuilder::<Sqlite>::new(format!(
-        "SELECT {}, m.dst_volume_id, m.dst_dir, m.dst_name FROM move_items m JOIN files f ON f.id = m.file_id JOIN plan_file_tracking t ON t.plan_id = m.plan_id JOIN plan_file_identities i ON i.plan_id = t.plan_id AND i.file_id = m.file_id AND i.live = 1 {ITEM_JOINS} WHERE ",
+        "SELECT {}, m.dst_volume_id, m.dst_dir, m.dst_name FROM move_items m JOIN files f ON f.id = m.file_id JOIN plan_file_tracking t ON t.plan_id = m.plan_id JOIN plan_file_identities i ON i.plan_id = t.plan_id AND i.file_id = m.file_id AND i.live = 1 LEFT JOIN plan_file_identities ci ON ci.plan_id = m.plan_id AND ci.file_id = m.counterpart_id LEFT JOIN plan_file_identities ri ON ri.plan_id = m.plan_id AND ri.file_id = m.replaced_id {ITEM_JOINS} WHERE (m.counterpart_id IS NULL OR ci.live = 1) AND (m.replaced_id IS NULL OR ri.live = 1) AND ",
         item_columns("f")
     ));
     predicate(&mut qb, plan, view, false);
@@ -171,7 +169,7 @@ pub(super) async fn flags(
     for ids in ids.chunks(30_000) {
         let mut qb = QueryBuilder::<Sqlite>::new(match side {
             PlanSide::Source => {
-                "SELECT m.file_id, 1 AS matched, 0 AS will_delete FROM move_items m JOIN files f ON f.id = m.file_id JOIN plan_file_tracking t ON t.plan_id = m.plan_id JOIN plan_file_identities i ON i.plan_id = t.plan_id AND i.file_id = m.file_id AND i.live = 1 WHERE m.status = 'move' AND m.plan_id = "
+                "SELECT m.file_id, 1 AS matched, 0 AS will_delete FROM move_items m INDEXED BY move_items_live_source CROSS JOIN files f ON f.id = m.file_id CROSS JOIN plan_file_tracking t ON t.plan_id = m.plan_id CROSS JOIN plan_file_identities i ON i.plan_id = t.plan_id AND i.file_id = m.file_id AND i.live = 1 WHERE m.status = 'move' AND m.plan_id = "
             }
             PlanSide::Comparison => {
                 "SELECT x.id, MAX(matched), MAX(will_delete) FROM (SELECT m.counterpart_id AS id, 1 AS matched, 0 AS will_delete FROM move_items m WHERE m.counterpart_id IS NOT NULL AND m.plan_id = "
@@ -232,7 +230,7 @@ pub(super) async fn folders(
         "WITH per_dir AS (SELECT m.dst_dir, COUNT(*) AS total, SUM(CASE WHEN ",
     );
     filter.push_where(&mut qb, "f");
-    qb.push(" THEN 1 ELSE 0 END) AS cnt FROM move_items m JOIN files f ON f.id = m.file_id JOIN plan_file_tracking t ON t.plan_id = m.plan_id JOIN plan_file_identities i ON i.plan_id = t.plan_id AND i.file_id = m.file_id AND i.live = 1 WHERE ");
+    qb.push(" THEN 1 ELSE 0 END) AS cnt FROM move_items m JOIN files f ON f.id = m.file_id JOIN plan_file_tracking t ON t.plan_id = m.plan_id JOIN plan_file_identities i ON i.plan_id = t.plan_id AND i.file_id = m.file_id AND i.live = 1 LEFT JOIN plan_file_identities ci ON ci.plan_id = m.plan_id AND ci.file_id = m.counterpart_id LEFT JOIN plan_file_identities ri ON ri.plan_id = m.plan_id AND ri.file_id = m.replaced_id WHERE (m.counterpart_id IS NULL OR ci.live = 1) AND (m.replaced_id IS NULL OR ri.live = 1) AND ");
     predicate(&mut qb, plan, view, true);
     qb.push(" GROUP BY m.dst_dir) SELECT ");
     push_child_segment(&mut qb, "dst_dir", view.dir.as_str());
@@ -293,4 +291,47 @@ pub(super) async fn folders(
         .ghost_folders
         .sort_by_key(|f| normalize_name(&f.name));
     Ok(result)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use sqlx::Execute;
+
+    #[tokio::test]
+    async fn name_page_and_exact_count_use_the_destination_index_without_a_temp_sort() {
+        let temp = Db::open_temp().await.unwrap();
+        let view = GhostView {
+            volume_id: 1,
+            dir: RelPath::new("out").unwrap(),
+            filter: Default::default(),
+            sort: SortKey::Name,
+            order: SortOrder::Asc,
+        };
+        let filter = filter(&view).unwrap();
+        for mut statement in [
+            count_statement(1, &view, &filter),
+            page_statement(1, &view, &filter, Window { skip: 0, take: 200 }),
+        ] {
+            let mut built = statement.build();
+            let arguments = built.take_arguments().unwrap().unwrap_or_default();
+            let sql = format!("EXPLAIN QUERY PLAN {}", built.sql().as_str());
+            let rows: Vec<(i64, i64, i64, String)> =
+                sqlx::query_as_with(sqlx::AssertSqlSafe(sql), arguments)
+                    .fetch_all(temp.read())
+                    .await
+                    .unwrap();
+            let details: Vec<_> = rows.into_iter().map(|(_, _, _, detail)| detail).collect();
+            assert!(
+                details
+                    .iter()
+                    .any(|d| d.contains("move_items_live_destination")),
+                "{details:?}"
+            );
+            assert!(
+                !details.iter().any(|d| d.contains("TEMP B-TREE FOR")),
+                "{details:?}"
+            );
+        }
+    }
 }

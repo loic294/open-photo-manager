@@ -73,130 +73,160 @@ async fn move_build_and_overlay_scale() {
         .execute(app.state.db.write())
         .await
         .unwrap();
+    let mut measurements = Vec::new();
     for kind in [
         MoveType::KeepSource,
         MoveType::KeepDestination,
         MoveType::Flat,
         MoveType::Custom,
     ] {
-        let p = MoveParams {
-            move_type: kind,
-            source: SideParams {
-                scope: Scope {
-                    volume_id: Some(v),
-                    dir: "src".into(),
-                    recursive: true,
+        for _ in 0..3 {
+            let p = MoveParams {
+                move_type: kind,
+                source: SideParams {
+                    scope: Scope {
+                        volume_id: Some(v),
+                        dir: "src".into(),
+                        recursive: true,
+                    },
+                    filter: Filter::default(),
                 },
-                filter: Filter::default(),
-            },
-            destination: FolderRef {
+                destination: FolderRef {
+                    volume_id: v,
+                    dir: "out".into(),
+                },
+                pattern: (kind == MoveType::Custom).then(|| "{YYYY}/{mm}/{folder}".into()),
+                conflict_policy: None,
+                match_mode: None,
+                strict_prefix: false,
+            };
+            let start = Instant::now();
+            let (status, body) = app
+                .call(
+                    Method::POST,
+                    "/api/plans",
+                    Some(json!({"kind":"move","params":p,"replaces":null})),
+                )
+                .await;
+            assert_eq!(status, StatusCode::CREATED, "{body}");
+            let build = start.elapsed();
+            let plan: PlanDto = serde_json::from_value(body).unwrap();
+            assert_eq!(plan.stats["to_move"], FILES as u64);
+            let dir = match kind {
+                MoveType::KeepSource | MoveType::KeepDestination => "out/0",
+                MoveType::Flat => "out",
+                MoveType::Custom => "out/2026/10/0",
+            };
+            let view = GhostView {
                 volume_id: v,
-                dir: "out".into(),
-            },
-            pattern: (kind == MoveType::Custom).then(|| "{YYYY}/{mm}/{folder}".into()),
-            conflict_policy: None,
-            match_mode: None,
-            strict_prefix: false,
-        };
-        let start = Instant::now();
-        let (status, body) = app
-            .call(
-                Method::POST,
-                "/api/plans",
-                Some(json!({"kind":"move","params":p,"replaces":null})),
-            )
-            .await;
-        assert_eq!(status, StatusCode::CREATED, "{body}");
-        let build = start.elapsed();
-        let plan: PlanDto = serde_json::from_value(body).unwrap();
-        assert_eq!(plan.stats["to_move"], FILES as u64);
-        let dir = match kind {
-            MoveType::KeepSource | MoveType::KeepDestination => "out/0",
-            MoveType::Flat => "out",
-            MoveType::Custom => "out/2026/10/0",
-        };
-        let view = GhostView {
-            volume_id: v,
-            dir: RelPath::new(dir).unwrap(),
-            filter: Filter::default(),
-            sort: SortKey::Name,
-            order: SortOrder::Asc,
-        };
-        let ref_ = PlanRef {
-            plan_id: plan.id,
-            side: PlanSide::Comparison,
-        };
-        // Warm once; measure the actual page plus exact total, not a count-only proxy.
-        app.state
-            .plans
-            .ghost_items(ref_, &view, Window { skip: 0, take: 200 })
-            .await
-            .unwrap();
-        let start = Instant::now();
-        let page = app
-            .state
-            .plans
-            .ghost_items(ref_, &view, Window { skip: 0, take: 200 })
-            .await
-            .unwrap();
-        let ghosts = start.elapsed();
-        assert_eq!(page.items.len(), 200);
-        assert_eq!(
-            page.total,
-            if kind == MoveType::Flat {
-                FILES
-            } else {
-                FILES / 2
-            }
-        );
-        let ids: Vec<_> = page.items.iter().map(|i| i.id).collect();
-        let start = Instant::now();
-        let flags = app
-            .state
-            .plans
-            .item_flags(
-                PlanRef {
-                    plan_id: plan.id,
-                    side: PlanSide::Source,
-                },
-                &ids,
-            )
-            .await
-            .unwrap();
-        let flags_time = start.elapsed();
-        assert_eq!(flags.len(), 200);
-        let start = Instant::now();
-        let (status, body) = app
-            .call(
-                Method::POST,
-                "/api/format/preview",
-                Some(json!({"pattern":"{YYYY}/{mm}","source":p.source,"limit":5})),
-            )
-            .await;
-        let preview = start.elapsed();
-        assert_eq!(status, StatusCode::OK, "{body}");
-        assert_eq!(body["samples"].as_array().unwrap().len(), 5);
-        println!(
-            "{kind:?}: build={build:?} ghosts={ghosts:?} flags={flags_time:?} preview={preview:?}"
-        );
-        if !cfg!(debug_assertions) {
-            assert!(build < Duration::from_secs(5), "{kind:?}: build {build:?}");
-            assert!(
-                ghosts < Duration::from_millis(50),
-                "{kind:?}: ghosts {ghosts:?}"
+                dir: RelPath::new(dir).unwrap(),
+                filter: Filter::default(),
+                sort: SortKey::Name,
+                order: SortOrder::Asc,
+            };
+            let ref_ = PlanRef {
+                plan_id: plan.id,
+                side: PlanSide::Comparison,
+            };
+            // Warm once; measure the actual page plus exact total, not a count-only proxy.
+            app.state
+                .plans
+                .ghost_items(ref_, &view, Window { skip: 0, take: 200 })
+                .await
+                .unwrap();
+            let start = Instant::now();
+            let page = app
+                .state
+                .plans
+                .ghost_items(ref_, &view, Window { skip: 0, take: 200 })
+                .await
+                .unwrap();
+            let ghosts = start.elapsed();
+            assert_eq!(page.items.len(), 200);
+            assert_eq!(
+                page.total,
+                if kind == MoveType::Flat {
+                    FILES
+                } else {
+                    FILES / 2
+                }
             );
-            assert!(
-                flags_time < Duration::from_millis(10),
-                "{kind:?}: flags {flags_time:?}"
+            let ids: Vec<_> = page.items.iter().map(|i| i.id).collect();
+            let start = Instant::now();
+            let flags = app
+                .state
+                .plans
+                .item_flags(
+                    PlanRef {
+                        plan_id: plan.id,
+                        side: PlanSide::Source,
+                    },
+                    &ids,
+                )
+                .await
+                .unwrap();
+            let flags_time = start.elapsed();
+            assert_eq!(flags.len(), 200);
+            let start = Instant::now();
+            let (status, body) = app
+                .call(
+                    Method::POST,
+                    "/api/format/preview",
+                    Some(json!({"pattern":"{YYYY}/{mm}","source":p.source,"limit":5})),
+                )
+                .await;
+            let preview = start.elapsed();
+            assert_eq!(status, StatusCode::OK, "{body}");
+            assert_eq!(body["samples"].as_array().unwrap().len(), 5);
+            println!(
+                "{kind:?}: build={build:?} ghosts={ghosts:?} flags={flags_time:?} preview={preview:?}"
             );
-            assert!(
-                preview < Duration::from_millis(50),
-                "{kind:?}: preview {preview:?}"
-            );
+            measurements.push((kind, [build, ghosts, flags_time, preview]));
+            let (status, body) = app
+                .call(Method::DELETE, &format!("/api/plans/{}", plan.id), None)
+                .await;
+            assert_eq!(status, StatusCode::NO_CONTENT, "{body}");
+            app.state.plans.settle().await;
         }
-        let (status, body) = app
-            .call(Method::DELETE, &format!("/api/plans/{}", plan.id), None)
-            .await;
-        assert_eq!(status, StatusCode::NO_CONTENT, "{body}");
     }
+    println!("type | metric | n | min ms | median ms | max ms | limit ms");
+    let mut failures = Vec::new();
+    for kind in [
+        MoveType::KeepSource,
+        MoveType::KeepDestination,
+        MoveType::Flat,
+        MoveType::Custom,
+    ] {
+        for (index, (label, limit)) in [
+            ("build", Duration::from_secs(5)),
+            ("ghosts", Duration::from_millis(50)),
+            ("flags", Duration::from_millis(10)),
+            ("preview", Duration::from_millis(50)),
+        ]
+        .into_iter()
+        .enumerate()
+        {
+            let mut samples: Vec<_> = measurements
+                .iter()
+                .filter(|(k, _)| *k == kind)
+                .map(|(_, times)| times[index])
+                .collect();
+            samples.sort();
+            assert_eq!(samples.len(), 3);
+            println!(
+                "{kind:?} | {label} | 3 | {:.3} | {:.3} | {:.3} | {:.0}",
+                samples[0].as_secs_f64() * 1000.,
+                samples[1].as_secs_f64() * 1000.,
+                samples[2].as_secs_f64() * 1000.,
+                limit.as_secs_f64() * 1000.
+            );
+            if !cfg!(debug_assertions) && samples[2] >= limit {
+                failures.push(format!(
+                    "{kind:?} {label}: max {:?} >= {limit:?}",
+                    samples[2]
+                ));
+            }
+        }
+    }
+    assert!(failures.is_empty(), "{}", failures.join("\n"));
 }

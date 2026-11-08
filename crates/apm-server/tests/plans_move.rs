@@ -1182,6 +1182,30 @@ async fn reused_counterpart_and_replacement_ids_fail_closed_with_identical_index
         let new = seed.file(v, "out", name).size(5).hash(hash).insert().await;
         assert_eq!(new, target);
         ready(&app).await;
+        let reference = PlanRef {
+            plan_id: plan.id,
+            side: PlanSide::Comparison,
+        };
+        let mut view = GhostView {
+            volume_id: v,
+            dir: RelPath::new("out").unwrap(),
+            filter: Default::default(),
+            sort: SortKey::Name,
+            order: SortOrder::Asc,
+        };
+        for filtered in [false, true] {
+            if filtered {
+                view.filter.ratings = vec![0];
+            }
+            let ghosts = app
+                .state
+                .plans
+                .ghost_items(reference, &view, Window { skip: 0, take: 200 })
+                .await
+                .unwrap();
+            assert_eq!(ghosts.total, 0);
+            assert!(ghosts.items.is_empty());
+        }
         let flags = app
             .state
             .plans
