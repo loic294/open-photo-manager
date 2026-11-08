@@ -230,6 +230,25 @@ describe('build lifecycle', () => {
 });
 
 describe('invalidations', () => {
+  it('invalidates destination FolderRef subtrees, not siblings or other volumes', async () => {
+    const { controller, post, params } = setup();
+    params.value = {
+      ready: true,
+      params: {
+        source: { scope: { volume_id: 1, dir: 'source', recursive: false } },
+        destination: { volume_id: 2, dir: 'a/b' },
+      },
+    };
+    await vi.advanceTimersByTimeAsync(300);
+    events.emit({ type: 'fs_change', volume_id: 2, dirs: ['a/bc'] });
+    events.emit({ type: 'fs_change', volume_id: 3, dirs: ['a/b/child'] });
+    await vi.advanceTimersByTimeAsync(1500);
+    expect(post).toHaveBeenCalledTimes(1);
+    events.emit({ type: 'fs_change', volume_id: 2, dirs: ['a/b/child'] });
+    expect(controller.status).toBe('building');
+    await vi.advanceTimersByTimeAsync(1500);
+    expect(post).toHaveBeenCalledTimes(2);
+  });
   it('affects either scope but not a sibling or another volume, with a quiet debounce', async () => {
     const { controller, post } = setup();
     await vi.advanceTimersByTimeAsync(300);

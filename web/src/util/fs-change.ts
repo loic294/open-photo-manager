@@ -1,3 +1,5 @@
+import { isSameOrBelow } from '@/util/dir-path';
+
 /** What a listing shows. A `BrowseRequest` fits as is, so callers pass their request unchanged. */
 export interface FsChangeScope {
   /** `null` means every volume. */
@@ -41,9 +43,7 @@ export function fsChangeAffects(
   if (scope.plan !== null && scope.plan !== undefined) return true;
   if (scope.volume_id !== null && scope.volume_id !== event.volume_id) return false;
   const { dir } = scope;
-  const below = `${dir}/`;
   return event.dirs.some(
-    (changed) =>
-      changed === dir || (options.subtree === true && (dir === '' || changed.startsWith(below))),
+    (changed) => changed === dir || (options.subtree === true && isSameOrBelow(changed, dir)),
   );
 }

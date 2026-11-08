@@ -1,13 +1,13 @@
 import { html, nothing } from 'lit';
 import { live } from 'lit/directives/live.js';
 import { errorMessage, isApiError } from '@/api/errors';
-import type { ConflictPolicy } from '@/api/generated/ConflictPolicy';
 import type { FieldError } from '@/api/generated/FieldError';
 import type { SettingsDto } from '@/api/generated/SettingsDto';
 import { ApmElement } from '@/base/apm-element';
 import { ApmChipInput, type ChipValuesChange } from '@/components/apm-chip-input';
 import '@/components/apm-icon';
 import '@/components/apm-save-bar';
+import '@/components/apm-select';
 import { toast } from '@/components/toast';
 import { UnsavedGuard } from '@/controllers/unsaved-guard';
 import { loadSettings, saveSettings } from '@/stores/settings';
@@ -32,6 +32,7 @@ import {
   validateJunkName,
   validateJunkPrefix,
 } from '@/tools/settings/limits';
+import { CONFLICT_POLICIES, isConflictPolicy } from '@/util/conflict-policies';
 
 type ListField = 'sidecar_extensions' | 'junk_names' | 'junk_prefixes';
 type NumberField =
@@ -169,29 +170,6 @@ function numberProblem(doc: SettingsDto, field: NumberField): string | null {
   const value = rule.read(doc);
   return value === null || rule.valid(value) ? null : rule.message;
 }
-
-const POLICIES: readonly { value: ConflictPolicy; label: string; help: string }[] = [
-  {
-    value: 'smart',
-    label: 'Smart',
-    help: 'An identical file is skipped and reported. A different file is moved under a new name such as photo_1.jpg.',
-  },
-  {
-    value: 'skip',
-    label: 'Skip',
-    help: 'The file stays where it is and is reported as skipped.',
-  },
-  {
-    value: 'rename',
-    label: 'Rename',
-    help: 'The file is moved under a new name such as photo_1.jpg.',
-  },
-  {
-    value: 'replace',
-    label: 'Replace',
-    help: 'The file that is already there goes to the trash and the moved file takes its name.',
-  },
-];
 
 const NOTE_LISTS =
   'Applies to the next scan. Use Re-index in the menu to apply it to files that are already indexed.';
@@ -377,7 +355,6 @@ export class ApmSettingsGeneral extends ApmElement {
 
   protected override updated(): void {
     this.unsavedGuard.sync();
-    this.syncPolicy();
     if (this.saving || this.pendingFocus === null) return;
     const target = this.pendingFocus;
     this.pendingFocus = null;
@@ -389,13 +366,6 @@ export class ApmSettingsGeneral extends ApmElement {
     // A chip list enables its own text box in its own update, which follows this one.
     const ready = field instanceof ApmChipInput ? field.updateComplete : Promise.resolve();
     void ready.then(() => field?.focus());
-  }
-
-  /** The options are created after the select's own bindings are set, so no binding can pick one. */
-  private syncPolicy(): void {
-    const select = this.querySelector('select');
-    const policy = this.draft?.default_conflict_policy;
-    if (select && policy && select.value !== policy) select.value = policy;
   }
 
   private get dirty(): boolean {
@@ -567,27 +537,27 @@ export class ApmSettingsGeneral extends ApmElement {
 
   private renderMoving(doc: SettingsDto) {
     const policyId = domId('conflict-policy');
-    const policy = POLICIES.find((entry) => entry.value === doc.default_conflict_policy);
+    const policy = CONFLICT_POLICIES.find((entry) => entry.value === doc.default_conflict_policy);
     const autoDelete = doc.trash_retention_days !== null;
     return html`
       <fieldset class=${CARD} ?disabled=${this.saving}>
         <legend class="fieldset-legend text-base">Moving and deleting</legend>
         <div class="flex flex-col gap-1">
-          <label for=${policyId} class="text-sm font-medium">
-            When a file with the same name already exists
-          </label>
-          <select
+          <span class="text-sm font-medium">When a file with the same name already exists</span>
+          <apm-select
             id=${policyId}
             data-field="default_conflict_policy"
-            class="select w-full max-w-xs"
+            label="When a file with the same name already exists"
+            .options=${CONFLICT_POLICIES.map((entry) => ({ ...entry, title: entry.help }))}
+            .value=${doc.default_conflict_policy}
+            .disabled=${this.saving}
             aria-describedby="${policyId}-help"
-            @change=${(event: Event) => {
-              const value = (event.target as HTMLSelectElement).value as ConflictPolicy;
-              this.change((current) => ({ ...current, default_conflict_policy: value }));
+            @select-change=${(event: CustomEvent<{ value: string }>) => {
+              const value = event.detail.value;
+              if (isConflictPolicy(value))
+                this.change((current) => ({ ...current, default_conflict_policy: value }));
             }}
-          >
-            ${POLICIES.map((entry) => html`<option value=${entry.value}>${entry.label}</option>`)}
-          </select>
+          ></apm-select>
           <p id="${policyId}-help" class="text-xs text-base-content/70">${policy?.help}</p>
         </div>
         ${this.toggle({

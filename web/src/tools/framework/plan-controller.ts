@@ -32,16 +32,23 @@ export function paramsKey(params: Record<string, unknown>): string {
   );
 }
 
-/** Only concrete Scope objects inside the planner's parameters are invalidation scopes. */
+/** Scope and destination FolderRef objects use the same subtree invalidation rule. */
 function scopesIn(value: unknown): Scope[] {
   if (value === null || typeof value !== 'object') return [];
-  if ('volume_id' in value && 'dir' in value && 'recursive' in value) {
+  if ('volume_id' in value && 'dir' in value) {
     if (
       (value.volume_id === null || typeof value.volume_id === 'number') &&
       typeof value.dir === 'string' &&
-      typeof value.recursive === 'boolean'
+      (!('recursive' in value) || typeof value.recursive === 'boolean')
     ) {
-      return [{ volume_id: value.volume_id, dir: value.dir, recursive: value.recursive }];
+      return [
+        {
+          volume_id: value.volume_id,
+          dir: value.dir,
+          recursive:
+            'recursive' in value && typeof value.recursive === 'boolean' ? value.recursive : true,
+        },
+      ];
     }
   }
   return Object.values(value).flatMap(scopesIn);

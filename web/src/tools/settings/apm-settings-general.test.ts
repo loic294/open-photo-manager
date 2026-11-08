@@ -2,6 +2,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { CSRF_HEADER } from '@/api/client';
 import type { SettingsDto } from '@/api/generated/SettingsDto';
 import type { ApmChipInput } from '@/components/apm-chip-input';
+import type { ApmSelect } from '@/components/apm-select';
 import { clearToasts, toasts } from '@/stores/toasts';
 import { mount } from '@/test/helpers';
 import { sampleSettings } from '@/test/settings-fixtures';
@@ -70,6 +71,7 @@ async function open(doc: SettingsDto = sampleSettings(), ...next: Reply[]) {
   const element = await mount('apm-settings-general');
   await vi.waitFor(() => expect(element.querySelector('form')).not.toBeNull());
   await element.updateComplete;
+  await element.querySelector<ApmSelect>('apm-select')?.updateComplete;
   return { element, requests };
 }
 
@@ -112,9 +114,8 @@ async function flip(element: Form, id: string, checked: boolean): Promise<void> 
 }
 
 async function choose(element: Form, value: string): Promise<void> {
-  const select = byId<HTMLSelectElement>(element, 'conflict-policy');
-  select.value = value;
-  select.dispatchEvent(new Event('change', { bubbles: true }));
+  const select = byId<ApmSelect>(element, 'conflict-policy');
+  select.dispatchEvent(new CustomEvent('select-change', { detail: { value }, bubbles: true }));
   await element.updateComplete;
 }
 
@@ -243,7 +244,6 @@ describe('apm-settings-general', () => {
           'Ignored names',
           'Ignored prefixes',
           'Longest generated name',
-          'When a file with the same name already exists',
           'Keep the original in the trash after moving a file to another volume',
           'Delete trashed files automatically',
           'Delete after',
@@ -253,6 +253,9 @@ describe('apm-settings-general', () => {
           'Watch for changes',
           'Full rescan interval',
         ]),
+      );
+      expect(element.querySelector('apm-select')?.getAttribute('label')).toBe(
+        'When a file with the same name already exists',
       );
       expect(chips(element, 'sidecar_extensions').allowSpaces).toBe(false);
       expect(chips(element, 'junk_names').allowSpaces).toBe(true);
@@ -292,9 +295,9 @@ describe('apm-settings-general', () => {
     it('selects the default conflict policy and describes it', async () => {
       const { element } = await open(sampleSettings({ default_conflict_policy: 'replace' }));
 
-      const select = byId<HTMLSelectElement>(element, 'conflict-policy');
+      const select = byId<ApmSelect>(element, 'conflict-policy');
       expect(select.value).toBe('replace');
-      expect([...select.options].map((option) => option.value)).toEqual([
+      expect(select.options.map((option) => option.value)).toEqual([
         'smart',
         'skip',
         'rename',
