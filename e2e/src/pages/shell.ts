@@ -13,7 +13,7 @@ export class ShellPage {
     return this.page.getByRole('banner');
   }
   toasts() {
-    return this.page.locator('apm-toast');
+    return this.page.locator('apm-toast-host .alert');
   }
   taskIndicator() {
     return this.page.locator('apm-task-indicator');

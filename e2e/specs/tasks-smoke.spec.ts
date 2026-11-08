@@ -19,6 +19,7 @@ test('menu re-index reports progress while panes remain interactive', async ({
   for (let i = 0; i < 20; i++)
     await writeFile(app, file.volume, `${file.dir}/e2e-task-${i}.jpg`, bytes);
   await shell.reindex();
+  await expect(shell.toasts().filter({ hasText: /Re-indexing \d+ folders?/ })).toBeVisible();
   await expect(shell.progress()).toBeVisible();
   await source.card(file.name).select();
   await expect(source.card(file.name).element).toHaveAttribute('aria-selected', 'true');

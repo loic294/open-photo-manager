@@ -29,10 +29,17 @@ export class BottomBarPage {
   splitButton() {
     return this.element.locator('apm-split-button');
   }
+  actionButton() {
+    return this.splitButton().getByRole('button');
+  }
+  async actionLabel() {
+    return this.actionButton().textContent();
+  }
+  async openActions() {
+    await this.splitButton().locator('summary[aria-label="Choose action"]').click();
+  }
   async chooseAction(label: string) {
-    await this.splitButton()
-      .getByRole('button', { name: /options|actions/i })
-      .click();
-    await this.splitButton().getByRole('menuitem', { name: label, exact: true }).click();
+    await this.openActions();
+    await this.splitButton().getByRole('menuitemradio', { name: label, exact: true }).click();
   }
 }
