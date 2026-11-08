@@ -51,6 +51,8 @@ export interface MockImmichOptions {
   ) => Promise<void>;
   /** Persist a complete library scan before making it visible in the model. */
   beforeScanCommit?: (scan: BackingScan) => Promise<void>;
+  /** Observe the generated test key once, without storing it in mock state or request logs. */
+  onApiKeyCreated?: (secret: string) => void;
 }
 
 export interface MockImmich {
@@ -85,6 +87,7 @@ const OPTION_KEYS = [
   'readOnlyBacking',
   'beforeAssetDelete',
   'beforeScanCommit',
+  'onApiKeyCreated',
 ];
 
 function checkOptions(options: MockImmichOptions): void {
@@ -107,6 +110,9 @@ function checkOptions(options: MockImmichOptions): void {
   }
   if (options.beforeScanCommit !== undefined && typeof options.beforeScanCommit !== 'function') {
     c.fail('beforeScanCommit', 'must be a function');
+  }
+  if (options.onApiKeyCreated !== undefined && typeof options.onApiKeyCreated !== 'function') {
+    c.fail('onApiKeyCreated', 'must be a function');
   }
   if (c.errors.length > 0) {
     throw new Error(`invalid options:\n  - ${c.errors.join('\n  - ')}`);
@@ -169,6 +175,7 @@ export async function startMockImmich(options: MockImmichOptions = {}): Promise<
     readOnlyBacking: options.readOnlyBacking,
     beforeAssetDelete: options.beforeAssetDelete,
     beforeScanCommit: options.beforeScanCommit,
+    onApiKeyCreated: options.onApiKeyCreated,
     pendingBacking: Promise.resolve(),
   };
   seedData(ctx);

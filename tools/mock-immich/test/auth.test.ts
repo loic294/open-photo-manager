@@ -74,7 +74,8 @@ test('a malformed login body is a 400 listing every problem', async (t) => {
 });
 
 test('an API key is created with the bearer token and works at once', async (t) => {
-  const mock = await startMock(t);
+  const observed: string[] = [];
+  const mock = await startMock(t, { onApiKeyCreated: (secret) => observed.push(secret) });
   const token = await login(mock);
   const created = await call(mock, 'POST', '/api/api-keys', {
     token,
@@ -85,6 +86,7 @@ test('an API key is created with the bearer token and works at once', async (t) 
   assert.equal(created.body.name, 'apm');
   assert.deepEqual(created.body.permissions, APP_PERMISSIONS);
   assert.equal(typeof created.body.secret, 'string');
+  assert.deepEqual(observed, [created.body.secret]);
   assert.equal(created.body.apiKey.id, created.body.id);
 
   const me = await call(mock, 'GET', '/api/users/me', { key: created.body.secret });
@@ -95,6 +97,7 @@ test('an API key is created with the bearer token and works at once', async (t) 
   const [stored] = mock.state.keys();
   assert.equal(stored?.id, created.body.id);
   assert.ok(!JSON.stringify(mock.state.keys()).includes(created.body.secret));
+  assert.ok(!JSON.stringify(mock.state.requests()).includes(created.body.secret));
   const entry = mock.state.requests().entries.at(-1);
   assert.equal(entry?.auth, 'apiKey');
   assert.equal(entry?.keyName, 'apm');

@@ -61,6 +61,9 @@ Paths, port, timezone and production web directory cannot be overridden through 
 `/mnt/photos` and `/mnt/archive` on that test's private volumes. It exposes `url`, `control` and
 `state`; teardown stops it and asserts that its violation list is empty. Only this external
 server is fake. The connect acceptance case goes through the real Settings UI, then verifies the API.
+`onApiKeyCreated(secret)` is a programmatic mock option for tests that must verify a generated
+test key is absent from application logs and plaintext storage. It is not retained in mock state
+or request logs and is never exposed through the mock control API.
 
 ## Private separate-device fixtures
 

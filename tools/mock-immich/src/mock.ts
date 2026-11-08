@@ -58,5 +58,6 @@ export interface MockContext {
     now: number,
   ) => Promise<void>;
   beforeScanCommit?: (scan: BackingScan) => Promise<void>;
+  onApiKeyCreated?: (secret: string) => void;
   pendingBacking: Promise<void>;
 }

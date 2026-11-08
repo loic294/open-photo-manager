@@ -80,6 +80,7 @@ export const authRoutes: Route[] = [
         createdAt: now,
         updatedAt: now,
       };
+      ctx.onApiKeyCreated?.(secret);
       ctx.data.keys.set(key.id, key);
       // The deprecated `apiKey` member stays next to the flattened fields, like the 3.4 spec says.
       return created({ ...keyView(key), secret, apiKey: keyView(key) });
