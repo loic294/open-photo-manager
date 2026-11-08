@@ -82,6 +82,22 @@ it('keeps one pending request, disables the whole form and ignores a duplicate s
   );
 });
 
+it('does not reuse database readiness from the previous connection while refreshing status', async () => {
+  const previous = sampleImmichStatus();
+  previous.direct_database.ready = true;
+  previous.direct_database.checked_at = 123;
+  applyImmichStatus(previous);
+  vi.mocked(api.get).mockReturnValue(new Promise(() => {}));
+  vi.spyOn(api, 'post').mockResolvedValue(sampleImmichStatus().connection);
+  const el = await mount('apm-immich-connect-form');
+  await fill(el);
+  submit(el);
+  await vi.waitFor(() => expect(immichStatus.value?.direct_database.ready).toBe(false));
+  expect(immichStatus.value?.direct_database.checked_at).toBeNull();
+  expect(immichStatus.value?.direct_database.reason).toContain('checked again');
+  expect(immichStatus.value?.direct_database.warning).toBe(previous.direct_database.warning);
+});
+
 it('uses a native submit form for Enter and pre-fills reconnect without a password', async () => {
   const el = await mount('apm-immich-connect-form', {
     connection: sampleImmichStatus().connection,

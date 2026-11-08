@@ -142,6 +142,20 @@ async fn real_v333_postgres_gate() {
         }],
     };
     let prepared = database.prepare(spec.clone()).await.unwrap();
+    let asset_updated_at: String =
+        sqlx::query_scalar(r#"SELECT "updatedAt"::text FROM public.asset WHERE id = $1::uuid"#)
+            .bind(&id)
+            .fetch_one(&pool)
+            .await
+            .unwrap();
+    let sidecar_updated_at: String = sqlx::query_scalar(
+        r#"SELECT "updatedAt"::text FROM public.asset_file
+        WHERE "assetId" = $1::uuid AND type = 'sidecar' AND "isEdited" = false"#,
+    )
+    .bind(&id)
+    .fetch_one(&pool)
+    .await
+    .unwrap();
     assert_eq!(database.apply(&prepared).await, Ok(MoveApplied::Updated));
     assert_eq!(
         database.apply(&prepared).await,
@@ -158,6 +172,28 @@ async fn real_v333_postgres_gate() {
         .bind(&id).fetch_one(&pool).await.unwrap();
     assert_eq!(sidecar, "/photos/new.xmp");
     assert_ne!(Some(sidecar_cursor), prepared.sidecar_update_id);
+    let asset_changed: bool = sqlx::query_scalar(
+        r#"SELECT "updatedAt"::text <> $2 FROM public.asset WHERE id = $1::uuid"#,
+    )
+    .bind(&id)
+    .bind(asset_updated_at)
+    .fetch_one(&pool)
+    .await
+    .unwrap();
+    let sidecar_changed: bool = sqlx::query_scalar(
+        r#"SELECT "updatedAt"::text <> $2 FROM public.asset_file
+        WHERE "assetId" = $1::uuid AND type = 'sidecar' AND "isEdited" = false"#,
+    )
+    .bind(&id)
+    .bind(sidecar_updated_at)
+    .fetch_one(&pool)
+    .await
+    .unwrap();
+    assert!(asset_changed, "the real asset timestamp trigger must fire");
+    assert!(
+        sidecar_changed,
+        "the real sidecar timestamp trigger must fire"
+    );
     let associated: bool = sqlx::query_scalar(
         r#"SELECT EXISTS(SELECT 1 FROM public.album_asset WHERE "albumId" = $1::uuid AND "assetId" = $2::uuid)"#)
         .bind(&album).bind(&id).fetch_one(&pool).await.unwrap();
@@ -254,6 +290,23 @@ async fn real_v333_postgres_gate() {
     let mut identity = before_collision.spec.clone();
     identity.owner_id = group.clone();
     assert_eq!(database.prepare(identity).await, Err(DbMoveError::Identity));
+    let mut wrong_library = before_collision.spec.clone();
+    wrong_library.library_id = group.clone();
+    assert_eq!(
+        database.prepare(wrong_library).await,
+        Err(DbMoveError::Identity)
+    );
+    let mut outside_library = before_collision.spec.clone();
+    outside_library.new = "/other-library/late.jpg".into();
+    assert_eq!(
+        database.prepare(outside_library).await,
+        Err(DbMoveError::Destination)
+    );
+    let mut stale_path = before_collision.spec.clone();
+    stale_path.old = "/photos/not-the-original.jpg".into();
+    stale_path.new = "/photos/stale-source-check.jpg".into();
+    stale_path.new_name = "stale-source-check.jpg".into();
+    assert_eq!(database.prepare(stale_path).await, Err(DbMoveError::Stale));
     sqlx::query(r#"UPDATE public.asset SET "isExternal" = false WHERE id = $1::uuid"#)
         .bind(&reused)
         .execute(&pool)

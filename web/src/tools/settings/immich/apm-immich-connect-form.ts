@@ -82,6 +82,15 @@ export class ApmImmichConnectForm extends ApmElement {
         outbox_pending: previous?.outbox_pending ?? 0,
         needs_attention: previous?.needs_attention ?? 0,
         outbox: previous?.outbox ?? null,
+        direct_database: {
+          ready: false,
+          reason:
+            'Direct database readiness must be checked again after connecting. Every tracked move checks before moving a file.',
+          checked_at: null,
+          warning:
+            previous?.direct_database.warning ??
+            'Direct SQL modification is not officially supported by Immich v3.3.3. Keep a current backup. Active or queued scans can import duplicates or remove assets during a move.',
+        },
       });
       void loadImmichStatus();
       this.dispatchEvent(new Event('connected', { bubbles: true }));

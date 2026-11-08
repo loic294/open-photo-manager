@@ -1458,8 +1458,11 @@ mod tests {
                 .bind(name).bind(queued).execute(fx.db.write()).await.unwrap();
         }
         clear(&fx.db).await.unwrap();
-        let states: Vec<i64> = sqlx::query_scalar("SELECT queued FROM immich_direct_move ORDER BY old_rel")
-            .fetch_all(fx.db.read()).await.unwrap();
+        let states: Vec<i64> =
+            sqlx::query_scalar("SELECT queued FROM immich_direct_move ORDER BY old_rel")
+                .fetch_all(fx.db.read())
+                .await
+                .unwrap();
         assert_eq!(states, [0, 2]);
     }
 

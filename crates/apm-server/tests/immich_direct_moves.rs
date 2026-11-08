@@ -6,7 +6,9 @@ mod common;
 mod immich_support;
 
 use apm_core::dto::{ConflictPolicy, TaskState};
-use apm_server::fsops::{FsOps, MoveGroup, MoveOutcome, Mover, OpContext, SidecarAction, SidecarItem, SystemMover};
+use apm_server::fsops::{
+    FsOps, MoveGroup, MoveOutcome, Mover, OpContext, SidecarAction, SidecarItem, SystemMover,
+};
 use apm_server::immich::direct_db::{
     DbMoveError, MoveApplied, MoveDatabase, MoveSpec, PreparedMove,
 };
@@ -15,7 +17,11 @@ use apm_server::immich::{ImmichOutbox, ImmichService, ImmichSync};
 use async_trait::async_trait;
 use common::fsops::{loc, request};
 use immich_support::{Fixture, Site, one_photo};
-use std::{io, path::Path, sync::{Arc, Mutex}};
+use std::{
+    io,
+    path::Path,
+    sync::{Arc, Mutex},
+};
 
 struct ForcedCopy;
 
@@ -202,12 +208,14 @@ async fn direct_move_queues_exact_identity_and_final_conflict_name_without_api_d
         Some("database_update_pending")
     );
     assert_eq!(pass(&fx, &outbox).await.state, TaskState::Done);
-    let applied = database.applied.lock().unwrap();
-    assert_eq!(applied.len(), 1);
-    assert_eq!(applied[0].spec.asset_id, id);
-    assert_eq!(applied[0].spec.old, site.immich_path("2020/a.jpg"));
-    assert_eq!(applied[0].spec.new, site.immich_path("2021/a_1.jpg"));
-    assert_eq!(applied[0].spec.new_name, "a_1.jpg");
+    {
+        let applied = database.applied.lock().unwrap();
+        assert_eq!(applied.len(), 1);
+        assert_eq!(applied[0].spec.asset_id, id);
+        assert_eq!(applied[0].spec.old, site.immich_path("2020/a.jpg"));
+        assert_eq!(applied[0].spec.new, site.immich_path("2021/a_1.jpg"));
+        assert_eq!(applied[0].spec.new_name, "a_1.jpg");
+    }
     assert!(fx.deletes().is_empty());
     assert!(fx.scans_asked().is_empty());
     assert_eq!(fx.row_count().await, 0);
@@ -474,19 +482,37 @@ async fn ordinary_post_disk_errors_and_crashes_keep_recoverable_intents() {
 async fn completing_moves_allows_sqlite_outbox_id_reuse_without_losing_replay_proof() {
     let (fx, site, _) = one_photo().await;
     fx.seed_one(&site, "2020/b.jpg").await;
-    fx.sync_ok().await;
+    fx.sync_ok(true).await;
     let database = Arc::new(Database::default());
     let (ops, outbox) = engines(&fx, database.clone());
-    move_photo(&ops, &site, "2021/a.jpg", ConflictPolicy::Skip).await.unwrap();
+    move_photo(&ops, &site, "2021/a.jpg", ConflictPolicy::Skip)
+        .await
+        .unwrap();
     let first_id = fx.only_row().await.id;
     assert_eq!(pass(&fx, &outbox).await.state, TaskState::Done);
-    ops.move_file(request(loc(site.volume_id, "2020/b.jpg"),
-        loc(site.volume_id, "2021/b.jpg"), ConflictPolicy::Skip), &OpContext::detached()).await.unwrap();
-    assert_eq!(fx.only_row().await.id, first_id, "SQLite reuses a drained outbox's rowid");
+    ops.move_file(
+        request(
+            loc(site.volume_id, "2020/b.jpg"),
+            loc(site.volume_id, "2021/b.jpg"),
+            ConflictPolicy::Skip,
+        ),
+        &OpContext::detached(),
+    )
+    .await
+    .unwrap();
+    assert_eq!(
+        fx.only_row().await.id,
+        first_id,
+        "SQLite reuses a drained outbox's rowid"
+    );
     assert_eq!(pass(&fx, &outbox).await.state, TaskState::Done);
     assert_eq!(database.applied.lock().unwrap().len(), 2);
-    let proof: i64 = sqlx::query_scalar("SELECT COUNT(*) FROM immich_direct_move WHERE queued = 2 AND outbox_id IS NULL")
-        .fetch_one(fx.app.state.db.read()).await.unwrap();
+    let proof: i64 = sqlx::query_scalar(
+        "SELECT COUNT(*) FROM immich_direct_move WHERE queued = 2 AND outbox_id IS NULL",
+    )
+    .fetch_one(fx.app.state.db.read())
+    .await
+    .unwrap();
     assert_eq!(proof, 2);
 }
 
@@ -557,7 +583,11 @@ async fn restart_cleans_orphan_preparation_but_retains_completed_journal_replay_
     let mut tx = fx.app.state.db.begin_write().await.unwrap();
     hook.on_applied(&mut tx, &operation).await.unwrap();
     tx.commit().await.unwrap();
-    assert_eq!(fx.row_count().await, 1, "old proof cannot swallow a new operation");
+    assert_eq!(
+        fx.row_count().await,
+        1,
+        "old proof cannot swallow a new operation"
+    );
 }
 
 #[tokio::test]
@@ -592,24 +622,24 @@ async fn failed_or_cancelled_groups_remove_inert_intents_when_disk_work_did_not_
             }
         }));
         let error = failing
-                .move_group(
-                    MoveGroup {
-                        owner: request(
-                            loc(site.volume_id, "2020/a.jpg"),
-                            loc(site.volume_id, "2021/b.jpg"),
-                            ConflictPolicy::Skip
-                        ),
-                        sidecars: vec![SidecarItem {
-                            file_id: None,
-                            src: loc(site.volume_id, "2020/a.xmp"),
-                            kind: apm_core::sidecar::LinkKind::Stem,
-                            action: SidecarAction::Copy
-                        }],
-                    },
-                    &cx
-                )
-                .await
-                .unwrap_err();
+            .move_group(
+                MoveGroup {
+                    owner: request(
+                        loc(site.volume_id, "2020/a.jpg"),
+                        loc(site.volume_id, "2021/b.jpg"),
+                        ConflictPolicy::Skip,
+                    ),
+                    sidecars: vec![SidecarItem {
+                        file_id: None,
+                        src: loc(site.volume_id, "2020/a.xmp"),
+                        kind: apm_core::sidecar::LinkKind::Stem,
+                        action: SidecarAction::Copy,
+                    }],
+                },
+                &cx,
+            )
+            .await
+            .unwrap_err();
         if cancel {
             assert_eq!(error.code(), "cancelled");
         }

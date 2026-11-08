@@ -17,6 +17,7 @@ services:
         chown -R postgres:postgres /run/apm-pg-tls
         chmod 600 /run/apm-pg-tls/server.key
         exec /usr/local/bin/docker-entrypoint.sh postgres \
+          -c shared_preload_libraries=vchord.so \
           -c ssl=on \
           -c ssl_cert_file=/run/apm-pg-tls/server.crt \
           -c ssl_key_file=/run/apm-pg-tls/server.key
@@ -39,7 +40,7 @@ services:
       timeout: 2s
       retries: 60
   server:
-    image: ghcr.io/immich-app/immich-server:v3.3.3
+    image: ghcr.io/immich-app/immich-server:v3.3.3@sha256:bae7664ff3aa4c2c1fcbdcdd86b40b105643c5f861f3e6a770fc760089f25862
     environment:
       DB_HOSTNAME: database
       DB_PORT: "5432"

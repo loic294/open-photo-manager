@@ -38,6 +38,12 @@ async fn without_a_connection_the_status_says_so_and_asks_nobody() {
         "outbox_pending": 0,
         "needs_attention": 0,
         "outbox": null,
+        "direct_database": {
+            "ready": false,
+            "reason": "Direct database access has not been checked. Tracked moves require a compatible Immich v3.3.3 database.",
+            "checked_at": null,
+            "warning": apm_server::immich::direct_db::RISK,
+        },
     });
 
     assert_eq!(fx.status(false).await, expected);

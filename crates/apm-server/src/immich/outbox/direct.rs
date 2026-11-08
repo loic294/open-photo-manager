@@ -82,15 +82,25 @@ pub(super) async fn preflight(
         AND (d.queued = 1 OR (d.queued = 0 AND EXISTS(SELECT 1 FROM fs_journal j
             WHERE j.state = 'pending' AND j.src_volume_id = d.old_volume_id
             AND j.src_path = d.old_rel AND j.dst_volume_id = d.new_volume_id
-            AND j.dst_path = d.new_rel))))")
-        .bind(&records[0].asset_id).fetch_one(db.read()).await
-        .map_err(|_| DbMoveError::Unavailable)?;
-    if pending_asset { return Err(DbMoveError::PendingUpdate); }
+            AND j.dst_path = d.new_rel))))",
+    )
+    .bind(&records[0].asset_id)
+    .fetch_one(db.read())
+    .await
+    .map_err(|_| DbMoveError::Unavailable)?;
+    if pending_asset {
+        return Err(DbMoveError::PendingUpdate);
+    }
     let file_id: i64 = sqlx::query_scalar(
-        "SELECT id FROM files WHERE volume_id = ? AND dir_path = ? AND name = ?")
-        .bind(src.volume_id).bind(src.dir().as_str()).bind(src.name())
-        .fetch_optional(db.read()).await.map_err(|_| DbMoveError::Unavailable)?
-        .ok_or(DbMoveError::Stale)?;
+        "SELECT id FROM files WHERE volume_id = ? AND dir_path = ? AND name = ?",
+    )
+    .bind(src.volume_id)
+    .bind(src.dir().as_str())
+    .bind(src.name())
+    .fetch_optional(db.read())
+    .await
+    .map_err(|_| DbMoveError::Unavailable)?
+    .ok_or(DbMoveError::Stale)?;
     let map = immich.path_map().await.map_err(|_| DbMoveError::Identity)?;
     let Some(new) = map.to_immich(dst.volume_id, &dst.rel) else {
         return Ok(MovePreflight::ApiRemoval);
@@ -226,6 +236,15 @@ pub(super) async fn confirm_sidecar(
     Ok(())
 }
 
+#[derive(sqlx::FromRow)]
+struct Intent {
+    request_json: String,
+    queued: i64,
+    file_id: i64,
+    journal_id: Option<i64>,
+    journal_created_at: Option<i64>,
+}
+
 /// Idempotent local hook, called before generic queue/merge. Returns true when
 /// this operation has a direct intent, including a replay of a completed one.
 pub(super) async fn queue(
@@ -234,7 +253,7 @@ pub(super) async fn queue(
     from: &Loc,
     to: &Loc,
 ) -> Result<bool, sqlx::Error> {
-    let intent: Option<(String, i64, i64, Option<i64>, Option<i64>)> = sqlx::query_as(
+    let intent: Option<Intent> = sqlx::query_as(
         "SELECT request_json, queued, file_id, journal_id, journal_created_at FROM immich_direct_move WHERE
         old_volume_id = ? AND old_rel = ? AND new_volume_id = ? AND new_rel = ?",
     )
@@ -244,21 +263,31 @@ pub(super) async fn queue(
     .bind(to.rel.as_str())
     .fetch_optional(&mut *tx)
     .await?;
-    let Some((json, queued, prepared_file_id, recorded_journal, recorded_time)) = intent else {
+    let Some(intent) = intent else {
         return Ok(false);
     };
-    if queued != 0 && prepared_file_id != file_id {
+    if intent.queued != 0 && intent.file_id != file_id {
         return Ok(false);
     }
     let (journal, journal_created_at): (i64, i64) = sqlx::query_as(
         "SELECT id, created_at FROM fs_journal WHERE src_volume_id = ? AND src_path = ?
         AND dst_volume_id = ? AND dst_path = ? AND op = 'move' AND state = 'done'
-        ORDER BY id DESC LIMIT 1")
-        .bind(from.volume_id).bind(from.rel.as_str()).bind(to.volume_id).bind(to.rel.as_str())
-        .fetch_optional(&mut *tx).await?
-        .ok_or_else(|| sqlx::Error::Protocol("A direct move is missing its completed filesystem journal".to_owned()))?;
-    if queued != 0 {
-        return Ok(recorded_journal == Some(journal) && recorded_time == Some(journal_created_at));
+        ORDER BY id DESC LIMIT 1",
+    )
+    .bind(from.volume_id)
+    .bind(from.rel.as_str())
+    .bind(to.volume_id)
+    .bind(to.rel.as_str())
+    .fetch_optional(&mut *tx)
+    .await?
+    .ok_or_else(|| {
+        sqlx::Error::Protocol(
+            "A direct move is missing its completed filesystem journal".to_owned(),
+        )
+    })?;
+    if intent.queued != 0 {
+        return Ok(intent.journal_id == Some(journal)
+            && intent.journal_created_at == Some(journal_created_at));
     };
     let now = now_secs();
     let outbox_id: i64 = sqlx::query_scalar(
@@ -287,7 +316,7 @@ pub(super) async fn queue(
     .bind(journal)
     .bind(file_id)
     .bind(journal_created_at)
-    .bind(json)
+    .bind(intent.request_json)
     .bind(from.volume_id)
     .bind(from.rel.as_str())
     .bind(to.volume_id)
@@ -383,10 +412,12 @@ pub(super) async fn apply(
             .bind(json)
             .execute(&mut *tx)
             .await?;
-            sqlx::query("UPDATE immich_direct_move SET queued = 2, outbox_id = NULL WHERE outbox_id = ?")
-                .bind(row.id)
-                .execute(&mut *tx)
-                .await?;
+            sqlx::query(
+                "UPDATE immich_direct_move SET queued = 2, outbox_id = NULL WHERE outbox_id = ?",
+            )
+            .bind(row.id)
+            .execute(&mut *tx)
+            .await?;
             sqlx::query("DELETE FROM immich_outbox WHERE id = ?")
                 .bind(row.id)
                 .execute(&mut *tx)
