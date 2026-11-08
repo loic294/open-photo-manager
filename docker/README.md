@@ -1,5 +1,8 @@
 # Docker image
 
+See also: [Synology operations](../docs/synology.md), [Immich](../docs/immich.md),
+[usage and recovery](../docs/usage.md), [troubleshooting](../docs/troubleshooting.md).
+
 Advanced Photo Manager ships as one image: the Rust server, the built web app, and the media tools it needs
 (`ffmpeg`, `exiftool`, `libvips` with HEIC/AVIF). It runs as a non-root user, works with a read-only root
 filesystem and has a built-in health check. It is meant for a Synology NAS but runs on any Docker host.
@@ -232,6 +235,7 @@ Set these as environment variables. An empty value counts as not set.
 | `APM_WEB_DIR` | `/app/web` | The built web app. Leave it alone. |
 | `APM_LOG` | `info` | Log filter: `error`, `warn`, `info`, `debug`, or finer such as `info,apm_server::indexer=debug`. Logs go to stdout (`docker logs apm`). |
 | `APM_ALLOWED_HOSTS` | (empty) | Names you type in the browser to reach the app, comma separated: `diskstation`, `diskstation:8080`, `*.example.com`. `localhost` and IP addresses always work. **Set this when you use a name**, otherwise the app answers 403 "host not allowed". |
+| `APM_IMMICH_QUIET_SECS` | `15` | Seconds of quiet file operations before queued changes are mirrored to Immich; accepts 1 through 600. An invalid value refuses startup. This is not an import-completion deadline. |
 | `APM_INDEX_CONCURRENCY` | (empty: the smaller of 2 and the CPU count) | How many files are analysed at once. Use `1` on a NAS with little memory. |
 | `TZ` | `UTC` | Time zone name, e.g. `Europe/Paris`. Used for log times and for photos that carry no time zone. |
 | `LANG` | `C.UTF-8` | Keeps accented file names intact in the media tools. Leave it alone. |
@@ -264,10 +268,11 @@ and Synology ACLs on top of it. Any numbers work, they do not have to exist insi
 3. Give that user the data folder:
    `sudo mkdir -p /volume1/docker/apm/data && sudo chown -R 1026:100 /volume1/docker/apm/data`.
 
-Use a folder on the NAS (a bind mount) for `/data`, as `compose.yml` does. A Docker named volume works only
-when the container runs as the default user (leave out `user:`): Docker hands a new, empty named volume the
-ownership of the image's `/data` (1000:1000) and does so again whenever the volume is still empty at container
-creation, so a `chown` of an empty named volume does not last.
+Use a folder on the NAS (a bind mount) for `/data`, as `compose.yml` does, for convenient backup and inspection.
+A Docker named volume also works, including with an arbitrary non-root UID, when it has the correct
+ownership for the selected `user:`. A newly populated volume inherits the image directory's ownership
+(1000:1000); prepare ownership for another UID before running the app. Do not mistake an ownership failure
+for a requirement to run as root or to abandon named volumes.
 
 If `/data` is not writable by the user, the container stops at once and says so in its log (`docker logs apm`)
 instead of failing later with a database error.

@@ -3,9 +3,35 @@
 Browse, filter and organise a photo library on a Synology NAS. One Docker image contains the Rust server,
 web interface and media tools, with native Linux amd64 and arm64 builds.
 
-**Private repository and private image:** `loic294/advanced-photo-manager` and
-`ghcr.io/loic294/advanced-photo-manager`. The app has **no login** in v1: keep it on your trusted LAN,
+Private repository and private image: `loic294/advanced-photo-manager` and
+`ghcr.io/loic294/advanced-photo-manager`. The app has no login in v1: keep it on your trusted LAN,
 do not forward port 8080 or expose it publicly. Back up your photos and the app's data folder.
+
+## Before you start
+
+- Host, Origin and request-header checks reduce browser cross-site attacks; they do not authenticate
+  anyone on your LAN. Never publish the app's port. [Access safety](docs/synology.md#access-safety).
+- File deletion sends content to `<volume>/.apm-trash`. Emptying trash permanently removes it;
+  enabling automatic retention also permanently removes old trash. Retention is off by default.
+  [Trash and recovery](docs/usage.md#trash-and-recovery).
+- The first index reads file contents to hash them and extracts metadata, including linked `.xmp`
+  sidecars. Later scans process changes; allow for hours on a large library because hashing reads
+  every file. [First start](docs/synology.md#first-start).
+- Set `TZ` before indexing and `APM_ALLOWED_HOSTS` before opening the app by name.
+  [Names and dates](docs/synology.md#names-and-dates).
+- Immich must see the same share through an external library. Mirroring is asynchronous and
+  metadata carry-over has limits. [Immich guide](docs/immich.md).
+- Still images such as HEIC, TIFF and RAW get JPEG viewer renditions. Video is streamed unchanged;
+  a thumbnail does not mean the browser supports its codec.
+  [Media troubleshooting](docs/troubleshooting.md#browsing-and-media).
+
+## Installation guide
+
+1. Identify your NAS architecture and choose a numeric user.
+2. Prepare local app storage and photo-share permissions.
+3. Follow the existing private GHCR installation below.
+4. Check container health, then browse a disposable test library first.
+5. Follow the [Synology operations guide](docs/synology.md) for checks, backups and DSM caveats.
 
 ## Install on Synology
 
@@ -23,7 +49,7 @@ The commands below run over SSH on the NAS; use an account permitted to run Dock
    On DSM, Docker commands usually need `sudo`; this has not been verified on a DSM device.
    Docker login is per OS user, so run `docker login`, `docker compose pull` and `docker compose up -d`
    consistently with `sudo`, or consistently without it.
-2. Get a **classic GitHub personal access token with `read:packages`**, belonging to an account granted
+2. Get a classic GitHub personal access token with `read:packages`, belonging to an account granted
    read access to the private package (and authorize SSO if required). Log in interactively:
    ```sh
    docker login ghcr.io --username YOUR_GITHUB_USERNAME
@@ -142,3 +168,50 @@ services:
     # The health check ("is the app answering?") is part of the image, nothing to add here.
 ```
 <!-- END COMPOSE -->
+
+## Documentation
+
+These guides describe the repository implementation. A published development image may lag behind it.
+The four tool walkthroughs and complete local acceptance walkthrough are still awaiting integration.
+Immich move instructions also await the new direct-database path-update contract.
+
+| Guide | For |
+|---|---|
+| [Synology](docs/synology.md) | Installation checks, permissions, indexing, updates and backups |
+| [Immich](docs/immich.md) | Connection, external-library mappings and safe asynchronous mirroring |
+| [Usage](docs/usage.md) | Already-landed browsing, settings and trash operations; tool tour pending |
+| [Troubleshooting](docs/troubleshooting.md) | Symptoms, error codes and local diagnostics |
+| [Docker reference](docker/README.md) | Image builds, environment variables, mounts and hardening |
+
+## Development
+
+Run `make fixtures` to generate a test library; `make dev-server` and `make dev-web` start the backend
+and frontend. From a worktree use your own ports, not the shared 8080/5173 defaults:
+
+```sh
+APM_LISTEN=127.0.0.1:SERVER_PORT make dev-server
+APM_API_TARGET=http://127.0.0.1:SERVER_PORT npm --prefix web run dev -- --port WEB_PORT --strictPort
+```
+
+Replace `SERVER_PORT` and `WEB_PORT` with unused numeric ports in both commands. Run them in separate
+terminals. Destructive checks use a copy of the fixture volumes and a separate `APM_DATA_DIR`.
+
+`make check` covers Rust, web and Compose; `make check-docs` covers documentation contracts.
+`make check-tools` checks the separate developer tools. `make mock-immich` starts the shared test
+service; [its reference](tools/mock-immich/README.md) explains scenarios and isolated mounts.
+`make docker-smoke` builds and exercises the production image; it is not a DSM test.
+
+| Path | Contents |
+|---|---|
+| `crates/apm-core/` | Pure domain logic and API DTOs |
+| `crates/apm-server/` | HTTP server, SQLite, indexer, file operations and Immich |
+| `crates/apm-server/migrations/` | Append-only database migrations |
+| `crates/apm-server/tests/` | Integration tests |
+| `web/` | Lit and DaisyUI application |
+| `web/src/api/generated/` | TypeScript DTOs exported from Rust |
+| `docker/` | Production image and deployment reference |
+| `fixtures/` | Disposable test-library generator |
+| `tools/` | Developer tools, including mock Immich |
+| `docs/` | User guides and documentation checks |
+
+Contributor rules are in [AGENTS.md](AGENTS.md) and [web/AGENTS.md](web/AGENTS.md).
