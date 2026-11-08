@@ -2,7 +2,12 @@ import { testUsers } from '../../../tools/mock-immich/index.ts';
 import type { ImmichStatusDto } from '../../../web/src/api/generated/ImmichStatusDto';
 import { expect, test } from '../../src/immich-readonly-test';
 
-test.use({ allowedErrors: ['API 502:'] });
+// The first connection deliberately fails because the fixture certificate is untrusted.
+test.use({
+  allowedErrors: [
+    /^(API 502: http:\/\/127\.0\.0\.1:\d+\/api\/immich\/connect|console\.error: Failed to load resource: the server responded with a status of 502 \(Bad Gateway\))$/,
+  ],
+});
 
 test('a self-signed Immich certificate requires an explicit persisted opt-in', async ({
   app,

@@ -6,10 +6,7 @@ import { expect, test } from '../../src/immich-readonly-test';
 test.use({
   appOptions: { env: { APM_IMMICH_QUIET_SECS: '1' } },
   allowedErrors: [
-    'API 400:',
-    'API 401:',
-    'API 422:',
-    'console.error: Failed to load resource: the server responded with a status of 400',
+    /^(API 400: http:\/\/127\.0\.0\.1:\d+\/api\/immich\/connect|console\.error: Failed to load resource: the server responded with a status of 400 \(Bad Request\))$/,
   ],
 });
 
