@@ -105,6 +105,7 @@ pub mod scanner;
 mod store;
 #[cfg(test)]
 mod test_support;
+pub mod thumbs;
 mod volumes;
 mod walk;
 pub mod watcher;
@@ -120,6 +121,7 @@ pub use progress::{
     RecordingProgress,
 };
 pub use scanner::ScanSummary;
+pub use thumbs::{ThumbError, ThumbOutcome, ThumbTarget, Thumbnailer};
 pub use volumes::VolumeRegistry;
 
 /// A part of a volume to index.
@@ -310,6 +312,8 @@ struct Inner {
     extractor: Arc<dyn MetadataExtractor>,
     /// The zone that file times and offset-less capture dates are read in.
     timezone: Tz,
+    /// Renders thumbnails (stage 4); `None` skips the stage.
+    thumbnailer: Option<Arc<dyn Thumbnailer>>,
 }
 
 impl fmt::Debug for Indexer {
@@ -337,8 +341,23 @@ impl Indexer {
                 locks: Arc::new(Mutex::new(HashMap::new())),
                 extractor: Arc::new(extractor),
                 timezone: tz_or_utc(std::env::var("TZ").ok().as_deref()),
+                thumbnailer: None,
             }),
         }
+    }
+
+    /// The same indexer (sharing its volume locks) pre-generating thumbnails with `thumbnailer`.
+    #[must_use]
+    pub fn with_thumbnailer(&self, thumbnailer: Arc<dyn Thumbnailer>) -> Self {
+        let mut rebuilt = self.rebuilt(Arc::clone(&self.inner.extractor), self.inner.timezone);
+        if let Some(inner) = Arc::get_mut(&mut rebuilt.inner) {
+            inner.thumbnailer = Some(thumbnailer);
+        }
+        rebuilt
+    }
+
+    pub(crate) fn thumbnailer(&self) -> Option<&Arc<dyn Thumbnailer>> {
+        self.inner.thumbnailer.as_ref()
     }
 
     /// The same indexer (sharing its volume locks) reading metadata with `extractor`.
@@ -363,6 +382,7 @@ impl Indexer {
                 locks: Arc::clone(&inner.locks),
                 extractor,
                 timezone,
+                thumbnailer: inner.thumbnailer.clone(),
             }),
         }
     }
@@ -397,7 +417,9 @@ impl Indexer {
         if ctx.cancel.is_cancelled() {
             return Err(IndexError::Cancelled);
         }
-        // 4. thumbnails (a later todo)
+        let thumbs = self.thumbnail_pending(req, ctx).await?; // 4. thumbs.rs
+        summary.thumbnails += thumbs.thumbnails;
+        // Failed renders are recorded as `thumb_state = failed`, not in `failed`.
 
         Ok(summary)
     }

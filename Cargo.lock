@@ -81,6 +81,7 @@ dependencies = [
  "hex",
  "http",
  "http-body-util",
+ "httpdate",
  "image",
  "mime",
  "mime_guess",

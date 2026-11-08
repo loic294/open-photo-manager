@@ -24,6 +24,7 @@ futures-util = "0.3.34"
 hex = "0.4.3"
 http = "1.5.0"
 http-body-util = "0.1.5"
+httpdate = "1.0.3"
 image = { version = "0.25.10", default-features = false, features = ["bmp", "gif", "jpeg", "png", "tiff", "webp"] }
 mime = "0.3.18"
 mime_guess = "2.0.5"

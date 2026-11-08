@@ -24,6 +24,7 @@ futures-util.workspace = true
 hex.workspace = true
 http.workspace = true
 http-body-util.workspace = true
+httpdate.workspace = true
 image.workspace = true
 mime.workspace = true
 mime_guess.workspace = true
