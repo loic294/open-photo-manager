@@ -1,4 +1,6 @@
+import { readFile } from 'node:fs/promises';
 import type { FormatTokensResponse } from '../../../web/src/api/generated/FormatTokensResponse';
+import { writeFile } from '../../src/disk';
 import { expect, test } from '../../src/test';
 import { expectedDestination } from '../../src/tool-oracles';
 
@@ -55,6 +57,63 @@ for (const { scenario, date } of dateFixtures) {
     await expect(page.getByRole('button', { name: '{filename}', exact: true })).toBeVisible();
   });
 }
+
+test('format pattern keeps the embedded date when sidecar metadata overrides camera and rating', async ({
+  app,
+  page,
+  manifest,
+  formatPage,
+}) => {
+  const file = manifest.file('photos', 'sidecars/IMG_0010.JPG');
+  const sidecar = manifest.file('photos', 'sidecars/IMG_0010.JPG.xmp');
+  test.skip(
+    file.skipped || sidecar.skipped,
+    file.skip_reason ?? sidecar.skip_reason ?? 'fixture skipped',
+  );
+
+  const folder = 'e2e-sidecar-override';
+  const ownerName = 'IMG_0010.JPG';
+  await writeFile(
+    app,
+    'photos',
+    `${folder}/${ownerName}`,
+    await readFile(app.volumePath(`${file.volume}/${file.path}`)),
+  );
+  await writeFile(
+    app,
+    'photos',
+    `${folder}/${ownerName}.xmp`,
+    await readFile(app.volumePath(`${sidecar.volume}/${sidecar.path}`)),
+  );
+  const volume = (await app.api.volumes()).find((entry) => entry.name === 'photos');
+  if (!volume) throw new Error('Photos volume is missing');
+  await app.rescan([{ volume_id: volume.id, dir: folder, recursive: false }]);
+
+  const listing = await app.api.listing('photos', folder);
+  const indexedOwner = listing.items.find((item) => item.name === ownerName);
+  expect(indexedOwner).toMatchObject({
+    capture_src: 'exif',
+    capture_ts: Date.parse('2022-07-07T07:07:07Z') / 1000,
+    camera: 'Sony ILCE-7M4',
+    rating: 5,
+  });
+
+  const pattern = '{YYYY}/{mm}/{filename}';
+  const url = new URL('/format', app.url);
+  url.searchParams.set('src', `photos/${folder}`);
+  const previewResponse = page.waitForResponse(isResponse(/^\/api\/format\/preview$/));
+  const planResponse = page.waitForResponse(isResponse(/^\/api\/plans$/));
+  await page.goto(url.href);
+  await previewResponse;
+  await planResponse;
+  const expected = '2022/07/IMG_0010.JPG';
+  const updatedPreview = page.waitForResponse(isResponse(/^\/api\/format\/preview$/));
+  await formatPage.pattern().fill(pattern);
+  await updatedPreview;
+  await formatPage.livePreview().locator('summary').click();
+  await expect(formatPage.livePreview()).toContainText(expected);
+  await expect(formatPage.previewRows()).toContainText('exif');
+});
 
 test('format pattern renders month names, time and the original uppercase extension', async ({
   app,
