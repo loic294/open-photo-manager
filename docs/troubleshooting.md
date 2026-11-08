@@ -17,6 +17,7 @@ not verified on a DSM device.
 | Symptom | Cause | Fix |
 |---|---|---|
 | Container exits; data-directory writability error | Selected UID/GID cannot write `/data`, or it is mounted `:ro` | Check numeric ownership and ACLs on app storage; see [permissions](synology.md#prepare-the-nas). Named volumes also need correct ownership. Do not run as root to mask it. |
+| Startup refuses with `does not safely support SQLite WAL` or `SQLite WAL could not be verified` | `/data` is on a known WAL-unsafe filesystem, or the live WAL probe failed | Keep `/data` on a local Docker named volume. Back up existing app data before migrating it; there is no rollback-journal fallback. See the [Windows host guide](windows.md#keep-app-data-on-a-local-docker-volume). |
 | `No space left on device` | Storage used for data, scratch or Docker image layers is full | Check that specific filesystem/engine's free space. Host free space does not prove a Docker Desktop VM has room; DSM storage is a separate environment. Do not prune unrelated containers/volumes. |
 | SQLite refuses app data | `/data` is on NFS/SMB, corrupted, or contains newer migrations | Use local storage. An old binary cannot open a newer schema; restore a matching backup for downgrade, never delete the database casually. |
 | `host_not_allowed` (403) | Browser hostname is not accepted | Set `APM_ALLOWED_HOSTS` and recreate the container; behind a proxy forward the original `Host`. |

@@ -182,6 +182,7 @@ These guides describe the repository implementation. A published development ima
 | [Synology](docs/synology.md) | Installation checks, permissions, indexing, updates and backups |
 | [Immich](docs/immich.md) | Connection, external-library mappings and safe asynchronous mirroring |
 | [Usage](docs/usage.md) | Browsing, duplicate matching, moving, formatting, batch rename, cleanup, settings and trash |
+| [Windows hosts](docs/windows.md) | Docker Desktop, SQLite data storage, mount behavior and unverified Windows-specific limitations |
 | [Troubleshooting](docs/troubleshooting.md) | Symptoms, error codes and local diagnostics |
 | [Docker reference](docker/README.md) | Image builds, environment variables, mounts and hardening |
 
