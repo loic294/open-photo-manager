@@ -332,6 +332,20 @@ async fn watcher_offline_volume_recovers_and_overflow_rescans_every_online_volum
     }));
     h.wait_files(&[("", "overflow.txt", 2), ("missed", "a.txt", 1)])
         .await;
+    h.tree.write("backend-error.txt", b"xxx");
+    fake.0
+        .lock()
+        .unwrap()
+        .ingress
+        .as_ref()
+        .unwrap()
+        .send(Err(notify::Error::generic("event source error")));
+    h.wait_files(&[
+        ("", "backend-error.txt", 3),
+        ("", "overflow.txt", 2),
+        ("missed", "a.txt", 1),
+    ])
+    .await;
     h.stop().await;
 }
 

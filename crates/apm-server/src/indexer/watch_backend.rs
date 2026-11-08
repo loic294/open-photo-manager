@@ -12,20 +12,20 @@ pub const EVENT_CAPACITY: usize = 8192;
 /// Callback ingress shared with test backends. Loss requests a complete incremental repair.
 #[derive(Clone)]
 pub struct EventSender {
-    pub(crate) sender: mpsc::Sender<Event>,
+    pub(crate) sender: mpsc::Sender<notify::Result<Event>>,
     pub(crate) overflowed: Arc<AtomicBool>,
 }
 
 impl EventSender {
     pub fn send(&self, event: notify::Result<Event>) {
-        match event {
-            Ok(event) if event.paths.len() <= 64 => {
+        match &event {
+            Ok(event) if event.paths.len() > 64 => {
+                self.overflowed.store(true, Ordering::Release);
+            }
+            _ => {
                 if self.sender.try_send(event).is_err() {
                     self.overflowed.store(true, Ordering::Release);
                 }
-            }
-            _ => {
-                self.overflowed.store(true, Ordering::Release);
             }
         }
     }
@@ -84,7 +84,8 @@ mod tests {
         assert!(receiver.try_recv().is_ok());
         assert!(receiver.try_recv().is_ok());
         ingress.send(Err(notify::Error::generic("lost")));
-        assert!(overflowed.load(Ordering::Acquire));
+        assert!(matches!(receiver.try_recv(), Ok(Err(_))));
+        assert!(!overflowed.load(Ordering::Acquire));
     }
 
     #[test]

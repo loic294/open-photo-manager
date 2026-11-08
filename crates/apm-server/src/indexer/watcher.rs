@@ -224,6 +224,7 @@ impl Watcher {
             dirty: Dirty::default(),
             tracked: BTreeSet::new(),
             warned_limit: false,
+            warned_loss: false,
             errors: BTreeSet::new(),
             enabled: false,
         };
@@ -253,7 +254,16 @@ impl Watcher {
                 }
                 event = receiver.recv() => {
                     if let Some(event) = event
-                        && supervisor.enabled { supervisor.event(event).await; }
+                        && supervisor.enabled {
+                        match event {
+                            Ok(event) => supervisor.event(event).await,
+                            Err(error) => {
+                                supervisor.report_error("event stream", error);
+                                supervisor.repair();
+                                supervisor.reconcile().await;
+                            }
+                        }
+                    }
                 }
                 task = tasks.recv() => match task {
                     Ok(ServerEvent::Task { task }) if task.kind == TaskKind::Index
@@ -287,6 +297,7 @@ struct Supervisor {
     dirty: Dirty,
     tracked: BTreeSet<TaskId>,
     warned_limit: bool,
+    warned_loss: bool,
     errors: BTreeSet<String>,
     enabled: bool,
 }
@@ -550,6 +561,12 @@ impl Supervisor {
     }
 
     fn repair(&mut self) {
+        if !self.warned_loss {
+            tracing::warn!(
+                "filesystem event loss: scheduling non-forced repair of every online volume"
+            );
+            self.warned_loss = true;
+        }
         for volume in self.watcher.0.deps.volumes.online() {
             self.dirty.full(volume.id, Instant::now());
         }
@@ -562,6 +579,7 @@ impl Supervisor {
         if !watch_events::relevant(&event) {
             return;
         }
+        self.errors.remove("event stream");
         let deps = self.watcher.0.deps.clone();
         let settings = deps.settings.get();
         let junk = JunkRules::new(&settings.junk_names, &settings.junk_prefixes);
