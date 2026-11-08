@@ -21,7 +21,9 @@
 //!   belong to no batch and are left alone, and junk is adopted like anything else so that every
 //!   byte of the trash is visible and "Empty trash" can reclaim it.
 //!
-//! It is idempotent and only reads the volume: the rows are the only thing it changes. Symbolic
+//! It is idempotent and only reads the volume: the rows are the only thing it changes. At the end
+//! it checks the running totals the summary reads (`trash_volume_totals`) against the rows and
+//! rewrites them when they differ, which the triggers that keep them make a rare event. Symbolic
 //! links are never followed (nor adopted), names that are not UTF-8 are skipped and counted, and
 //! the task stops between directories when it is cancelled.
 //!
@@ -61,6 +63,19 @@ const LOOKUP_CHUNK: usize = 500;
 const ADOPT_CHUNK: usize = 1_000;
 /// Rows deleted per statement.
 const DELETE_CHUNK: usize = 5_000;
+
+/// Whether the running totals (`trash_volume_totals`, kept by triggers) differ from what the rows
+/// add up to, in either direction.
+const TOTALS_DIFFER_SQL: &str = "SELECT EXISTS (\
+     SELECT 1 FROM (\
+       SELECT volume_id, COUNT(*) AS items, COALESCE(SUM(size), 0) AS bytes \
+       FROM trash_items GROUP BY volume_id \
+       EXCEPT SELECT volume_id, items, bytes FROM trash_volume_totals)) \
+     OR EXISTS (\
+     SELECT 1 FROM (\
+       SELECT volume_id, items, bytes FROM trash_volume_totals \
+       EXCEPT SELECT volume_id, COUNT(*), COALESCE(SUM(size), 0) \
+       FROM trash_items GROUP BY volume_id))";
 
 /// What a sync did.
 #[derive(Debug, Default, Clone, PartialEq, Eq)]
@@ -276,6 +291,12 @@ impl TrashService {
                     .await?;
             }
         }
+        if self.repair_totals().await? {
+            tracing::warn!(
+                task = ctx.id,
+                "the running totals of the trash disagreed with its rows and were recounted"
+            );
+        }
 
         tracing::info!(
             task = ctx.id,
@@ -288,6 +309,38 @@ impl TrashService {
         );
         ctx.progress.set_title(tally.title());
         Ok(tally.result())
+    }
+
+    /// Recounts the running totals the summary reads and rewrites them when they disagree with
+    /// the rows. The triggers of migration 0048 keep them exact, so this is a safety net for a
+    /// writer that got around them (`INSERT OR REPLACE`, an edited database). It looks without
+    /// the write lock and only takes it when something is off; the answer is whether it repaired.
+    async fn repair_totals(&self) -> Result<bool, TaskError> {
+        let differ: bool = sqlx::query_scalar(TOTALS_DIFFER_SQL)
+            .fetch_one(self.db.read())
+            .await?;
+        if !differ {
+            return Ok(false);
+        }
+        let mut tx = self.db.begin_write().await?;
+        // Under the write lock no row changes between the check and the rewrite.
+        let still: bool = sqlx::query_scalar(TOTALS_DIFFER_SQL)
+            .fetch_one(&mut *tx)
+            .await?;
+        if still {
+            sqlx::query("DELETE FROM trash_volume_totals")
+                .execute(&mut *tx)
+                .await?;
+            sqlx::query(
+                "INSERT INTO trash_volume_totals (volume_id, items, bytes) \
+                 SELECT volume_id, COUNT(*), COALESCE(SUM(size), 0) FROM trash_items \
+                 GROUP BY volume_id",
+            )
+            .execute(&mut *tx)
+            .await?;
+        }
+        tx.commit().await?;
+        Ok(still)
     }
 
     /// Removes the rows whose file is gone from the volumes in `roots`, unless the guard holds a

@@ -16,7 +16,8 @@ volume_id: number | null,
  */
 batch: string | null, 
 /**
- * Case-insensitive text the original path contains (`%` and `_` are ordinary characters).
+ * Text the original path contains, ignoring the case of ASCII letters (`%` and `_` are
+ * ordinary characters).
  */
 q: string | null, sort: TrashSort, 
 /**

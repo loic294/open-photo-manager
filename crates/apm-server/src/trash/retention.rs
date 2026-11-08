@@ -6,18 +6,21 @@
 //! "Empty trash" with the selector "trashed before the cutoff": the cutoff is computed when the
 //! sweep is decided and the items are selected when the task starts.
 
+use std::sync::Arc;
 use std::time::Duration;
 
 use apm_core::dto::{TaskKind, TaskState};
 use apm_core::paths::TaskId;
 use axum::http::StatusCode;
 use serde_json::json;
+use tokio::sync::watch;
 use tokio::time::Instant;
 use tokio_util::sync::CancellationToken;
 
 use super::TrashService;
 use super::empty::PurgeSelector;
 use crate::error::AppError;
+use crate::settings::Settings;
 
 const DAY_SECS: i64 = 86_400;
 /// "Is anything older than the cutoff?": one entry of the index of `trashed_at`.
@@ -88,12 +91,25 @@ impl TrashService {
         every: Duration,
     ) {
         let service = self.clone();
-        tokio::spawn(async move { service.sweep_loop(shutdown, first_delay, every).await });
+        // The receiver and the retention it starts from are taken now, so a change made right
+        // after this call is never missed.
+        let settings = self.settings.subscribe();
+        let retention = settings.borrow().trash_retention_days;
+        tokio::spawn(async move {
+            service
+                .sweep_loop(settings, retention, shutdown, first_delay, every)
+                .await;
+        });
     }
 
-    async fn sweep_loop(self, shutdown: CancellationToken, first_delay: Duration, every: Duration) {
-        let mut settings = self.settings.subscribe();
-        let mut retention = settings.borrow().trash_retention_days;
+    async fn sweep_loop(
+        self,
+        mut settings: watch::Receiver<Arc<Settings>>,
+        mut retention: Option<u32>,
+        shutdown: CancellationToken,
+        first_delay: Duration,
+        every: Duration,
+    ) {
         let mut deadline = Instant::now() + first_delay;
         loop {
             tokio::select! {

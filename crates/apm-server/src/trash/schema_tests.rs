@@ -17,7 +17,8 @@ use tempfile::TempDir;
 
 use super::empty::{PurgeSelector, select_query};
 use super::list::{
-    TOTALS_SQL, batches_count_query, batches_query, count_query, list_query, reasons_query,
+    MAX_ID_SQL, TOTALS_SQL, batches_count_query, batches_query, count_query, list_query,
+    reasons_query,
 };
 use super::retention::DUE_SQL;
 use crate::db::testing::insert_volume;
@@ -168,17 +169,21 @@ async fn one_deletion_is_read_from_the_batch_index_without_a_sort() {
 }
 
 #[tokio::test]
-async fn the_summary_reads_the_covering_index_in_group_order() {
+async fn the_summary_reads_the_running_totals_and_one_descent_for_the_highest_id() {
     let seeded = seeded().await;
-    let plan = plan_of_sql(&seeded.db, TOTALS_SQL).await;
+    let totals = plan_of_sql(&seeded.db, TOTALS_SQL).await;
+    assert!(has(&totals, "SCAN trash_volume_totals"), "{totals:#?}");
     assert!(
-        has(
-            &plan,
-            "SCAN trash_items USING COVERING INDEX trash_items_volume_batch"
-        ),
-        "{plan:#?}"
+        totals.iter().all(|line| !line.contains("trash_items")),
+        "{totals:#?}"
     );
-    assert!(!sorts(&plan), "{plan:#?}");
+
+    let max_id = plan_of_sql(&seeded.db, MAX_ID_SQL).await;
+    assert!(has(&max_id, "SEARCH trash_items"), "{max_id:#?}");
+    assert!(
+        max_id.iter().all(|line| !line.starts_with("SCAN")),
+        "{max_id:#?}"
+    );
 }
 
 #[tokio::test]
@@ -275,15 +280,182 @@ async fn insert_item(
     volume_id: VolumeId,
     name: &str,
 ) -> Result<i64, sqlx::Error> {
+    insert_sized(pool, volume_id, name, 0).await
+}
+
+async fn insert_sized(
+    pool: &SqlitePool,
+    volume_id: VolumeId,
+    name: &str,
+    size: i64,
+) -> Result<i64, sqlx::Error> {
     sqlx::query_scalar(
-        "INSERT INTO trash_items (volume_id, batch, orig_path, trash_path, trashed_at) \
-         VALUES (?, 'b', ?, ?, 1) RETURNING id",
+        "INSERT INTO trash_items (volume_id, batch, orig_path, trash_path, size, trashed_at) \
+         VALUES (?, 'b', ?, ?, ?, 1) RETURNING id",
     )
     .bind(volume_id)
     .bind(name)
     .bind(format!(".apm-trash/b/{name}"))
+    .bind(size)
     .fetch_one(pool)
     .await
+}
+
+/// `(volume_id, items, bytes)` of every volume, as the triggers keep them.
+async fn kept_totals(pool: &SqlitePool) -> Vec<(VolumeId, i64, i64)> {
+    sqlx::query_as("SELECT volume_id, items, bytes FROM trash_volume_totals ORDER BY volume_id")
+        .fetch_all(pool)
+        .await
+        .unwrap()
+}
+
+/// The same, counted from the rows: what the kept totals must always equal.
+async fn counted_totals(pool: &SqlitePool) -> Vec<(VolumeId, i64, i64)> {
+    sqlx::query_as(
+        "SELECT volume_id, COUNT(*), COALESCE(SUM(size), 0) FROM trash_items \
+         GROUP BY volume_id ORDER BY volume_id",
+    )
+    .fetch_all(pool)
+    .await
+    .unwrap()
+}
+
+async fn assert_totals(pool: &SqlitePool, expected: &[(VolumeId, i64, i64)]) {
+    assert_eq!(kept_totals(pool).await, expected);
+    assert_eq!(counted_totals(pool).await, expected);
+}
+
+#[tokio::test]
+async fn the_totals_follow_every_change_of_the_rows() {
+    let temp = Db::open_temp().await.unwrap();
+    let db = temp.handle();
+    let pool = db.write();
+    let first = insert_volume(&db, "photos").await;
+    let second = insert_volume(&db, "archive").await;
+    assert_totals(pool, &[]).await;
+
+    let a = insert_sized(pool, first, "a.jpg", 10).await.unwrap();
+    let b = insert_sized(pool, first, "b.jpg", 20).await.unwrap();
+    let c = insert_sized(pool, second, "c.jpg", 5).await.unwrap();
+    assert_totals(pool, &[(first, 2, 30), (second, 1, 5)]).await;
+
+    sqlx::query("DELETE FROM trash_items WHERE id = ?")
+        .bind(a)
+        .execute(pool)
+        .await
+        .unwrap();
+    assert_totals(pool, &[(first, 1, 20), (second, 1, 5)]).await;
+
+    sqlx::query("UPDATE trash_items SET size = 50 WHERE id = ?")
+        .bind(b)
+        .execute(pool)
+        .await
+        .unwrap();
+    assert_totals(pool, &[(first, 1, 50), (second, 1, 5)]).await;
+
+    // A change of another column leaves the totals alone.
+    sqlx::query("UPDATE trash_items SET reason = 'user', trashed_at = 9 WHERE id = ?")
+        .bind(b)
+        .execute(pool)
+        .await
+        .unwrap();
+    assert_totals(pool, &[(first, 1, 50), (second, 1, 5)]).await;
+
+    // The last item of a volume moves away: the volume has no row any more, not a row of zeros.
+    sqlx::query("UPDATE trash_items SET volume_id = ? WHERE id = ?")
+        .bind(second)
+        .bind(b)
+        .execute(pool)
+        .await
+        .unwrap();
+    assert_totals(pool, &[(second, 2, 55)]).await;
+
+    // Taking out everything of a volume leaves the table empty.
+    sqlx::query("DELETE FROM trash_items WHERE id IN (?, ?)")
+        .bind(b)
+        .bind(c)
+        .execute(pool)
+        .await
+        .unwrap();
+    assert_totals(pool, &[]).await;
+}
+
+#[tokio::test]
+async fn a_volume_that_goes_takes_its_totals_with_it() {
+    let temp = Db::open_temp().await.unwrap();
+    let db = temp.handle();
+    let pool = db.write();
+    let first = insert_volume(&db, "photos").await;
+    let second = insert_volume(&db, "archive").await;
+    insert_sized(pool, first, "a.jpg", 10).await.unwrap();
+    insert_sized(pool, second, "b.jpg", 7).await.unwrap();
+    insert_sized(pool, second, "c.jpg", 8).await.unwrap();
+
+    sqlx::query("DELETE FROM volumes WHERE id = ?")
+        .bind(second)
+        .execute(pool)
+        .await
+        .unwrap();
+    assert_totals(pool, &[(first, 1, 10)]).await;
+}
+
+#[tokio::test]
+async fn the_totals_equal_the_rows_after_bulk_statements() {
+    let seeded = seeded().await;
+    let pool = seeded.db.write();
+    let expected = |first: (i64, i64), second: (i64, i64)| {
+        vec![
+            (seeded.first, first.0, first.1),
+            (seeded.second, second.0, second.1),
+        ]
+    };
+    // 2,000 items of sizes 1..=2000 and 1,000 items of sizes 1..=1000.
+    assert_totals(pool, &expected((2_000, 2_001_000), (1_000, 500_500))).await;
+
+    // One deletion of 50 items (sizes 1..=50).
+    sqlx::query("DELETE FROM trash_items WHERE volume_id = ? AND batch = ?")
+        .bind(seeded.first)
+        .bind(FIRST_BATCH)
+        .execute(pool)
+        .await
+        .unwrap();
+    assert_totals(
+        pool,
+        &expected((1_950, 2_001_000 - 1_275), (1_000, 500_500)),
+    )
+    .await;
+
+    // Every third row of the second volume grows by 1,000 bytes.
+    sqlx::query("UPDATE trash_items SET size = size + 1000 WHERE volume_id = ? AND id % 3 = 0")
+        .bind(seeded.second)
+        .execute(pool)
+        .await
+        .unwrap();
+    assert_eq!(kept_totals(pool).await, counted_totals(pool).await);
+
+    // Half of the first volume goes to the second (under paths the second does not use yet).
+    sqlx::query(
+        "UPDATE trash_items SET volume_id = ?, trash_path = '.apm-trash/moved/' || id \
+         WHERE volume_id = ? AND id % 2 = 0",
+    )
+    .bind(seeded.second)
+    .bind(seeded.first)
+    .execute(pool)
+    .await
+    .unwrap();
+    assert_eq!(kept_totals(pool).await, counted_totals(pool).await);
+
+    sqlx::query("DELETE FROM trash_items WHERE id % 5 < 3")
+        .execute(pool)
+        .await
+        .unwrap();
+    assert_eq!(kept_totals(pool).await, counted_totals(pool).await);
+
+    sqlx::query("DELETE FROM trash_items")
+        .execute(pool)
+        .await
+        .unwrap();
+    assert_totals(pool, &[]).await;
 }
 
 #[tokio::test]
@@ -462,6 +634,8 @@ async fn the_rebuild_of_the_table_keeps_every_row_with_its_id() {
 
     apply(&pool, migration_files(47, 49)).await;
     assert_eq!(rows(&pool).await, before);
+    // The totals were counted from the rows the migration found.
+    assert_totals(&pool, &[(1, 3, 60)]).await;
 
     // The ids continue after the highest one and are never taken again.
     let next = insert_item(&pool, 1, "c.jpg").await.unwrap();
@@ -471,6 +645,7 @@ async fn the_rebuild_of_the_table_keeps_every_row_with_its_id() {
         .await
         .unwrap();
     assert_eq!(insert_item(&pool, 1, "d.jpg").await.unwrap(), 9);
+    assert_totals(&pool, &[(1, 3, 30)]).await;
 
     // The unique index and the three of the trash page are there.
     let indexes: Vec<(String, i64)> = sqlx::query_as(

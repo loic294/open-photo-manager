@@ -47,11 +47,23 @@
 //! the `fs` lane. See `sync.rs`.
 //!
 //! # Reading
-//! The listing and the deletions are read from the index only and never change state. The three
-//! shapes that must stay fast at a million rows (the newest page, one deletion's page, the
-//! grouped counts) are served by the indexes of migration 0048, and `schema_tests.rs` pins their
-//! plans. The sorts by size, path and name are not indexed: they scan the table (about 0.1 s at a
-//! million rows, 1.6 s for `name`).
+//! The listing and the deletions are read from the index only and never change state. The page
+//! opens on three requests; their timings on a million items in 2,500 deletions (release build,
+//! `tests/trash_perf.rs`) are:
+//!
+//! * the summary, 0.1 ms: items and bytes of each volume are the running totals of
+//!   `trash_volume_totals` (kept by triggers, migration 0048) and the highest id is one descent of
+//!   the table, so it costs the same at a thousand items as at a million;
+//! * the first page of the listing, newest first, 0.3 ms (the same for one volume, for one
+//!   deletion and for the oldest first): the `trashed_at` indexes of migration 0048 answer it
+//!   without a sort;
+//! * the deletions, 0.2 s: the grouped list and its count each read every row once, through a
+//!   covering index, so the cost grows with the rows of the trash rather than with the page.
+//!
+//! `schema_tests.rs` pins these plans. Deliberately not indexed: a deep page (offset 100,000)
+//! takes 0.14 s, a sort by original path, size or name 0.6 s, 1.5 s or 2.9 s, and a search 0.15 s
+//! when it matches a few items and 1.5 s when it matches nothing, because each reads the table.
+//! Nobody pages that deep in a trash, and an index per sort would slow every trashing down.
 
 mod empty;
 mod list;

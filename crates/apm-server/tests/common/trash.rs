@@ -14,16 +14,17 @@ use std::sync::Arc;
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::time::Duration;
 
-use apm_core::dto::{SettingsDto, TaskDto};
+use apm_core::dto::{SettingsDto, TaskDto, TaskKind};
 use apm_core::paths::{TaskId, TrashItemId, VolumeId};
 use apm_server::fsops::{
     AppliedOp, FsOps, OpContext, OpHook, TrashBatch, TrashOutcome, TrashRequest,
 };
 use apm_server::indexer::{RunContext, ScanRequest};
+use apm_server::tasks::TaskSpec;
 use apm_server::trash::TrashService;
 use axum::http::{Method, StatusCode};
 use futures_util::future::BoxFuture;
-use serde_json::Value;
+use serde_json::{Value, json};
 use sqlx::SqliteConnection;
 use tokio::sync::{Notify, Semaphore};
 
@@ -32,6 +33,8 @@ use super::{TestApp, Tree};
 
 /// How long a test waits for something that has to happen.
 pub const PATIENCE: Duration = Duration::from_secs(15);
+
+const SYNC: &str = "/api/trash/sync";
 
 pub async fn within<T>(future: impl Future<Output = T>) -> T {
     tokio::time::timeout(PATIENCE, future)
@@ -194,6 +197,52 @@ impl TrashFx {
         )
     }
 
+    /// A trash service of the application that reads the time from `clock` (epoch seconds), so a
+    /// test can age the trash without waiting.
+    pub fn service_with_clock(
+        &self,
+        clock: impl Fn() -> i64 + Send + Sync + 'static,
+    ) -> TrashService {
+        let state = &self.app.state;
+        TrashService::new(
+            state.db.clone(),
+            state.settings.clone(),
+            state.tasks.clone(),
+            state.volumes.clone(),
+            state.fsops.clone(),
+        )
+        .with_clock(clock)
+    }
+
+    /// Makes an item look as if it had been trashed at `trashed_at` (epoch seconds).
+    pub async fn age(&self, id: TrashItemId, trashed_at: i64) {
+        sqlx::query("UPDATE trash_items SET trashed_at = ? WHERE id = ?")
+            .bind(trashed_at)
+            .bind(id)
+            .execute(self.app.state.db.write())
+            .await
+            .unwrap();
+    }
+
+    /// Starts a task that keeps the `fs` lane busy until the gate is opened, so the tasks queued
+    /// after it stay queued.
+    pub async fn hold_the_queue(&self) -> Gate {
+        let notify = Arc::new(Notify::new());
+        let waiting = Arc::clone(&notify);
+        let spec = TaskSpec::new(TaskKind::FsMove, "Holding the queue");
+        let task = self
+            .app
+            .state
+            .tasks
+            .submit(spec, move |_| async move {
+                waiting.notified().await;
+                Ok(json!({}))
+            })
+            .await
+            .unwrap();
+        Gate { task, notify }
+    }
+
     pub async fn post(&self, path: &str, body: Value) -> (StatusCode, Value) {
         self.app.call(Method::POST, path, Some(body)).await
     }
@@ -237,6 +286,13 @@ impl TrashFx {
     /// Posts a request that queues a task, expects 202 and returns the task's id.
     pub async fn queue(&self, path: &str, body: Value) -> TaskId {
         let (status, task) = self.post(path, body).await;
+        assert_eq!(status, StatusCode::ACCEPTED, "{task}");
+        task["id"].as_i64().unwrap()
+    }
+
+    /// `POST /api/trash/sync`, which takes no body, expecting 202: the task's id.
+    pub async fn queue_sync(&self) -> TaskId {
+        let (status, task) = self.app.call(Method::POST, SYNC, None).await;
         assert_eq!(status, StatusCode::ACCEPTED, "{task}");
         task["id"].as_i64().unwrap()
     }
@@ -342,6 +398,19 @@ impl TrashFx {
 pub enum Outage {
     Offline { root: PathBuf, away: PathBuf },
     ReadOnly { root: PathBuf },
+}
+
+/// The task [`TrashFx::hold_the_queue`] started.
+pub struct Gate {
+    pub task: TaskId,
+    notify: Arc<Notify>,
+}
+
+impl Gate {
+    /// Lets the holding task finish, and the queue go on.
+    pub fn open(&self) {
+        self.notify.notify_one();
+    }
 }
 
 /// A hook that stops the first restore or purge it sees inside its transaction until the test lets

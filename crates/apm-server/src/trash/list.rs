@@ -28,6 +28,12 @@ struct VolumeTotals {
     volume_id: VolumeId,
     items: i64,
     bytes: i64,
+}
+
+/// What the summary is made of: the totals of every volume that holds trash and the highest id.
+#[derive(Debug)]
+struct Totals {
+    volumes: Vec<VolumeTotals>,
     max_id: i64,
 }
 
@@ -68,15 +74,16 @@ struct ReasonRow {
 impl TrashService {
     /// What the trash holds now, per volume, with the settings the page quotes.
     pub async fn summary(&self) -> Result<TrashSummary, AppError> {
-        let mut conn = self.db.read().acquire().await?;
-        let totals = volume_totals(&mut conn).await?;
+        let mut tx = self.db.read().begin().await?;
+        let totals = read_totals(&mut tx).await?;
+        tx.commit().await?;
         Ok(self.summarize(&totals))
     }
 
     /// One page of items, the number of items that match the filters and the summary.
     pub async fn list(&self, query: TrashListQuery) -> Result<TrashListResponse, AppError> {
         let mut tx = self.db.read().begin().await?;
-        let totals = volume_totals(&mut tx).await?;
+        let totals = read_totals(&mut tx).await?;
         let summary = self.summarize(&totals);
 
         let rows: Vec<ItemRow> = list_query(&query)
@@ -113,7 +120,7 @@ impl TrashService {
         query: TrashBatchesQuery,
     ) -> Result<TrashBatchesResponse, AppError> {
         let mut tx = self.db.read().begin().await?;
-        let totals = volume_totals(&mut tx).await?;
+        let totals = read_totals(&mut tx).await?;
         let summary = self.summarize(&totals);
 
         let rows: Vec<BatchRow> = batches_query(&query)
@@ -149,11 +156,12 @@ impl TrashService {
         })
     }
 
-    /// The summary of a set of per-volume totals: names and reachability come from the registry,
-    /// the retention and the conflict policy from the settings.
-    fn summarize(&self, totals: &[VolumeTotals]) -> TrashSummary {
+    /// The summary of the totals read from the database: names and reachability come from the
+    /// registry, the retention and the conflict policy from the settings.
+    fn summarize(&self, totals: &Totals) -> TrashSummary {
         let settings = self.settings.get();
         let mut volumes: Vec<TrashVolumeSummary> = totals
+            .volumes
             .iter()
             .map(|totals| {
                 let known = self.volumes.volume(totals.volume_id);
@@ -178,7 +186,7 @@ impl TrashService {
             bytes: volumes
                 .iter()
                 .fold(0, |sum, volume| sum.saturating_add(volume.bytes)),
-            max_id: totals.iter().map(|totals| totals.max_id).max().unwrap_or(0),
+            max_id: totals.max_id.max(0),
             volumes,
             retention_days: settings.trash_retention_days,
             conflict_policy: settings.default_conflict_policy,
@@ -186,13 +194,18 @@ impl TrashService {
     }
 }
 
-/// Items, bytes and the highest id of every volume that holds trash: one pass over the covering
-/// index `trash_items_volume_batch`.
-pub(super) const TOTALS_SQL: &str = "SELECT volume_id, COUNT(*) AS items, \
-     COALESCE(SUM(size), 0) AS bytes, MAX(id) AS max_id FROM trash_items GROUP BY volume_id";
+/// Items and bytes of every volume that holds trash: the running totals the triggers of migration
+/// 0048 keep, one row per volume, so a read costs the same whatever the size of the trash.
+pub(super) const TOTALS_SQL: &str =
+    "SELECT volume_id, items, bytes FROM trash_volume_totals WHERE items > 0";
 
-async fn volume_totals(conn: &mut SqliteConnection) -> Result<Vec<VolumeTotals>, sqlx::Error> {
-    sqlx::query_as(TOTALS_SQL).fetch_all(conn).await
+/// The highest id of the trash, 0 when it is empty: one descent of the table's own b-tree.
+pub(super) const MAX_ID_SQL: &str = "SELECT COALESCE(MAX(id), 0) FROM trash_items";
+
+async fn read_totals(conn: &mut SqliteConnection) -> Result<Totals, sqlx::Error> {
+    let volumes = sqlx::query_as(TOTALS_SQL).fetch_all(&mut *conn).await?;
+    let max_id = sqlx::query_scalar(MAX_ID_SQL).fetch_one(conn).await?;
+    Ok(Totals { volumes, max_id })
 }
 
 /// The statement of one page of deletions: the groups come out of the covering index

@@ -5,17 +5,12 @@
 
 mod common;
 
-use std::sync::Arc;
-
 use apm_core::dto::{ServerEvent, TaskKind, TaskState, TrashEmptyRequest, ValidationErrorBody};
 use apm_server::fsops::TrashBatch;
-use apm_server::tasks::TaskSpec;
 use axum::http::StatusCode;
 use common::fsops::{disk_dirs, disk_files};
 use common::trash::{Parking, Row, TrashFx, within};
 use serde_json::{Value, json};
-use tokio::sync::Notify;
-
 const PAYLOAD: &[u8] = b"the first payload";
 const OTHER: &[u8] = b"another payload, a longer one";
 const EMPTY: &str = "/api/trash/empty";
@@ -415,20 +410,7 @@ async fn a_second_request_for_the_same_items_queues_behind_and_finds_nothing_lef
     fx.trash(fx.a, "x/b.jpg", OTHER).await;
     let seen = max_id(&fx).await;
     // Both requests wait in the queue of file operations behind this task.
-    let gate = Arc::new(Notify::new());
-    let blocker = {
-        let gate = Arc::clone(&gate);
-        let spec = TaskSpec::new(TaskKind::FsMove, "Holding the queue");
-        fx.app
-            .state
-            .tasks
-            .submit(spec, move |_| async move {
-                gate.notified().await;
-                Ok(json!({}))
-            })
-            .await
-            .unwrap()
-    };
+    let gate = fx.hold_the_queue().await;
 
     let first = fx.queue(EMPTY, request(None, seen)).await;
     let second = fx.queue(EMPTY, request(None, seen)).await;
@@ -436,9 +418,9 @@ async fn a_second_request_for_the_same_items_queues_behind_and_finds_nothing_lef
         fx.app.state.tasks.get(second).await.unwrap().state,
         TaskState::Queued
     );
-    gate.notify_one();
+    gate.open();
 
-    assert_eq!(fx.finished(blocker).await.state, TaskState::Done);
+    assert_eq!(fx.finished(gate.task).await.state, TaskState::Done);
     let first = fx.finished(first).await;
     let second = fx.finished(second).await;
     assert_eq!(first.state, TaskState::Done, "{:?}", first.error);

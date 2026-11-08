@@ -67,10 +67,10 @@ pub enum TrashSort {
     /// When the item was trashed.
     #[default]
     TrashedAt,
-    /// The file or folder name, ignoring case.
+    /// The file or folder name, ignoring the case of ASCII letters.
     Name,
     Size,
-    /// The original path, ignoring case.
+    /// The original path, ignoring the case of ASCII letters.
     Path,
 }
 
@@ -101,7 +101,8 @@ pub struct TrashListQuery {
     pub volume_id: Option<VolumeId>,
     /// Only the items of this batch. Needs `volume_id`: batch names repeat across volumes.
     pub batch: Option<String>,
-    /// Case-insensitive text the original path contains (`%` and `_` are ordinary characters).
+    /// Text the original path contains, ignoring the case of ASCII letters (`%` and `_` are
+    /// ordinary characters).
     pub q: Option<String>,
     pub sort: TrashSort,
     /// `null` is the natural direction of `sort`: newest and largest first, names from A to Z.
