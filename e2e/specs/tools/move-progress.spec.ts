@@ -109,7 +109,7 @@ async function hashFile(path: string) {
   return hash.digest('hex');
 }
 
-async function expectNoPartFiles(volumePath: string) {
+async function partFiles(volumePath: string) {
   async function visit(path: string): Promise<string[]> {
     const files: string[] = [];
     for (const entry of await readdir(path, { withFileTypes: true })) {
@@ -119,7 +119,7 @@ async function expectNoPartFiles(volumePath: string) {
     }
     return files;
   }
-  expect(await visit(volumePath)).toEqual([]);
+  return visit(volumePath);
 }
 
 async function waitForSustainedProgress(
@@ -154,6 +154,11 @@ test('cross-volume move reports progress, queues later work, and preserves a can
     const queuedBytes = 'A small move queued behind the cross-volume copy';
     await writeFile(app, 'photos', `${SOURCE_DIR}/${queuedName}`, queuedBytes);
     await app.rescan();
+    const partFilesBefore = await Promise.all(
+      ['photos', 'archive', device.volume].map((volume) =>
+        partFiles(volume === device.volume ? device.mount : app.volumePath(volume)),
+      ),
+    );
     const task = await startMove(app, page, source, movePage, confirmDialog);
     await waitForCopyProgress(app, shell, task.id);
     const copyStartedAt = performance.now();
@@ -212,8 +217,13 @@ test('cross-volume move reports progress, queues later work, and preserves a can
       .toMatchObject({
         items: expect.not.arrayContaining([expect.objectContaining({ name: FILE_NAME })]),
       });
-    await expectNoPartFiles(app.volumePath(`photos/${SOURCE_DIR}`));
-    await expectNoPartFiles(device.mount);
+    await expect(
+      await Promise.all(
+        ['photos', 'archive', device.volume].map((volume) =>
+          partFiles(volume === device.volume ? device.mount : app.volumePath(volume)),
+        ),
+      ),
+    ).toEqual(partFilesBefore);
 
     const completedTask = await startMove(app, page, source, movePage, confirmDialog);
     await waitForCopyProgress(app, shell, completedTask.id);
@@ -243,8 +253,13 @@ test('cross-volume move reports progress, queues later work, and preserves a can
       });
     const plan = await app.api.request<PlanDto>('GET', `/api/plans/${completedTask.planId}`);
     expect(plan.result).toMatchObject({ done: 1, skipped: 0, failed: 0, bytes: COPY_BYTES });
-    await expectNoPartFiles(app.volumePath(`photos/${SOURCE_DIR}`));
-    await expectNoPartFiles(device.mount);
+    await expect(
+      await Promise.all(
+        ['photos', 'archive', device.volume].map((volume) =>
+          partFiles(volume === device.volume ? device.mount : app.volumePath(volume)),
+        ),
+      ),
+    ).toEqual(partFilesBefore);
   } finally {
     await device.close();
   }
@@ -267,6 +282,11 @@ test('server restart interrupts an in-progress cross-volume copy without losing 
     await app.rescan();
     const sourcePath = app.volumePath(`photos/${SOURCE_PATH}`);
     const sourceBeforeRestart = await stat(sourcePath);
+    const partFilesBefore = await Promise.all(
+      ['photos', 'archive', device.volume].map((volume) =>
+        partFiles(volume === device.volume ? device.mount : app.volumePath(volume)),
+      ),
+    );
     const task = await startMove(app, page, source, movePage, confirmDialog);
     await waitForCopyProgress(app, shell, task.id);
     await waitForSustainedProgress(app, task.id, performance.now());
@@ -300,8 +320,13 @@ test('server restart interrupts an in-progress cross-volume copy without losing 
       note: 'interrupted by restart',
     });
     expect(sourceAfterRestart.mtimeMs).toBe(sourceBeforeRestart.mtimeMs);
-    await expectNoPartFiles(app.volumePath(`photos/${SOURCE_DIR}`));
-    await expectNoPartFiles(device.mount);
+    await expect(
+      await Promise.all(
+        ['photos', 'archive', device.volume].map((volume) =>
+          partFiles(volume === device.volume ? device.mount : app.volumePath(volume)),
+        ),
+      ),
+    ).toEqual(partFilesBefore);
   } finally {
     await device.close();
   }
