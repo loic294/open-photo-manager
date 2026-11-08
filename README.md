@@ -3,6 +3,10 @@
 Browse, filter and organise a photo library on a Synology NAS. One Docker image contains the Rust server,
 web interface and media tools, with native Linux amd64 and arm64 builds.
 
+Four tools compare duplicates, move assets, format folders and clean up empty folders. Filter and select
+files, inspect them in the viewer, index metadata and `.xmp` sidecars in the background, and connect an
+Immich external library.
+
 Private repository and private image: `loic294/advanced-photo-manager` and
 `ghcr.io/loic294/advanced-photo-manager`. The app has no login in v1: keep it on your trusted LAN,
 do not forward port 8080 or expose it publicly. Back up your photos and the app's data folder.
@@ -172,15 +176,12 @@ services:
 ## Documentation
 
 These guides describe the repository implementation. A published development image may lag behind it.
-The four tool walkthroughs and complete local acceptance walkthrough are still awaiting integration.
-The Immich guide reflects the landed direct-database path-update contract; final tool walkthroughs
-and full acceptance remain pending.
 
 | Guide | For |
 |---|---|
 | [Synology](docs/synology.md) | Installation checks, permissions, indexing, updates and backups |
 | [Immich](docs/immich.md) | Connection, external-library mappings and safe asynchronous mirroring |
-| [Usage](docs/usage.md) | Already-landed browsing, settings and trash operations; tool tour pending |
+| [Usage](docs/usage.md) | Browsing, duplicate matching, moving, formatting, cleanup, settings and trash |
 | [Troubleshooting](docs/troubleshooting.md) | Symptoms, error codes and local diagnostics |
 | [Docker reference](docker/README.md) | Image builds, environment variables, mounts and hardening |
 

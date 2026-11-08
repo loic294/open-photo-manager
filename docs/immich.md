@@ -3,7 +3,7 @@
 For an owner who wants to "login into an Immich instance using a username and password",
 "map our docker volumes to Immich external libraries" and reflect moves/deletes in Immich.
 The login identifier is the account email. This guide describes the landed repository code;
-the isolated mock-backed screen walkthrough is still pending, and the published `edge` may lag behind.
+the published `edge` may lag behind.
 
 Warning: Immich discourages direct database modification and does not officially support these writes.
 Take a current backup before tracked moves. PostgreSQL transactions do not serialize with Immich's
@@ -12,46 +12,27 @@ import a duplicate or remove an asset. The filesystem and PostgreSQL cannot shar
 
 ## Direct path updates for tracked moves
 
-The repository implementation updates the existing asset's `originalPath` directly in PostgreSQL
-for tracked moves within the same mapped external library, for Immich v3.3.3 only. It preserves the
-asset UUID and associations instead of deleting/reimporting the asset. It does not request a scan or
-fall back to delete/recreate for these moves. The final move-tool screen walkthrough remains pending.
+1. A file marked **In Immich** moved within its mapped library stays the same asset: APM updates
+   `originalPath` in PostgreSQL for Immich v3.3.3 only. A path-derived `sha1-path` checksum changes
+   in the same transaction; content-derived checksums do not. Existing API deletion safeguards are
+   unchanged.
 
-1. Configure `APM_IMMICH_DATABASE_URL_FILE` as a read-only secret file, never a Settings field.
-   Follow the [production database reference](../docker/README.md#immich-direct-database-access)
-   for private networking, certificate-verified `verify-full` TLS, least-privilege grants and exclusions.
-   Do not paste a database URL or password into the browser, Compose environment values, logs or chat.
+   You should see: the existing asset and its associations at the new path.
 
-   You should see: the last executor readiness reason in **Settings**, without the secret.
-   Restart after changing configuration; refresh Immich sync before moving so tracked classification
-   is current. Locked assets invisible to the API cannot be discovered by that index.
+2. Configure `APM_IMMICH_DATABASE_URL_FILE` as a read-only secret file, not a Settings field.
+   It requires `verify-full` TLS. Follow the [production database reference](../docker/README.md#immich-direct-database-access)
+   for the Compose mount, private networking, grants, exclusions and scanner precautions; the
+   [isolated schema gate](../docker/immich-postgres-test.md) is a developer test only.
+   If the database is missing, unreachable or fails the v3.3.3 schema check, the tracked move is
+   refused before moving files and the warning starts "No file was moved." Untracked files in a
+   mixed move may still proceed; fix the cause, refresh status and rebuild/retry.
 
-2. Missing/unavailable database access or a failed exact v3.3.3 schema check refuses the affected
-   tracked in-library move before replacing files or changing sidecars. The warning begins
-   "No file was moved." and gives recovery instructions. Untracked files in a mixed move still
-   proceed; this warning concerns the refused item, not necessarily the entire batch.
+   You should see: a clear preflight refusal, or a retryable outbox warning if PostgreSQL fails
+   after a move passed preflight. Filesystem and PostgreSQL cannot share one transaction.
 
-   You should see: a refusal explaining configuration, connectivity or compatibility.
-   Fix that cause, refresh status and rebuild/retry the move. Do not downgrade Immich's database.
-   Cross-library in-place updates and unverifiable custom exclusion rules also fail closed;
-   supported boundaries are defined in the production reference.
-
-3. If PostgreSQL fails after movement passed preflight, the file may already have moved.
-   The durable outbox keeps the update retryable and warns:
-   "The file moved, but its Immich path update is NOT confirmed."
-   Repair access and finish/retry that update before moving the file again or reusing its old path.
-   Avoid connection or mapping changes while work is in flight.
-
-   You should see: a visible unconfirmed-update warning, not a claim of cross-system rollback.
-
-4. For stored `sha1-path`, the path-derived checksum changes in the same database transaction
-   as the path using Immich's `sha1("path:" + path.posix.normalize(newPath))` formula.
-   Content-derived `sha1` checksums stay byte-for-byte unchanged. This prevents a stale path digest
-   from blocking later imports at the old location; it does not lock out the scanner.
-
-   You should see: the same tracked asset at its new path, retaining associations.
-   The [isolated PostgreSQL gate](../docker/immich-postgres-test.md) documents real-schema validation
-   and its limitations. It is a developer test, never a procedure to run against your installation.
+Warning: Immich discourages direct database edits. Take a current backup and pause Immich scans and
+watching while APM moves files; its scanner can race the update. This is neither officially supported
+by Immich nor atomic across the filesystem and database.
 
 ## Prerequisites and shared paths
 

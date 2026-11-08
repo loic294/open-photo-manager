@@ -6,8 +6,7 @@ for environment defaults, mount layout and hardening; the installation commands 
 
 Status: source-verified operations guidance. An isolated local Compose start with the existing
 `apm-coordinator:94ed02fb` image reached healthy status and browsed an indexed fixture library via the API,
-with a non-root user, read-only root and read-only archive. This does not verify the newer UIs or watcher;
-the complete walkthrough is pending final integration. No NAS deployment or DSM verification has occurred.
+with a non-root user, read-only root and read-only archive. No NAS deployment or DSM verification has occurred.
 DSM menu names differ between
 versions; all DSM UI procedures below are not verified on a DSM device.
 
@@ -148,6 +147,16 @@ versions; all DSM UI procedures below are not verified on a DSM device.
 
    You should see: dates without usable camera metadata use the intended local calendar date.
    A cross-volume copy can reset filesystem birth time; keep backups of originals.
+
+## Optional Immich path updates
+
+1. If APM should update Immich's existing asset when moving a tracked file within a mapped library,
+   follow [Immich direct database access](../docker/README.md#immich-direct-database-access).
+   The optional `APM_IMMICH_DATABASE_URL_FILE` setting points to a read-only secret file; it is
+   not entered in **Settings**. A DSM-style host path such as
+   `/volume1/docker/apm/secrets/immich-database-url` is an example, not verified on a DSM device.
+
+   You should see: **Settings** > **Immich** reports database readiness without showing the secret.
 
 ## Watcher and rescan fallback
 

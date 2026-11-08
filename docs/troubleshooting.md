@@ -2,7 +2,7 @@
 
 For an owner checking a failed start, missing files or delayed Immich changes.
 These tables describe source-verified behavior; DSM procedures and the full local walkthrough are
-not verified on a DSM device. Tool-specific failures will be added after the pending UIs land.
+not verified on a DSM device.
 
 1. Find the matching symptom below before changing permissions, data or mappings.
 
@@ -38,6 +38,18 @@ not verified on a DSM device. Tool-specific failures will be added after the pen
 | Companion exists but metadata is absent | Non-XMP companion, unsupported supplemental JSON name or unreadable/malformed XMP | Verify same-stem/full-filename linking and XMP contents; non-XMP linking does not imply metadata parsing. |
 | Task stays failed/interrupted | History deliberately persists | Inspect failure details, correct the cause and explicitly request work again; dismissing history is not a retry. |
 
+## Tools
+
+| Symptom | Cause | Fix |
+|---|---|---|
+| Duplicate finder shows no matches | The selected match mode, filters or pane bases exclude the files; hash mode also waits for indexing | Check both pane bases and filters, choose a suitable **Match by** mode, and let hashing finish. |
+| Move refuses an Immich-tracked file; message starts "No file was moved." | PostgreSQL is missing/unreachable or a v3.3.3 schema/preflight check failed | Fix the database configuration or availability, refresh Immich status, rebuild and retry. Untracked files in a mixed move may still proceed; see [direct path updates](immich.md#direct-path-updates-for-tracked-moves). |
+| File moved but its Immich path update is NOT confirmed | PostgreSQL failed after the move passed preflight | Repair database access and retry the durable outbox update before moving the file again or reusing the old path. The filesystem move is not rolled back. |
+| Move or formatting left empty folders | Empty source directories are not automatically removed | Review **Empty folder cleanup** at the source folder; it removes qualifying child folders after confirmation. |
+| Cleanup leaves a folder behind | It contains a file, protected/unrecognized content, or no longer qualifies at execution time | Inspect its contents and index state; cleanup keeps the base folder and anything that is not safely empty. |
+| Move result reports `shared_sidecar_retained` | A matching sidecar was already at that destination | The asset moved; the result names the original sidecar retained at the source. It is not a skipped photo. |
+| Folder formatting pattern is invalid or has no preview | No source folder is selected, or the pattern contains an invalid token/path | Select a source and fix the pattern shown by **Folder pattern**; use **Variables and examples** and its live preview. |
+
 ## Browsing and media
 
 | Symptom | Cause | Fix |
@@ -50,8 +62,8 @@ not verified on a DSM device. Tool-specific failures will be added after the pen
 ## Immich
 
 Connection-code messages and fixes are in the [Immich guide](immich.md#connection-errors).
-Tracked in-library moves now use [direct database updates](immich.md#direct-path-updates-for-tracked-moves),
-not delete/recreate. Final tool-screen acceptance remains pending.
+Tracked in-library moves use [direct database updates](immich.md#direct-path-updates-for-tracked-moves),
+not delete/recreate.
 
 | Symptom / outbox code | Cause | Fix |
 |---|---|---|

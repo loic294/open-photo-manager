@@ -1,9 +1,29 @@
-# Browse, settings and recovery
+# Browse, organize and recover files
 
-For someone checking a newly indexed library before making changes.
-This is an intentionally partial guide: the four tool walkthroughs and complete
-screen tour will be added after their implementation contracts land and are verified.
-No planned tool labels or actions are described here as shipped.
+For a library owner reviewing media, planning changes and recovering deleted files.
+The four tools operate on the index and show a plan before a confirmed file operation starts.
+
+## Tour the screen
+
+1. Use the menu to switch between **Browse**, **Duplicate finder**, **Asset move**,
+   **Folder formatting**, **Empty folder cleanup**, **Trash** and **Settings**. The re-index
+   commands are also in the menu.
+
+   You should see: each tool keeps its own source and comparison pane locations.
+
+2. The filter bar offers **Cameras**, **Rating**, **Flags** and **Tags** where filtering applies.
+   **Clear filters** resets them. **Hide folders without matches** switches between hiding
+   unmatched folders and leaving them visible but greyed out; a planned folder is not hidden.
+   The duplicate finder also has **Apply to** choices **Both**, **Source** and **Comparison**.
+
+   You should see: item counts and the pane listings update to reflect the active filters.
+
+3. Use **Use this folder** in a pinned pane to change its base and **Go to base** to return.
+   The bottom bar shows matching counts, selected counts, **Select all**, **Clear selection** and
+   a thumbnail-size slider for each pane. The top-right task indicator shows background work.
+
+   You should see: folder navigation, selection and thumbnail size are independent per pane;
+   tasks continue while you use other tools.
 
 ## Check the library
 
@@ -19,6 +39,88 @@ No planned tool labels or actions are described here as shipped.
    transcoded. See [media troubleshooting](troubleshooting.md#browsing-and-media).
 
    You should see: the viewer, or an explanation/download path for unsupported media.
+
+## Duplicate finder
+
+1. Set a source folder in the left pane and a comparison folder in the right pane. **Match by**
+   offers **Hash exact match** (same content), **Filename and time exact match** (same filename
+   and capture time to the second), **Filename exact match, different time**, and
+   **Filename prefix match**. Prefix matching can include **Strict prefix** to avoid treating a
+   longer number or word as a continuation.
+
+   You should see: matching files have a green border, and the summary reports matching files in
+   both panes. Matches update as background hashing finishes.
+
+2. The bottom split action offers **Delete source items**, **Delete comparison items** and
+   **Move files**. Its last-used choice is remembered. Delete actions ask for confirmation and
+   send only matched files to Trash when a matching survivor remains outside the effective
+   deletion set. **Move files** hands the chosen files to **Asset move**; it does not move them
+   With a selection, **Move files** passes the active pane's selected files; without one, it
+   passes the comparison-side matches. **Asset move** still shows its own plan before anything moves.
+
+   You should see: a confirmation describing the survivor rule before deletion, or the selected
+   files carried into the move tool.
+
+## Asset move
+
+1. Choose source and destination folders with **Use this folder**. **Move type** offers
+   **Keep source file structure**, **Keep destination file structure**, **Flat file transfer**
+   and **Use custom file structure**. The comparison pane previews the destination plan; planned
+   files and folders are marked rather than written to disk.
+
+   You should see: the summary counts files and new folders that will move, plus any skipped,
+   renamed, replaced or cross-volume items.
+
+2. **If a file with the same name exists** chooses **Smart**, **Skip**, **Rename** or **Replace**.
+   Smart skips identical content and renames a different conflict, for example `photo.jpg` to
+   `photo_1.jpg`. Skip leaves the source file in place. Rename gives the incoming file a new name.
+   Replace moves the existing destination to Trash before using its name. No policy overwrites a
+   destination in place. Confirm with **Move files** only after reviewing the comparison pane.
+
+   You should see: a final count and destination in the confirmation. Folders left empty by a move
+   remain; use **Empty folder cleanup** separately.
+
+3. For an Immich-tracked move, see [direct path updates](immich.md#direct-path-updates-for-tracked-moves).
+   If a move result includes `shared_sidecar_retained`, the assets moved and the result names the
+   retained original sidecar path: an identical sidecar was already at that destination. That is
+   not a skipped asset. The first successful owner for each distinct sidecar destination gets a
+   journaled copy in its move group, so cancellation or restart cannot strand a moved photo without
+   its companion. Distinct destinations get their own matching sidecars.
+
+   You should see: the run result explicitly says the assets moved and identifies retained
+   metadata copies; it does not imply the photo was skipped.
+
+## Folder formatting
+
+1. Open a source folder. The destination initially follows the source; change it with
+   **Use this folder** in the comparison pane if needed. Edit **Folder pattern** or insert tokens
+   from **Variables and examples**. The live preview checks the pattern against sample files.
+   Dates use the best available capture time: preferred embedded original date, then linked XMP,
+   other embedded or video dates, then file birth time or modification time.
+
+   You should see: generated folders and filenames in the preview. If the last pattern component
+   has no `{name}` or `{filename}`, the original filename is appended.
+
+2. Set **If a file with the same name exists** and confirm with **Move and format files**.
+   The same conflict policies apply as in **Asset move**; the operation changes files only after
+   confirmation. It does not remove folders that become empty.
+
+   You should see: a confirmation with the number of files and destination pattern.
+
+## Empty folder cleanup
+
+1. Open the source folder that is the cleanup base. By default the scan includes subfolders;
+   **This folder only (no subfolders)** restricts it to the current folder's children.
+   Empty means no indexed files of any kind, regardless of filters. The base folder itself is
+   never removed. Planned deletions have a red border.
+
+   You should see: the comparison pane marks the empty folders below the base that qualify.
+
+2. Choose **Delete empty folders (N)** and review the counts of top-level and nested folders.
+   Empty directories are removed, not sent to Trash. Leftover junk files (such as thumbnail
+   caches or `.DS_Store`) go to Trash; folders with other contents are left alone.
+
+   You should see: a confirmation before folder removal and a background task afterwards.
 
 ## Settings and indexing
 
@@ -39,7 +141,6 @@ No planned tool labels or actions are described here as shipped.
 
    You should see: a choice of **Smart**, **Skip**, **Rename** and **Replace**.
    Replacement sends the existing destination to trash rather than overwriting it in place.
-   Detailed tool previews remain deferred until the tools are integrated.
 
 3. **Indexing** controls scans, hashing, thumbnails, watches and periodic repair.
    The top-right task indicator lets background work proceed without locking the rest of the app.
@@ -89,7 +190,6 @@ No planned tool labels or actions are described here as shipped.
 
 ## Pattern language reference
 
-This is the implemented core formatter, not a claim that the pending pattern editor UI is shipped.
 Tokens are case-sensitive; unknown names are errors. `{mm}` and `{MM}` both mean month;
 minutes use `{min}`. Month names are English. The sample is `IMG_0042.CR3`, captured at
 2026-10-05 14:07:09, with camera `Canon EOS R5`, in folder `Holiday`.
@@ -130,16 +230,44 @@ minutes use `{min}`. Month names are English. The sample is `IMG_0042.CR3`, capt
 
    You should see: camera and current-folder names used as folder components.
 
-## Shared-sidecar move exception awaiting verification
+## Selection, viewer and file safety
 
-This is a confirmed safety decision being implemented, not a verified final tool walkthrough.
-Exact UI wording and per-item outcomes remain pending the move implementation's landing.
+1. Click a file to open it when no selection is active. Click a checkbox, Cmd/Ctrl-click, or
+   Shift-click to select or extend a selection; once selection is active, clicking another file
+   selects it. **Select all** acts on the active pane. Cmd/Ctrl+A selects that pane, and Escape
+   clears the active pane, then the other pane if nothing was selected there.
 
-For each distinct derived sidecar destination, the first successfully moved owner gets a journaled
-sidecar copy within its move group. Cancellation or restart must not leave an already moved photo
-without its matching companion. Distinct destinations still receive their own matching sidecars.
+   You should see: selection checkboxes and counts for the pane you used.
 
-If the final carrier for the same destination finds that matching sidecar already present
-(`AlreadyPresent`), the original sidecar stays at the source rather than being trashed or swapped
-solely to remove it. The `shared_sidecar_retained` outcome must report that assets moved and name
-the retained original; it does not mean that the asset was skipped.
+2. Use arrow keys, Home, End, PageUp or PageDown to move through the grid; Enter opens a file and
+   Space toggles its selection; Shift+Space extends a range. In the viewer, Left/Right moves
+   through the pane's file list, `i` toggles **Info**, `z` or a double-click on the image toggles
+   100% zoom, and Escape closes. **Open original** opens the original in a new tab; **Download**
+   downloads it.
+
+   You should see: image/video preview and file details where available. Video playback uses the
+   original codec; browser support varies.
+
+3. File deletions go to the volume's `.apm-trash` and can be restored from **Trash**. Empty
+   folders are removed, not trashed. **Empty trash…** permanently deletes the displayed snapshot;
+   **Delete trashed files automatically** is off by default, but enabling retention also permanently
+   deletes old items. A permanent delete cannot be restored by APM.
+
+   You should see: the warning and a confirmation before a permanent delete.
+
+## Re-index and settings
+
+1. Use **Re-index current folders** to force metadata, checksums and thumbnails to be reread in
+   the folders shown by both panes, including subfolders. Use **Re-index all assets** for a
+   confirmed library-wide refresh. Ordinary scans are incremental; do not force all assets for
+   every external edit.
+
+   You should see: a background index task while the app remains usable.
+
+2. **Settings** > **General** controls sidecars, ignored names/prefixes, conflict policy, generated
+   name length, trash retention and indexing. **Settings** > **Immich** contains the Immich
+   connection, library mappings, sync and outbox. Database URL configuration for direct move
+   updates is outside Settings; see the [Immich guide](immich.md).
+
+   You should see: unsaved General settings expose **Save** and **Discard**; Immich settings show
+   the connection and sync status without exposing the database secret.
