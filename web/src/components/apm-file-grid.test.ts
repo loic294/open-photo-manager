@@ -470,7 +470,7 @@ describe('selection', () => {
     grid.addEventListener('card-activate', (event) => seen.push(event.detail));
 
     click(optionOf(cardsOf(grid)[3] as ApmFileCard));
-    click(part(cardsOf(grid)[1] as ApmFileCard, 'input.checkbox'), { shiftKey: true });
+    click(part(cardsOf(grid)[1] as ApmFileCard, '[data-checkbox]'), { shiftKey: true });
 
     expect(seen).toEqual([
       { id: 4, index: 3, via: 'card', shift: false, toggle: false },
@@ -735,7 +735,7 @@ describe('focusItem', () => {
     await settle(grid);
     (document.activeElement as HTMLElement).blur();
 
-    const inside = part(cardsOf(grid)[0] as ApmFileCard, 'input.checkbox');
+    const inside = part(cardsOf(grid)[0] as ApmFileCard, '[data-checkbox]');
     inside.dispatchEvent(new FocusEvent('focus', { bubbles: true }));
 
     expect(activeIndex(grid)).toBe(-1);

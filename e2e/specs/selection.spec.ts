@@ -1,3 +1,4 @@
+import { expectNoSeriousA11yViolations } from '../src/a11y';
 import { browseUrl, fixture } from '../src/scenarios';
 import { expect, test } from '../src/test';
 
@@ -81,4 +82,50 @@ test('select-all does not hijack text input focus', async ({ source, filterBar }
     ),
   ).toBe(12);
   for (const name of await source.names()) expect(await source.card(name).isSelected()).toBe(false);
+});
+
+test('file options have no nested controls and retain keyboard selection and viewer activation', async ({
+  source,
+  comparison,
+  viewer,
+  page,
+}) => {
+  await expect.poll(() => source.names()).not.toEqual([]);
+  await expect.poll(() => comparison.names()).not.toEqual([]);
+  const names = await source.names();
+  await expectNoSeriousA11yViolations(page, { include: ['apm-file-grid'] });
+  for (const pane of [source, comparison]) {
+    const first = pane.card(names[0]);
+    const second = pane.card(names[1]);
+    await first.element.focus();
+    await expect(first.element).toBeFocused();
+    await expect(first.element.locator('[data-checkbox]')).toBeVisible();
+    await expect(first.element.locator('input, button, a[href], [tabindex]')).toHaveCount(0);
+    await first.element
+      .locator('.checkbox')
+      .evaluate((indicator: HTMLElement) => indicator.focus());
+    await expect(first.element).toBeFocused();
+    await page.keyboard.press('Space');
+    await expect(first.element).toHaveAttribute('aria-selected', 'true');
+    await first.expectBorder('primary');
+    await expect(first.element.locator('.checkbox')).toHaveAttribute('aria-checked', 'true');
+    await expect
+      .poll(() =>
+        first.element
+          .locator('.checkbox')
+          .evaluate((indicator) => getComputedStyle(indicator, '::before').opacity),
+      )
+      .toBe('1');
+    await page.keyboard.press('ArrowRight');
+    await expect(second.element).toBeFocused();
+    await page.keyboard.press('Space');
+    await expect(second.element).toHaveAttribute('aria-selected', 'true');
+    expect(await viewer.isOpen()).toBe(false);
+    await pane.clear();
+    await expect(first.element).toHaveAttribute('aria-selected', 'false');
+  }
+  await expectNoSeriousA11yViolations(page, { include: ['apm-file-grid'] });
+  await source.card(names[0]).element.focus();
+  await page.keyboard.press('Enter');
+  await viewer.expectOpen(names[0]);
 });

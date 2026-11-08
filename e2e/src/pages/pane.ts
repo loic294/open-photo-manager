@@ -18,14 +18,12 @@ export class FileCard {
   }
   async select() {
     await this.element.hover();
-    await this.element.getByRole('checkbox', { name: `Select ${this.name}`, exact: true }).click();
+    await this.element.locator('[data-checkbox]').click();
   }
   async expectCheckboxTopRight() {
     await this.element.hover();
     const image = await this.element.locator('figure').boundingBox();
-    const checkbox = await this.element
-      .getByRole('checkbox', { name: `Select ${this.name}`, exact: true })
-      .boundingBox();
+    const checkbox = await this.element.locator('.checkbox').boundingBox();
     expect(image).not.toBeNull();
     expect(checkbox).not.toBeNull();
     expect(checkbox?.x ?? 0).toBeGreaterThan((image?.x ?? 0) + (image?.width ?? 0) * 0.75);

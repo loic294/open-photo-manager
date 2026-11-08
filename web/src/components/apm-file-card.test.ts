@@ -604,23 +604,30 @@ describe('apm-file-card', () => {
       const card = await mount('apm-file-card', { item: fileItem(), selected: true });
 
       expect(part(card, '[data-checkbox]').classList.contains('opacity-100')).toBe(true);
-      expect(part<HTMLInputElement>(card, 'input.checkbox').checked).toBe(true);
+      expect(part(card, '.checkbox').getAttribute('aria-checked')).toBe('true');
     });
 
-    it('is a named checkbox that follows the selection', async () => {
+    it('is a non-focusable indicator; the option names and announces selection', async () => {
       const card = await mount('apm-file-card', { item: fileItem({ name: 'beach.jpg' }) });
-      const box = part<HTMLInputElement>(card, 'input.checkbox');
-      expect(box.checked).toBe(false);
-      expect(box.getAttribute('aria-label')).toBe('Select beach.jpg');
-      expect(box.getAttribute('tabindex')).toBe('-1');
+      const box = part(card, 'span.checkbox');
+      expect(box.getAttribute('aria-checked')).toBe('false');
+      expect(box.getAttribute('aria-hidden')).toBe('true');
+      expect(box.hasAttribute('tabindex')).toBe(false);
+      expect(option(card).getAttribute('aria-label')).toContain('beach.jpg');
+      expect(
+        option(card).querySelector('input, button, a[href], [tabindex], [role="checkbox"]'),
+      ).toBeNull();
+      expect(box.tabIndex).toBe(-1);
 
       card.selected = true;
       await card.updateComplete;
-      expect(box.checked).toBe(true);
+      expect(box.getAttribute('aria-checked')).toBe('true');
+      expect(option(card).getAttribute('aria-selected')).toBe('true');
 
       card.selected = false;
       await card.updateComplete;
-      expect(box.checked).toBe(false);
+      expect(box.getAttribute('aria-checked')).toBe('false');
+      expect(option(card).getAttribute('aria-selected')).toBe('false');
     });
 
     it('has none on a ghost', async () => {
@@ -688,30 +695,33 @@ describe('apm-file-card', () => {
       expect(seen[0]).toMatchObject({ via: 'card', shift: false, toggle: true });
     });
 
-    it('reports a checkbox click once, as the checkbox', async () => {
-      const card = await mount('apm-file-card', { item: fileItem({ id: 9 }), index: 2 });
-      const seen = record(card);
+    it.each(['.checkbox', '[data-checkbox]', '[data-checkbox] > span'])(
+      'reports a click on %s once, as the checkbox',
+      async (selector) => {
+        const card = await mount('apm-file-card', { item: fileItem({ id: 9 }), index: 2 });
+        const seen = record(card);
 
-      click(part(card, 'input.checkbox'), { shiftKey: true });
+        click(part(card, selector), { shiftKey: true });
 
-      expect(seen).toEqual([{ id: 9, index: 2, via: 'checkbox', shift: true, toggle: false }]);
-    });
+        expect(seen).toEqual([{ id: 9, index: 2, via: 'checkbox', shift: true, toggle: false }]);
+      },
+    );
 
     it('leaves the checkbox state to the owner of the selection', async () => {
       const card = await mount('apm-file-card', { item: fileItem() });
-      const box = part<HTMLInputElement>(card, 'input.checkbox');
+      const box = part(card, '.checkbox');
 
       const event = click(box);
 
       expect(event.defaultPrevented).toBe(true);
-      expect(box.checked).toBe(false);
+      expect(box.getAttribute('aria-checked')).toBe('false');
     });
 
     it('keeps the focus on the card when the checkbox is pressed', async () => {
       const card = await mount('apm-file-card', { item: fileItem() });
 
       const event = new MouseEvent('mousedown', { bubbles: true, cancelable: true });
-      part(card, 'input.checkbox').dispatchEvent(event);
+      part(card, '.checkbox').dispatchEvent(event);
 
       expect(event.defaultPrevented).toBe(true);
     });
@@ -719,7 +729,7 @@ describe('apm-file-card', () => {
     it('moves the focus to the card when its checkbox is clicked', async () => {
       const card = await mount('apm-file-card', { item: fileItem() });
 
-      click(part(card, 'input.checkbox'));
+      click(part(card, '.checkbox'));
 
       expect(document.activeElement).toBe(option(card));
     });
@@ -778,11 +788,11 @@ describe('apm-file-card', () => {
       expect(alt.defaultPrevented).toBe(false);
     });
 
-    it('ignores a key pressed in a control inside the card', async () => {
+    it('ignores synthetic key events from the decorative indicator', async () => {
       const card = await mount('apm-file-card', { item: fileItem() });
       const seen = record(card);
 
-      press(part(card, 'input.checkbox'), { key: ' ' });
+      press(part(card, '.checkbox'), { key: ' ' });
 
       expect(seen).toEqual([]);
     });

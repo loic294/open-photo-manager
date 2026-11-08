@@ -265,6 +265,8 @@ interface ThumbState {
  * (`overlay.planned`: a file the plan will create) is dimmed and dashed, ignores `selected`, shows no
  * checkbox and never emits. See `cardFrameClasses` for the border states and `cardBadges` for the
  * badges.
+ * The checkbox is a decorative pointer target within that option, not a second accessible
+ * control: selection is announced by `aria-selected` and Space selects the focused option.
  */
 export class ApmFileCard extends ApmElement {
   static override properties = {
@@ -428,7 +430,7 @@ export class ApmFileCard extends ApmElement {
     `;
   }
 
-  private renderCheckbox(item: FileItem, selected: boolean) {
+  private renderCheckbox(selected: boolean) {
     const shown = this.selectionActive || selected;
     return html`
       <div
@@ -438,13 +440,11 @@ export class ApmFileCard extends ApmElement {
         @click=${this.onCheckboxClick}
       >
         <span class="flex rounded-md bg-base-100/80 p-0.5 shadow-sm">
-          <input
-            type="checkbox"
+          <span
             class="checkbox checkbox-sm checkbox-primary"
-            tabindex="-1"
-            aria-label=${`Select ${item.name}`}
-            .checked=${live(selected)}
-          />
+            aria-hidden="true"
+            aria-checked=${selected ? 'true' : 'false'}
+          ></span>
         </span>
       </div>
     `;
@@ -466,7 +466,7 @@ export class ApmFileCard extends ApmElement {
           ? html`<div class="absolute bottom-1 left-1 flex gap-1">${bottom.map((badge) => this.renderBadge(badge))}</div>`
           : nothing
       }
-      ${item.overlay.planned ? nothing : this.renderCheckbox(item, selected)}
+      ${item.overlay.planned ? nothing : this.renderCheckbox(selected)}
     `;
   }
 
