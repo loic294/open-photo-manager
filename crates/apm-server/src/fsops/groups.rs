@@ -102,8 +102,9 @@ impl FsOps {
     /// # Errors
     /// The owner's errors (see [`FsOps::move_file`]): then nothing was moved. A malformed group
     /// (a sidecar that is not in the owner's folder, listed twice, or whose derived name is not
-    /// valid) is `destination_invalid` before anything is touched. A sidecar's own failure is
-    /// reported in its [`SidecarOutcome::Failed`], not here.
+    /// valid) is refused before anything is touched: `destination_invalid`, or `name_too_long`
+    /// when a derived name is too long. A sidecar's own failure is reported in its
+    /// [`SidecarOutcome::Failed`], not here.
     pub async fn move_group(
         &self,
         group: MoveGroup,
