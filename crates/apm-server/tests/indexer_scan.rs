@@ -1577,6 +1577,7 @@ async fn run_returns_the_counts_of_the_scan() {
         summary,
         IndexSummary {
             added: 7,
+            hashed: 5,
             ..IndexSummary::default()
         }
     );
