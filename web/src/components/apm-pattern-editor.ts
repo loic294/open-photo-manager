@@ -7,6 +7,7 @@ import type { FormatToken } from '@/api/generated/FormatToken';
 import type { FormatTokensResponse } from '@/api/generated/FormatTokensResponse';
 import type { SideParams } from '@/api/generated/SideParams';
 import { ApmElement } from '@/base/apm-element';
+import '@/components/apm-icon';
 import { skipLabel } from '@/util/skip-codes';
 
 export interface PatternChangeDetail {
@@ -249,9 +250,10 @@ export class ApmPatternEditor extends ApmElement {
         ${!this.source ? 'Pick a source folder to preview' : nothing}
         ${!this.checking && this.preview?.appends_filename ? 'No file name in the pattern: the original name is added at the end' : nothing}
       </div>
-      <details class="collapse collapse-arrow bg-base-200 rounded-box">
-        <summary class="collapse-title min-h-0 py-1 text-xs">Variables and examples</summary>
-        <div class="collapse-content px-2">
+      <details class="dropdown block min-w-0">
+        <summary class="btn btn-ghost btn-xs w-full justify-between">Variables and examples
+          <apm-icon name="chevron-down" size="xs"></apm-icon></summary>
+        <div class="dropdown-content left-0 z-30 w-full rounded-box bg-base-100 p-2 shadow-lg">
           ${
             this.catalogueError
               ? html`<div class="alert alert-warning py-1" role="alert">
@@ -269,7 +271,11 @@ export class ApmPatternEditor extends ApmElement {
               <button class="btn btn-xs font-mono" type="button" ?disabled=${this.disabled}
                 title="${token.description} (${token.example})"
                 @pointerdown=${(event: PointerEvent) => event.preventDefault()}
-                @click=${() => this.insert(`{${token.name}}`)}>{${token.name}}</button></span>`,
+                @click=${(event: Event) => {
+                  this.insert(`{${token.name}}`);
+                  const details = (event.currentTarget as HTMLElement).closest('details');
+                  if (details) details.open = false;
+                }}>{${token.name}}</button></span>`,
             )}
           </div>`,
           )}
@@ -298,9 +304,10 @@ export class ApmPatternEditor extends ApmElement {
       <div class="min-h-4" role="status" aria-live="polite">${this.checking ? html`<span class="loading loading-dots loading-xs"></span> Checking pattern...` : nothing}</div>
       ${
         this.preview && !this.preview.error
-          ? html`<details class="collapse collapse-arrow rounded-box bg-base-200">
-        <summary class="collapse-title min-h-0 py-1 text-xs">Live preview (${this.preview.samples.length} samples)</summary>
-        <div class="collapse-content px-2">
+          ? html`<details class="dropdown block min-w-0">
+        <summary class="btn btn-ghost btn-xs w-full justify-between">Live preview (${this.preview.samples.length} ${this.preview.samples.length === 1 ? 'sample' : 'samples'})
+          <apm-icon name="chevron-down" size="xs"></apm-icon></summary>
+        <div class="dropdown-content left-0 z-30 w-full rounded-box bg-base-100 p-2 shadow-lg">
           ${
             this.preview.samples.length === 0
               ? 'No files to preview in the selected source'

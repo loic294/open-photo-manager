@@ -1090,7 +1090,8 @@ cache (failed loads retry) and abortable 300 ms previews. Tokens and examples co
 the server: catalogue names are bare spellings, inserted with braces. Error spans are UTF-8
 byte offsets converted to DOM UTF-16 positions by `patternSpan`; suggestions replace the
 whole span. Empty patterns are checked by the server, not given a browser interpretation.
-Variables/examples and preview samples use native disclosures to keep fixed chrome compact
+Variables/examples and preview samples use native dropdown disclosures, with floating panels
+that do not consume pane height, to keep fixed chrome compact
 on narrow screens. `skipLabel` reuses the shared result reason map, not a second renderer.
 
 ## Asset move

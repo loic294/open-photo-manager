@@ -10,7 +10,7 @@ import { toast } from '@/components/toast';
 import { loadSettings, settings } from '@/stores/settings';
 import { renderPendingNotice } from '@/tools/framework/plan-notices';
 import type { ToolContext } from '@/tools/framework/tool-context';
-import { formatLocation } from '@/tools/move/move-actions';
+import { fileCount, formatLocation } from '@/tools/move/move-actions';
 import {
   isRulePolicy,
   matchMode,
@@ -68,7 +68,7 @@ export function renderPatternSection(
       rules.patternStatus.value = event.detail.status;
     }}></apm-pattern-editor>`;
   if (!options.collapsible) return html`<div class="basis-full min-w-0">${editor}</div>`;
-  return html`<details class="collapse collapse-arrow basis-full min-w-0 bg-base-200 rounded-box"
+  return html`<details class="collapse collapse-arrow overflow-visible basis-full min-w-0 bg-base-200 rounded-box"
     .open=${patternDisclosure.get(rules) ?? (rules.pattern.value === '' || rules.patternStatus.value === 'invalid')}>
     <summary class="collapse-title min-h-0 py-1 text-sm truncate"
       @click=${(event: Event) => {
@@ -86,9 +86,9 @@ export function renderMoveSummary(ctx: ToolContext) {
   return html`<span class="inline-flex flex-wrap items-center gap-1 text-xs text-base-content/70" role="status">
     ${
       count > 0
-        ? `${formatCount(count)} files (${formatFileSize(stats.bytes_to_move ?? 0)}) will move${(stats.new_folders ?? 0) > 0 ? `, ${formatCount(stats.new_folders ?? 0)} new folders` : ''}`
+        ? `${fileCount(count)} (${formatFileSize(stats.bytes_to_move ?? 0)}) will move${(stats.new_folders ?? 0) > 0 ? `, ${formatCount(stats.new_folders ?? 0)} new ${stats.new_folders === 1 ? 'folder' : 'folders'}` : ''}`
         : (stats.candidates ?? 0) > 0 && stats.already_in_place === stats.candidates
-          ? `All ${formatCount(stats.candidates ?? 0)} files are already in place`
+          ? `${stats.candidates === 1 ? '1 file is' : `All ${fileCount(stats.candidates ?? 0)} are`} already in place`
           : 'Nothing to move'
     }
     ${[

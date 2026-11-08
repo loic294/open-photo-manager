@@ -78,6 +78,30 @@ it('loads only server chips and inserts at a selected range, preserving focus', 
   expect(document.activeElement).toBe(input);
 });
 
+it('keeps catalogue and live samples in dropdown panels outside fixed-chrome flow', async () => {
+  const { el } = await setup();
+  await settle();
+  await el.updateComplete;
+  const disclosures = [...el.querySelectorAll('details')].filter((details) =>
+    ['Variables and examples', 'Live preview (1 sample)'].some((label) =>
+      details.querySelector('summary')?.textContent?.includes(label),
+    ),
+  );
+  expect(disclosures).toHaveLength(2);
+  for (const details of disclosures) {
+    expect(details.classList.contains('dropdown')).toBe(true);
+    expect(details.querySelector(':scope > .dropdown-content')).not.toBeNull();
+    expect(details.open).toBe(false);
+  }
+  const catalogue = disclosures[0];
+  if (!catalogue) throw new Error('Missing catalogue');
+  catalogue.open = true;
+  [...catalogue.querySelectorAll('button')]
+    .find((button) => button.textContent === '{YYYY}')
+    ?.click();
+  expect(catalogue.open).toBe(false);
+});
+
 it.each([
   ['', 0, '{YYYY}'],
   ['abc', 1, 'a{YYYY}bc'],

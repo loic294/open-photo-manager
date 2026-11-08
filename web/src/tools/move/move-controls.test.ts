@@ -79,7 +79,7 @@ it('summarizes only server stats and renders pending metadata/hash notices once'
     renamed: 1,
   };
   render(renderMoveSummary(ctx), container);
-  expect(container.textContent).toContain('2 files (1 KB) will move, 1 new folders');
+  expect(container.textContent).toContain('2 files (1 KB) will move, 1 new folder');
   plan.statsSignal.value = { candidates: 2, already_in_place: 2, to_move: 0 };
   render(renderMoveSummary(ctx), container);
   expect(container.textContent).toContain('All 2 files are already in place');
