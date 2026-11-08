@@ -21,7 +21,7 @@
 //! git archive HEAD | docker run --rm -i --cpus=2 --memory=3g \
 //!   -v apm-linux-6c380c1d-target:/work/target \
 //!   -v apm-linux-6c380c1d-registry:/usr/local/cargo/registry \
-//!   -e CARGO_BUILD_JOBS=2 -e CARGO_PROFILE_DEV_DEBUG=0 -e CARGO_PROFILE_TEST_DEBUG=0 \
+//!   -e CARGO_BUILD_JOBS=2 -e CARGO_INCREMENTAL=0 -e CARGO_PROFILE_DEV_DEBUG=0 -e CARGO_PROFILE_TEST_DEBUG=0 \
 //!   -e CARGO_HOME=/usr/local/cargo -e RUSTUP_HOME=/usr/local/rustup -e RUSTUP_TOOLCHAIN=1.94.1 \
 //!   rust:1.94.1-bookworm bash -c 'mkdir -p /work && tar -xf - -C /work &&
 //!   chown -R 1000:1000 /work/web && chmod 777 /work && cd /work &&
