@@ -27,7 +27,7 @@ test('moving out of the mapped library deletes only the offline Immich asset', a
   const item = (await app.api.listing('photos', 'sidecars')).items.find(
     (file) => file.name === 'IMG_0010.JPG',
   );
-  if (!item || !item.in_immich) throw new Error('Fixture is not indexed as an Immich asset');
+  if (!item?.in_immich) throw new Error('Fixture is not indexed as an Immich asset');
   const selection = await app.api.request<SelectionDto>('POST', '/api/selections', {
     ids: [item.id],
     label: 'move outside library',
