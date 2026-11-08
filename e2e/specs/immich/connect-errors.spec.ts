@@ -10,6 +10,32 @@ test.use({
   ],
 });
 
+test('an unsupported URL is explained without contacting Immich', async ({
+  app,
+  page,
+  shell,
+  settingsPage,
+  mockImmich,
+}) => {
+  const mock = await mockImmich({ serverVersion: '3.3.3', scanDelayMs: 0 });
+  await page.goto(app.url);
+  await shell.navigate('Settings');
+  await settingsPage.tab('Immich');
+  await settingsPage.fill('Server URL', 'ftp://example.invalid');
+  await settingsPage.fill('Email', testUsers.admin.email);
+  await settingsPage.fill('Password', testUsers.admin.password);
+  await page.getByRole('button', { name: 'Connect', exact: true }).click();
+  await expect(page.getByText('Enter a valid HTTP or HTTPS address for Immich.')).toBeVisible();
+  await expect(settingsPage.field('Server URL')).toHaveAttribute('aria-invalid', 'true');
+  await expect(settingsPage.field('Email')).toHaveValue(testUsers.admin.email);
+  expect(mock.state.requests().entries.filter((entry) => entry.path === '/api/auth/login')).toEqual(
+    [],
+  );
+  expect((await app.api.request<ImmichStatusDto>('GET', '/api/immich/status')).connected).toBe(
+    false,
+  );
+});
+
 test('a wrong password preserves the address and email without retrying the login', async ({
   app,
   page,
