@@ -54,9 +54,10 @@ The four tools operate on the index and show a plan before a confirmed file oper
 2. The bottom split action offers **Delete source items**, **Delete comparison items** and
    **Move files**. Its last-used choice is remembered. Delete actions ask for confirmation and
    send only matched files to Trash when a matching survivor remains outside the effective
-   deletion set. **Move files** hands the chosen files to **Asset move**; it does not move them
+   deletion set. **Move files** hands the chosen files to **Asset move**; no files move until its
+   separate plan is confirmed.
    With a selection, **Move files** passes the active pane's selected files; without one, it
-   passes the comparison-side matches. **Asset move** still shows its own plan before anything moves.
+   passes the comparison-side matches.
 
    You should see: a confirmation describing the survivor rule before deletion, or the selected
    files carried into the move tool.
@@ -65,7 +66,7 @@ The four tools operate on the index and show a plan before a confirmed file oper
 
 1. Choose source and destination folders with **Use this folder**. **Move type** offers
    **Keep source file structure**, **Keep destination file structure**, **Flat file transfer**
-   and **Use custom file structure**. The comparison pane previews the destination plan; planned
+   and **Use custom file structure**. The **Destination** pane previews the plan; planned
    files and folders are marked rather than written to disk.
 
    You should see: the summary counts files and new folders that will move, plus any skipped,
@@ -75,7 +76,7 @@ The four tools operate on the index and show a plan before a confirmed file oper
    Smart skips identical content and renames a different conflict, for example `photo.jpg` to
    `photo_1.jpg`. Skip leaves the source file in place. Rename gives the incoming file a new name.
    Replace moves the existing destination to Trash before using its name. No policy overwrites a
-   destination in place. Confirm with **Move files** only after reviewing the comparison pane.
+   destination in place. Confirm with **Move files** only after reviewing the **Destination** pane.
 
    You should see: a final count and destination in the confirmation. Folders left empty by a move
    remain; use **Empty folder cleanup** separately.
@@ -93,7 +94,7 @@ The four tools operate on the index and show a plan before a confirmed file oper
 ## Folder formatting
 
 1. Open a source folder. The destination initially follows the source; change it with
-   **Use this folder** in the comparison pane if needed. Edit **Folder pattern** or insert tokens
+   **Use this folder** in the **Destination** pane if needed. Edit **Folder pattern** or insert tokens
    from **Variables and examples**. The live preview checks the pattern against sample files.
    Dates use the best available capture time: preferred embedded original date, then linked XMP,
    other embedded or video dates, then file birth time or modification time.

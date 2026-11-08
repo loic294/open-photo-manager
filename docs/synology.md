@@ -4,9 +4,9 @@ For the NAS owner preparing a private, LAN-only deployment. Read the [Docker ref
 for environment defaults, mount layout and hardening; the installation commands live in the
 [README](../README.md#install-on-synology), not here.
 
-Status: source-verified operations guidance. An isolated local Compose start with the existing
-`apm-coordinator:94ed02fb` image reached healthy status and browsed an indexed fixture library via the API,
-with a non-root user, read-only root and read-only archive. No NAS deployment or DSM verification has occurred.
+Status: source-verified operations guidance. The current production image was built locally with
+`make docker-run`, reached healthy status, and displayed a browsed library from private generated fixtures
+with a disposable data folder. No NAS deployment or DSM verification has occurred.
 DSM menu names differ between
 versions; all DSM UI procedures below are not verified on a DSM device.
 
