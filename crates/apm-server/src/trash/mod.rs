@@ -43,8 +43,8 @@
 //! # Sync with the disk
 //! [`TrashService::sync`] (`POST /api/trash/sync`) makes the rows agree with `.apm-trash` after
 //! the database was lost or the trash was cleaned by hand: untracked files are adopted, rows whose
-//! file is gone are removed (unless that looks like an unmounted share). It is an `index` task on
-//! the `fs` lane. See `sync.rs`.
+//! file is gone are removed (unless that looks like an unmounted share). It is an `fs_trash` task
+//! on the `fs` lane (not an `index` task: `IndexJobs` counts those as scans). See `sync.rs`.
 //!
 //! # Reading
 //! The listing and the deletions are read from the index only and never change state. The page

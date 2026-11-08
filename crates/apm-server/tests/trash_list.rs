@@ -644,7 +644,7 @@ async fn a_post_without_the_request_header_is_refused() {
         .filter(|task| {
             matches!(
                 task.kind,
-                TaskKind::TrashEmpty | TaskKind::FsMove | TaskKind::Index
+                TaskKind::TrashEmpty | TaskKind::FsMove | TaskKind::FsTrash
             )
         })
         .count();

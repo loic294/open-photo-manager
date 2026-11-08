@@ -27,10 +27,12 @@
 //! links are never followed (nor adopted), names that are not UTF-8 are skipped and counted, and
 //! the task stops between directories when it is cancelled.
 //!
-//! The task has kind `index` (the page refetches when one ends) but runs on the `fs` lane, like
-//! every task that trashes, restores or deletes: a file that `FsOps::trash_file` has just moved
-//! into the trash has no row for a moment, and a sync that looked at that moment would adopt it
-//! without its reason and its index snapshot.
+//! The task has kind `fs_trash`, so it runs on the `fs` lane like every task that trashes,
+//! restores or deletes: a file that `FsOps::trash_file` has just moved into the trash has no row
+//! for a moment, and a sync that looked at that moment would adopt it without its reason and its
+//! index snapshot. It is deliberately not an `index` task: `IndexJobs` counts every queued or
+//! running `index` task as a scan (its status, and the startup and periodic scans that join a
+//! scan that is already open).
 //!
 //! The lister is deliberately its own small one: the scanner's walker skips `.apm-trash` and junk
 //! and classifies sidecars, none of which applies here.
@@ -49,7 +51,7 @@ use super::{TrashService, to_i64};
 use crate::error::AppError;
 use crate::indexer::guard_trips;
 use crate::security::{FsError, VolumeRoot};
-use crate::tasks::{Lane, TaskCtx, TaskError, TaskSpec};
+use crate::tasks::{TaskCtx, TaskError, TaskSpec};
 
 const TITLE: &str = "Checking the trash";
 /// Characters of the `YYYYMMDD-HHMMSS` stamp a batch name starts with.
@@ -259,9 +261,8 @@ impl TrashService {
     /// final title and result.
     pub async fn sync(&self) -> Result<TaskId, AppError> {
         let service = self.clone();
-        let spec = TaskSpec::new(TaskKind::Index, TITLE)
-            .with_params(json!({ "op": "trash_sync" }))
-            .with_lane(Lane::Fs);
+        let spec =
+            TaskSpec::new(TaskKind::FsTrash, TITLE).with_params(json!({ "op": "trash_sync" }));
         let id = self
             .tasks
             .submit(spec, move |ctx| async move { service.run_sync(ctx).await })

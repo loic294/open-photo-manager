@@ -93,7 +93,7 @@ async fn a_sync_is_a_task_on_the_file_lane_that_waits_for_its_turn() {
     let (status, queued) = fx.app.call(axum::http::Method::POST, SYNC, None).await;
     assert_eq!(status, StatusCode::ACCEPTED, "{queued}");
     let id = queued["id"].as_i64().unwrap();
-    assert_eq!(queued["kind"], "index");
+    assert_eq!(queued["kind"], "fs_trash");
     assert_eq!(
         queued["state"], "queued",
         "it waits behind the file operation"
@@ -111,7 +111,7 @@ async fn a_sync_is_a_task_on_the_file_lane_that_waits_for_its_turn() {
 
     gate.open();
     let task = fx.finished(id).await;
-    assert_eq!(task.kind, TaskKind::Index);
+    assert_eq!(task.kind, TaskKind::FsTrash);
     assert_eq!(task.state, TaskState::Done, "{task:?}");
     assert_eq!(task.title, "The trash matches the disk");
     assert_eq!(task.error, None);
@@ -121,6 +121,27 @@ async fn a_sync_is_a_task_on_the_file_lane_that_waits_for_its_turn() {
             "adopted": 0, "removed": 0, "held": 0, "unreadable": 0, "volumes": 2, "offline": 0,
         })
     );
+}
+
+#[tokio::test]
+async fn a_queued_sync_is_not_an_index_scan() {
+    let fx = TrashFx::new().await;
+    let gate = fx.hold_the_queue().await;
+    let id = fx.queue_sync().await;
+
+    let (status, index) = fx
+        .app
+        .call(axum::http::Method::GET, "/api/index/status", None)
+        .await;
+
+    assert_eq!(status, StatusCode::OK, "{index}");
+    assert_eq!(
+        index["active_task_id"],
+        Value::Null,
+        "IndexJobs counts every queued `index` task as a scan: {index}"
+    );
+    gate.open();
+    fx.finished(id).await;
 }
 
 #[tokio::test]
