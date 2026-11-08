@@ -1082,6 +1082,40 @@ or leave the tool. Only explicit confirmation and Details open a modal.
   10 s (`timeout: 0` remains persistent). Repeated messages update the action rather than
   keeping an obsolete Details target.
 
+## Pattern editor
+`apm-pattern-editor` is controlled: `value`, `source: SideParams | null`, `basePrefix`,
+`disabled`, `label`, `limit` (5 by default); bubbling `pattern-change { value, status }`
+reports `checking`, `valid`, `invalid` or `idle`. `api/format.ts` owns the shared catalogue
+cache (failed loads retry) and abortable 300 ms previews. Tokens and examples come only from
+the server: catalogue names are bare spellings, inserted with braces. Error spans are UTF-8
+byte offsets converted to DOM UTF-16 positions by `patternSpan`; suggestions replace the
+whole span. Empty patterns are checked by the server, not given a browser interpretation.
+Variables/examples and preview samples use native disclosures to keep fixed chrome compact
+on narrow screens. `skipLabel` reuses the shared result reason map, not a second renderer.
+
+## Asset move
+`tools/move/tool.ts` configures the shared tool framework with independently pinned source
+and destination bases, a source-only filter and recursive toggle. Move types are persisted;
+keep-destination uses the same `apm-match-mode` as Duplicate finder. Custom moves use the
+shared pattern editor (3 samples, inside a pattern disclosure).
+Reusable exports for other custom-move tools: `createRuleState(prefix)` / `RuleState`,
+`buildMoveParams(ctx, rules: MoveRules, reasons?)`, `renderPatternSection(ctx, rules, options)`,
+`renderConflictPolicy(rules)`, `renderMoveSummary(ctx)`, `renderPendingNotices(ctx, { hash })`,
+`ensureSettings()`, `moveActions(ctx, options)`, `confirmMove(ctx, wording)` / `MoveWording`.
+The shared plan action owns server-exact confirmation counts, selection restrictions,
+execution and results. Default-policy load errors remain visible; General Settings shares
+`CONFLICT_POLICIES` and `apm-select` while retaining its save bar and unsaved guard.
+`isSameOrBelow` preserves exact path bytes and segment boundaries; both filesystem-event
+invalidation and the non-blocking nested-destination warning reuse it.
+
+## Folder formatting
+`tools/format/tool.ts` is a thin custom-move config, not a formatter or execution flow.
+`formatRules = createRuleState('format')` keeps pattern/policy independent of Asset move.
+The source base is its current folder. Destination defaults to that source base and follows
+source navigation through `followSource` until pinned; Reset restores the default. Its editor
+is always present (5 samples), and wording names the current pattern in the shared confirmation.
+Repeated-run idempotence is decided by the backend's `already_in_place` status.
+
 ## Duplicate finder
 - Asset move reuses `util/match-modes.ts` (`MATCH_MODES`, `isMatchMode`, `matchModeLabel`) and
   controlled `apm-match-mode`: `mode`, `strict`, `label`, `disabled`, bubbling

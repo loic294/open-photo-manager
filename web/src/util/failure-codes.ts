@@ -25,6 +25,10 @@ export const FAILURE_REASONS: Readonly<Record<string, string>> = {
   metadata_pending: 'Metadata is still being indexed',
   pattern_failed: 'Folder pattern could not be applied',
   reserved_destination: 'Destination is reserved by another item',
+  move: 'Will move',
+  renamed: 'Renamed to avoid a name conflict',
+  replaced: 'Existing destination file goes to the trash',
+  cross_volume_items: 'Moved to another volume with copy verification',
 };
 
 export function describeFailure(code: string, message: string): string {

@@ -23,24 +23,6 @@ export interface AppRoute {
 
 const loadPlaceholder = () => import('@/components/apm-route-placeholder');
 
-/**
- * A route whose feature is not built yet. When it is, replace its line below with a full entry:
- *   { path: '/duplicates', tag: 'apm-duplicates-page', label: 'Duplicate finder', icon: 'copy',
- *     load: () => import('@/tools/duplicates/apm-duplicates-page'), menu: 'tools' },
- */
-function comingSoon(path: string, label: string, icon: IconName, menu?: MenuGroup): AppRoute {
-  const route: AppRoute = {
-    path,
-    tag: 'apm-route-placeholder',
-    load: loadPlaceholder,
-    label,
-    icon,
-    props: { heading: label, icon },
-  };
-  if (menu) route.menu = menu;
-  return route;
-}
-
 /** The pages of the app, in menu order. One line each. */
 export const routes: readonly AppRoute[] = [
   {
@@ -59,8 +41,22 @@ export const routes: readonly AppRoute[] = [
     load: () => import('@/tools/duplicates/apm-duplicates-page'),
     menu: 'tools',
   },
-  comingSoon('/move', 'Asset move', 'folder-input', 'tools'),
-  comingSoon('/format', 'Folder formatting', 'folder-tree', 'tools'),
+  {
+    path: '/move',
+    tag: 'apm-move-page',
+    label: 'Asset move',
+    icon: 'folder-input',
+    load: () => import('@/tools/move/apm-move-page'),
+    menu: 'tools',
+  },
+  {
+    path: '/format',
+    tag: 'apm-format-page',
+    label: 'Folder formatting',
+    icon: 'folder-tree',
+    load: () => import('@/tools/format/apm-format-page'),
+    menu: 'tools',
+  },
   {
     path: '/cleanup',
     tag: 'apm-cleanup-page',
