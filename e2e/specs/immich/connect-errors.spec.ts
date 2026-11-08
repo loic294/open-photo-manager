@@ -1,5 +1,6 @@
 import { testUsers } from '../../../tools/mock-immich/index.ts';
 import type { ImmichStatusDto } from '../../../web/src/api/generated/ImmichStatusDto';
+import { expectNoSeriousA11yViolations } from '../../src/a11y';
 import { expect, test } from '../../src/immich-readonly-test';
 
 test.use({
@@ -26,6 +27,7 @@ test('a wrong password preserves the address and email without retrying the logi
   await expect(
     page.getByText('Immich refused the email or password.', { exact: false }),
   ).toBeVisible();
+  await expectNoSeriousA11yViolations(page, { include: ['apm-settings-immich'] });
   await expect(settingsPage.field('Server URL')).toHaveValue(mock.url);
   await expect(settingsPage.field('Email')).toHaveValue(testUsers.admin.email);
   const attempts = mock.state
@@ -38,6 +40,7 @@ test('a wrong password preserves the address and email without retrying the logi
   await settingsPage.fill('Password', testUsers.admin.password);
   await page.getByRole('button', { name: 'Connect', exact: true }).click();
   await expect(page.getByText('Full mode:', { exact: false })).toBeVisible();
+  await expectNoSeriousA11yViolations(page, { include: ['apm-settings-immich'] });
   const after = mock.state.requests().entries.filter((entry) => entry.path === '/api/auth/login');
   expect(after.map(({ status }) => status)).toEqual([401, 201]);
 });
