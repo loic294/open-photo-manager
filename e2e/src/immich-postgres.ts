@@ -6,6 +6,7 @@ import { setTimeout as delay } from 'node:timers/promises';
 import { promisify } from 'node:util';
 import type {
   BackingAssetPath,
+  BackingAssociations,
   MockImmich,
   MockImmichOptions,
 } from '../../tools/mock-immich/index.ts';
@@ -281,6 +282,10 @@ export class ImmichPostgres {
     const users = mock.state.users();
     const libraries = mock.state.libraries();
     const assets = mock.state.assets();
+    const albums = mock.state.albums();
+    const tags = mock.state.tags();
+    const owner = users.find((user) => user.isAdmin);
+    if (!owner) throw new Error('The backed fixture needs an admin user for its tags');
     await this.sql(`
       INSERT INTO public.cluster_group (id) VALUES ('${group}'::uuid);
       INSERT INTO public."user" (id, email, "clusterGroupId")
@@ -296,32 +301,69 @@ export class ImmichPostgres {
     for (let offset = 0; offset < assets.length; offset += 40) {
       await this.sql(`
         INSERT INTO public.asset
-          (id, "ownerId", "libraryId", "isExternal", "isOffline", "deletedAt", type,
+          (id, "ownerId", "libraryId", "isExternal", "isOffline", "isFavorite", "deletedAt", type, visibility,
            "originalPath", "originalFileName", checksum, "checksumAlgorithm",
            "fileCreatedAt", "fileModifiedAt", "localDateTime")
         SELECT id::uuid, "ownerId"::uuid, "libraryId"::uuid, true,
-          "isOffline", "deletedAt"::timestamptz,
+          "isOffline", "isFavorite", "deletedAt"::timestamptz,
           (jsonb_populate_record(NULL::public.asset, jsonb_build_object('type', type))).type,
+          (jsonb_populate_record(NULL::public.asset, jsonb_build_object('visibility', visibility))).visibility,
           "originalPath", "originalFileName", decode(checksum, 'base64'), 'sha1-path',
           "fileCreatedAt"::timestamptz, "fileModifiedAt"::timestamptz, "fileCreatedAt"::timestamp
         FROM jsonb_to_recordset(${sqlJson(assets.slice(offset, offset + 40))})
           AS x(id text, "ownerId" text, "libraryId" text, type text, "originalPath" text,
                "originalFileName" text, checksum text, "fileCreatedAt" text, "fileModifiedAt" text,
-               "isOffline" boolean, "deletedAt" text)
+               "isOffline" boolean, "isFavorite" boolean, "deletedAt" text, visibility text)
+      `);
+      await this.sql(`
+        INSERT INTO public.asset_exif ("assetId", rating, description)
+        SELECT id::uuid, rating, description
+        FROM jsonb_to_recordset(${sqlJson(assets.slice(offset, offset + 40))})
+          AS x(id text, rating integer, description text)
       `);
     }
+    await this.sql(`
+      INSERT INTO public.album (id, "albumName")
+      SELECT id::uuid, name FROM jsonb_to_recordset(${sqlJson(albums)})
+        AS x(id text, name text);
+      INSERT INTO public.tag (id, "userId", value)
+      SELECT id::uuid, '${owner.id}'::uuid, value FROM jsonb_to_recordset(${sqlJson(tags)})
+        AS x(id text, value text);
+      INSERT INTO public.album_asset ("albumId", "assetId")
+      SELECT x.id::uuid, a.value::uuid
+      FROM jsonb_to_recordset(${sqlJson(albums)}) AS x(id text, "assetIds" jsonb),
+        jsonb_array_elements_text(x."assetIds") AS a(value);
+      INSERT INTO public.tag_asset ("tagId", "assetId")
+      SELECT x.id::uuid, a.value::uuid
+      FROM jsonb_to_recordset(${sqlJson(tags)}) AS x(id text, "assetIds" jsonb),
+        jsonb_array_elements_text(x."assetIds") AS a(value)
+    `);
     await this.refreshMock(mock);
   }
 
-  /** Refresh mock paths from SQL after a direct write and before observing the API. */
+  /** Refresh asset and association state in one SQL snapshot before observing the API. */
   async refreshMock(mock: MockImmich) {
-    const json = await this.sql(`SELECT COALESCE(json_agg(row_to_json(a)), '[]'::json)
-      FROM (SELECT id::text AS "id", "ownerId"::text AS "ownerId",
-      "libraryId"::text AS "libraryId", "originalPath", "originalFileName",
-      encode(checksum, 'base64') AS checksum, "updatedAt" AS "updatedAt",
-      "isOffline", "deletedAt"
-      FROM public.asset ORDER BY id) a`);
-    mock.control.reconcileAssetPaths(JSON.parse(json) as BackingAssetPath[]);
+    const json = await this.sql(`SELECT json_build_object(
+      'assets', (SELECT COALESCE(json_agg(row_to_json(a)), '[]'::json)
+        FROM (SELECT asset.id::text AS "id", asset."ownerId"::text AS "ownerId",
+          asset."libraryId"::text AS "libraryId", asset."originalPath", asset."originalFileName",
+          encode(asset.checksum, 'base64') AS checksum, asset."updatedAt", asset."isOffline",
+          asset."isFavorite", asset."deletedAt", asset.visibility::text AS visibility,
+          exif.rating, COALESCE(exif.description, '') AS description
+          FROM public.asset LEFT JOIN public.asset_exif exif ON exif."assetId" = asset.id
+          ORDER BY asset.id) a),
+      'albums', (SELECT COALESCE(json_agg(row_to_json(a)), '[]'::json)
+        FROM (SELECT album.id::text AS id, album."albumName" AS name,
+          COALESCE((SELECT json_agg(aa."assetId"::text ORDER BY aa."assetId")
+            FROM public.album_asset aa WHERE aa."albumId" = album.id), '[]'::json) AS "assetIds"
+          FROM public.album ORDER BY album.id) a),
+      'tags', (SELECT COALESCE(json_agg(row_to_json(t)), '[]'::json)
+        FROM (SELECT tag.id::text AS id, tag.value AS name,
+          COALESCE((SELECT json_agg(ta."assetId"::text ORDER BY ta."assetId")
+            FROM public.tag_asset ta WHERE ta."tagId" = tag.id), '[]'::json) AS "assetIds"
+          FROM public.tag ORDER BY tag.id) t))`);
+    const snapshot = JSON.parse(json) as BackingAssociations & { assets: BackingAssetPath[] };
+    mock.control.reconcileAssetPaths(snapshot.assets, snapshot);
   }
 
   /** Persist an authenticated API deletion only if the database still has the same assets. */

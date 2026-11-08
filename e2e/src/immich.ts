@@ -39,6 +39,29 @@ export async function waitForTask(app: AppInstance, id: number) {
     .toBe('done');
 }
 
+/** Read through the mock API using a separate test key, never the application's stored key. */
+export async function readMockAsset(mockUrl: string, id: string): Promise<unknown> {
+  const session = await fetch(`${mockUrl}/api/auth/login`, {
+    method: 'POST',
+    headers: { 'content-type': 'application/json' },
+    body: JSON.stringify({ email: testUsers.admin.email, password: testUsers.admin.password }),
+  });
+  expect(session.status).toBe(201);
+  const auth = (await session.json()) as { accessToken: string };
+  const keys = await fetch(`${mockUrl}/api/api-keys`, {
+    method: 'POST',
+    headers: { 'content-type': 'application/json', authorization: `Bearer ${auth.accessToken}` },
+    body: JSON.stringify({ name: 'asset-assertion', permissions: ['asset.read'] }),
+  });
+  expect(keys.status).toBe(201);
+  const key = (await keys.json()) as { secret: string };
+  const response = await fetch(`${mockUrl}/api/assets/${id}`, {
+    headers: { 'x-api-key': key.secret },
+  });
+  expect(response.status).toBe(200);
+  return response.json();
+}
+
 /** Connect first; use this to map all private fixture volumes and sync them. */
 export async function mapAndSync(app: AppInstance, names = ['photos', 'archive']) {
   const volumes = await app.api.volumes();

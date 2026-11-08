@@ -2,7 +2,7 @@ import { createHash } from 'node:crypto';
 import { readFile, stat } from 'node:fs/promises';
 import type { PlanDto } from '../../../web/src/api/generated/PlanDto';
 import type { SelectionDto } from '../../../web/src/api/generated/SelectionDto';
-import { connectThroughUi, mapAndSync, waitForTask } from '../../src/immich';
+import { connectThroughUi, mapAndSync, readMockAsset, waitForTask } from '../../src/immich';
 import { expect, test } from '../../src/immich-test';
 
 test.use({ allowedErrors: [/^requestfailed: .*\/api\/events net::ERR_ABORTED$/] });
@@ -22,9 +22,14 @@ test('@smoke Asset move preserves a tracked asset and its album inside the libra
   const asset = mock.state.assetByPath('/mnt/photos/sidecars/IMG_0010.JPG');
   if (!asset) throw new Error('Expected scanned Immich fixture asset');
   const id = String(asset.id);
-  const album = await database.sql('INSERT INTO public.album DEFAULT VALUES RETURNING id::text');
+  const album = mock.state.albums()[0]?.id;
+  const tag = mock.state.tags()[0]?.id;
+  if (!album || !tag) throw new Error('Expected fixture album and tag');
   await database.sql(`INSERT INTO public.album_asset ("albumId", "assetId")
     VALUES ('${album}'::uuid, '${id}'::uuid);
+    INSERT INTO public.tag_asset ("tagId", "assetId") VALUES ('${tag}'::uuid, '${id}'::uuid);
+    UPDATE public.asset SET "isFavorite" = true WHERE id = '${id}'::uuid;
+    UPDATE public.asset_exif SET rating = 5 WHERE "assetId" = '${id}'::uuid;
     INSERT INTO public.asset_file ("assetId", type, path)
     VALUES ('${id}'::uuid, 'sidecar', '/mnt/photos/sidecars/IMG_0010.JPG.xmp')`);
   const photo = await readFile(app.volumePath('photos/sidecars/IMG_0010.JPG'));
@@ -79,7 +84,11 @@ test('@smoke Asset move preserves a tracked asset and its album inside the libra
       'name', a."originalFileName", 'checksum', encode(a.checksum, 'hex'),
       'asset', a."updateId", 'sidecar', f."updateId", 'sidecar_path', f.path,
       'associated', EXISTS(SELECT 1 FROM public.album_asset aa
-        WHERE aa."assetId" = a.id AND aa."albumId" = '${album}'::uuid))
+        WHERE aa."assetId" = a.id AND aa."albumId" = '${album}'::uuid),
+      'tagged', EXISTS(SELECT 1 FROM public.tag_asset ta
+        WHERE ta."assetId" = a.id AND ta."tagId" = '${tag}'::uuid),
+      'favorite', a."isFavorite",
+      'rating', (SELECT rating FROM public.asset_exif WHERE "assetId" = a.id))
       FROM public.asset a JOIN public.asset_file f ON f."assetId" = a.id
       WHERE a.id = '${id}'::uuid AND f.type = 'sidecar'`),
   ) as {
@@ -90,6 +99,9 @@ test('@smoke Asset move preserves a tracked asset and its album inside the libra
     sidecar: string;
     sidecar_path: string;
     associated: boolean;
+    tagged: boolean;
+    favorite: boolean;
+    rating: number;
   };
   expect(after).toMatchObject({
     path: newPath,
@@ -97,10 +109,21 @@ test('@smoke Asset move preserves a tracked asset and its album inside the libra
     checksum: createHash('sha1').update(`path:${newPath}`).digest('hex'),
     sidecar_path: `${newPath}.xmp`,
     associated: true,
+    tagged: true,
+    favorite: true,
+    rating: 5,
   });
   const cursors = JSON.parse(before) as { asset: string; sidecar: string };
   expect(after.asset).not.toBe(cursors.asset);
   expect(after.sidecar).not.toBe(cursors.sidecar);
+  expect(await readMockAsset(mock.url, id)).toMatchObject({
+    id,
+    originalPath: newPath,
+    isFavorite: true,
+    exifInfo: expect.objectContaining({ rating: 5 }),
+    tags: expect.arrayContaining([expect.objectContaining({ id: tag })]),
+  });
+  expect(mock.state.albumsOf(id).map((entry) => entry.id)).toContain(album);
   await expect
     .poll(
       async () =>

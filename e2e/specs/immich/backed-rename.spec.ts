@@ -4,7 +4,7 @@ import type { PlanDto } from '../../../web/src/api/generated/PlanDto';
 import type { RenameParams } from '../../../web/src/api/generated/RenameParams';
 import type { TaskDto } from '../../../web/src/api/generated/TaskDto';
 import { emptyFilter } from '../../src/api';
-import { connectThroughUi, mapAndSync, waitForTask } from '../../src/immich';
+import { connectThroughUi, mapAndSync, readMockAsset, waitForTask } from '../../src/immich';
 import { expect, test } from '../../src/immich-test';
 
 test('same-folder rename preserves the Immich identity, album, sidecar and cursors', async ({
@@ -26,9 +26,14 @@ test('same-folder rename preserves the Immich identity, album, sidecar and curso
   const newSidecar = app.volumePath('photos/sidecars/Renamed_IMG_0010.JPG.xmp');
   const photoBytes = await readFile(oldPhoto);
   const sidecarBytes = await readFile(oldSidecar);
-  const album = await database.sql('INSERT INTO public.album DEFAULT VALUES RETURNING id::text');
+  const album = mock.state.albums()[0]?.id;
+  const tag = mock.state.tags()[0]?.id;
+  if (!album || !tag) throw new Error('Expected fixture album and tag');
   await database.sql(`INSERT INTO public.album_asset ("albumId", "assetId")
     VALUES ('${album}'::uuid, '${id}'::uuid);
+    INSERT INTO public.tag_asset ("tagId", "assetId") VALUES ('${tag}'::uuid, '${id}'::uuid);
+    UPDATE public.asset SET "isFavorite" = true WHERE id = '${id}'::uuid;
+    UPDATE public.asset_exif SET rating = 5 WHERE "assetId" = '${id}'::uuid;
     INSERT INTO public.asset_file ("assetId", type, path)
     VALUES ('${id}'::uuid, 'sidecar', '/mnt/photos/sidecars/IMG_0010.JPG.xmp')`);
   const before = await database.sql(`SELECT json_build_object('asset', a."updateId",
@@ -106,7 +111,10 @@ test('same-folder rename preserves the Immich identity, album, sidecar and curso
       'checksum', encode(a.checksum, 'hex'), 'asset', a."updateId",
       'sidecar_path', f.path, 'sidecar', f."updateId",
       'associated', EXISTS(SELECT 1 FROM public.album_asset aa
-        WHERE aa."assetId" = a.id AND aa."albumId" = '${album}'::uuid))
+        WHERE aa."assetId" = a.id AND aa."albumId" = '${album}'::uuid),
+      'tagged', EXISTS(SELECT 1 FROM public.tag_asset ta
+        WHERE ta."assetId" = a.id AND ta."tagId" = '${tag}'::uuid),
+      'favorite', a."isFavorite")
     FROM public.asset a JOIN public.asset_file f ON f."assetId" = a.id
     WHERE a.id = '${id}'::uuid AND f.type = 'sidecar'`);
   const cursors = JSON.parse(before) as { asset: string; sidecar: string };
@@ -118,6 +126,8 @@ test('same-folder rename preserves the Immich identity, album, sidecar and curso
     sidecar: string;
     sidecar_path: string;
     associated: boolean;
+    tagged: boolean;
+    favorite: boolean;
   };
   expect(actual).toMatchObject({
     path,
@@ -125,32 +135,20 @@ test('same-folder rename preserves the Immich identity, album, sidecar and curso
     checksum,
     sidecar_path: `${path}.xmp`,
     associated: true,
+    tagged: true,
+    favorite: true,
   });
   expect(actual.asset).not.toBe(cursors.asset);
   expect(actual.sidecar).not.toBe(cursors.sidecar);
-  const session = await fetch(`${mock.url}/api/auth/login`, {
-    method: 'POST',
-    headers: { 'content-type': 'application/json' },
-    body: JSON.stringify({ email: 'admin@example.test', password: 'admin-password' }),
-  });
-  expect(session.status).toBe(201);
-  const auth = (await session.json()) as { accessToken: string };
-  const keys = await fetch(`${mock.url}/api/api-keys`, {
-    method: 'POST',
-    headers: { 'content-type': 'application/json', authorization: `Bearer ${auth.accessToken}` },
-    body: JSON.stringify({ name: 'rename-assertion', permissions: ['asset.read'] }),
-  });
-  expect(keys.status).toBe(201);
-  const key = (await keys.json()) as { secret: string };
-  const response = await fetch(`${mock.url}/api/assets/${id}`, {
-    headers: { 'x-api-key': key.secret },
-  });
-  expect(response.status).toBe(200);
-  expect(await response.json()).toMatchObject({
+  expect(await readMockAsset(mock.url, id)).toMatchObject({
     id,
     originalPath: path,
     checksum: Buffer.from(checksum, 'hex').toString('base64'),
+    isFavorite: true,
+    tags: expect.arrayContaining([expect.objectContaining({ id: tag })]),
+    exifInfo: expect.objectContaining({ rating: 5 }),
   });
+  expect(mock.state.albumsOf(id).map((entry) => entry.id)).toContain(album);
 
   await writeFile(oldPhoto, Buffer.from('a different fixture at the original path'));
   const [scan] = await mock.control.scan('Photos');

@@ -6,6 +6,8 @@ export type {
   AlbumView,
   AssetOptions,
   BackingAssetPath,
+  BackingAssociation,
+  BackingAssociations,
   GenerateOptions,
   KeyView,
   MockControl,

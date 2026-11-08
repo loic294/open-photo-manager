@@ -14,7 +14,7 @@ import { queueScan } from './scan.ts';
 import { readAssetInput, readGenerateInput } from './scenario.ts';
 import { type Generated, generateAssets, upsertAsset } from './seeding.ts';
 import { resetState } from './state.ts';
-import type { AssetInput, Job, Library, Mount, Violation } from './types.ts';
+import type { AssetInput, Job, Library, Mount, Violation, Visibility } from './types.ts';
 import { iso, type Obj } from './util.ts';
 import { createChecker } from './validate.ts';
 
@@ -51,7 +51,22 @@ export interface BackingAssetPath {
   checksum: string;
   updatedAt: string;
   isOffline: boolean;
+  isFavorite: boolean;
+  rating: number | null;
+  description: string;
+  visibility: Visibility;
   deletedAt: string | null;
+}
+
+export interface BackingAssociation {
+  id: string;
+  name: string;
+  assetIds: string[];
+}
+
+export interface BackingAssociations {
+  albums: BackingAssociation[];
+  tags: BackingAssociation[];
 }
 
 export interface StateQuery {
@@ -155,7 +170,7 @@ export interface MockControl {
   /** Creates the assets, or changes the fields given of the ones that exist (matched by path). */
   addAssets(inputs: readonly AssetOptions[]): AddedAssets;
   /** Atomically reflect a complete database snapshot for all currently modelled assets. */
-  reconcileAssetPaths(rows: readonly BackingAssetPath[]): void;
+  reconcileAssetPaths(rows: readonly BackingAssetPath[], associations?: BackingAssociations): void;
 }
 
 const DEFAULT_LIMIT = 100;
@@ -288,7 +303,11 @@ export function runAddAssets(ctx: MockContext, raw: unknown): AddedAssets {
   return { created, updated: items.length - created, items };
 }
 
-function reconcileAssetPaths(ctx: MockContext, rows: readonly BackingAssetPath[]): void {
+function reconcileAssetPaths(
+  ctx: MockContext,
+  rows: readonly BackingAssetPath[],
+  associations?: BackingAssociations,
+): void {
   const { data } = ctx;
   if (rows.length !== data.assets.size) {
     throw new Error('backing snapshot must contain every mock asset exactly once');
@@ -312,6 +331,11 @@ function reconcileAssetPaths(ctx: MockContext, rows: readonly BackingAssetPath[]
       !row.checksum ||
       !Number.isFinite(Date.parse(row.updatedAt)) ||
       typeof row.isOffline !== 'boolean' ||
+      typeof row.isFavorite !== 'boolean' ||
+      (row.rating !== null &&
+        (!Number.isInteger(row.rating) || row.rating < -1 || row.rating > 5)) ||
+      typeof row.description !== 'string' ||
+      !['archive', 'timeline', 'hidden', 'locked'].includes(row.visibility) ||
       (row.deletedAt !== null &&
         (typeof row.deletedAt !== 'string' || !Number.isFinite(Date.parse(row.deletedAt)))) ||
       paths.has(row.originalPath)
@@ -320,6 +344,33 @@ function reconcileAssetPaths(ctx: MockContext, rows: readonly BackingAssetPath[]
     }
     ids.add(row.id);
     paths.add(row.originalPath);
+  }
+
+  if (associations) {
+    for (const [kind, expected, actual] of [
+      ['album', data.albums, associations.albums],
+      ['tag', data.tags, associations.tags],
+    ] as const) {
+      if (actual.length !== expected.size) {
+        throw new Error(`backing snapshot must contain every mock ${kind}`);
+      }
+      const seen = new Set<string>();
+      for (const row of actual) {
+        const entry = expected.get(row.id);
+        const name = kind === 'tag' ? data.tags.get(row.id)?.value : entry?.name;
+        if (
+          !entry ||
+          seen.has(row.id) ||
+          row.name !== name ||
+          !Array.isArray(row.assetIds) ||
+          new Set(row.assetIds).size !== row.assetIds.length ||
+          row.assetIds.some((id) => !ids.has(id))
+        ) {
+          throw new Error(`backing ${kind} mismatch: ${row.id}`);
+        }
+        seen.add(row.id);
+      }
+    }
   }
 
   data.assetsByPath.clear();
@@ -331,8 +382,24 @@ function reconcileAssetPaths(ctx: MockContext, rows: readonly BackingAssetPath[]
     asset.checksum = row.checksum;
     asset.updatedAt = Date.parse(row.updatedAt);
     asset.isOffline = row.isOffline;
+    asset.isFavorite = row.isFavorite;
+    asset.rating = row.rating;
+    asset.description = row.description;
+    asset.visibility = row.visibility;
     asset.deletedAt = row.deletedAt === null ? null : Date.parse(row.deletedAt);
     data.assetsByPath.set(row.originalPath, asset);
+  }
+  if (associations) {
+    for (const row of associations.albums) {
+      const album = data.albums.get(row.id);
+      if (!album) throw new Error(`backing album disappeared: ${row.id}`);
+      album.assetIds = new Set(row.assetIds);
+    }
+    for (const row of associations.tags) {
+      const tag = data.tags.get(row.id);
+      if (!tag) throw new Error(`backing tag disappeared: ${row.id}`);
+      tag.assetIds = new Set(row.assetIds);
+    }
   }
 }
 
@@ -389,6 +456,6 @@ export function createControl(ctx: MockContext): MockControl {
       requireWritable();
       return runAddAssets(ctx, inputs);
     },
-    reconcileAssetPaths: (rows) => reconcileAssetPaths(ctx, rows),
+    reconcileAssetPaths: (rows, associations) => reconcileAssetPaths(ctx, rows, associations),
   };
 }

@@ -33,8 +33,18 @@ test('real v3.3.3 SQL path updates are visible through the mock API', {
   const asset = mock.state.assetByPath('/mnt/photos/old.jpg');
   assert.ok(asset);
   const id = String(asset.id);
+  const album = mock.state.albums()[0];
+  const tag = mock.state.tags()[0];
+  assert.ok(album && tag);
+  await database.sql(`INSERT INTO public.album_asset ("albumId", "assetId")
+    VALUES ('${album.id}'::uuid, '${id}'::uuid);
+    INSERT INTO public.tag_asset ("tagId", "assetId")
+    VALUES ('${tag.id}'::uuid, '${id}'::uuid);
+    UPDATE public.asset_exif SET rating = 5, description = 'backed fixture'
+      WHERE "assetId" = '${id}'::uuid`);
   assert.equal(
-    await database.sql(`SELECT "isOffline"::text FROM public.asset WHERE id = '${id}'`),
+    await database.sql(`SELECT ("isOffline" AND "isFavorite")::text
+      FROM public.asset WHERE id = '${id}'`),
     'true',
   );
   await assert.rejects(() =>
@@ -98,10 +108,22 @@ test('real v3.3.3 SQL path updates are visible through the mock API', {
     headers: { 'x-api-key': key.secret },
   });
   assert.equal(response.status, 200);
-  const result: { id: string; originalPath: string; checksum: string } = await response.json();
+  const result: {
+    id: string;
+    originalPath: string;
+    checksum: string;
+    isFavorite: boolean;
+    tags: Array<{ id: string }>;
+    exifInfo: { rating: number; description: string };
+  } = await response.json();
   assert.equal(result.id, id);
   assert.equal(result.originalPath, '/mnt/photos/new.jpg');
   assert.equal(result.checksum, Buffer.from(checksum, 'hex').toString('base64'));
+  assert.equal(result.isFavorite, true);
+  assert.equal(result.exifInfo.rating, 5);
+  assert.equal(result.exifInfo.description, 'backed fixture');
+  assert.ok(result.tags.some((item) => item.id === tag.id));
+  assert.ok(mock.state.albumsOf(id).some((item) => item.id === album.id));
   assert.deepEqual(mock.state.violations(), []);
   await writeFile(join(photos, 'scanned.jpg'), 'fixture');
   const firstScan = await mock.control.scan('Photos');

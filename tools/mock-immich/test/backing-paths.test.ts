@@ -20,6 +20,10 @@ test('a complete backing snapshot updates API paths without changing asset ident
       checksum: String(asset.checksum),
       updatedAt: String(asset.updatedAt),
       isOffline: Boolean(asset.isOffline),
+      isFavorite: Boolean(asset.isFavorite),
+      rating: asset.rating === null ? null : Number(asset.rating),
+      description: String(asset.description),
+      visibility: 'timeline',
       deletedAt: asset.deletedAt === null ? null : String(asset.deletedAt),
     }),
   );
@@ -108,12 +112,66 @@ test('association views refresh the backing asset state before calculating count
     checksum: String(asset.checksum),
     updatedAt: String(asset.updatedAt),
     isOffline: true,
+    isFavorite: Boolean(asset.isFavorite),
+    rating: asset.rating === null ? null : Number(asset.rating),
+    description: String(asset.description),
+    visibility: 'timeline',
     deletedAt: '2026-11-08T11:00:00.000Z',
   }));
   const response = await call(mock, 'GET', `/api/albums?assetId=${id}`, { key });
   assert.equal(response.status, 200);
   assert.equal(response.body[0].assetCount, 0);
   assert.equal(mock.state.assetByPath('/mnt/photo/old.jpg')?.isOffline, true);
+});
+
+test('backing associations and favorite state are validated before publishing a snapshot', async (t) => {
+  const mock = await startMock(t);
+  const { key } = await connect(mock);
+  mock.control.addAssets([{ path: '/mnt/photo/old.jpg' }]);
+  const asset = mock.state.assets()[0];
+  assert.ok(asset);
+  const id = String(asset.id);
+  const rows: BackingAssetPath[] = [
+    {
+      id,
+      ownerId: String(asset.ownerId),
+      libraryId: String(asset.libraryId),
+      originalPath: '/mnt/photo/new.jpg',
+      originalFileName: 'new.jpg',
+      checksum: String(asset.checksum),
+      updatedAt: String(asset.updatedAt),
+      isOffline: false,
+      isFavorite: true,
+      rating: 5,
+      description: 'fixture description',
+      visibility: 'archive',
+      deletedAt: null,
+    },
+  ];
+  const albums = mock.state.albums().map((album) => ({
+    id: album.id,
+    name: album.name,
+    assetIds: [id],
+  }));
+  const tags = mock.state.tags().map((tag) => ({
+    id: tag.id,
+    name: tag.value,
+    assetIds: [id],
+  }));
+  assert.ok(albums[0] && tags[0]);
+  const badTags = [{ ...tags[0], assetIds: ['unknown'] }, ...tags.slice(1)];
+  assert.throws(() => mock.control.reconcileAssetPaths(rows, { albums, tags: badTags }));
+  assert.equal(mock.state.assetByPath('/mnt/photo/old.jpg')?.isFavorite, false);
+  assert.deepEqual(mock.state.albumsOf(id), []);
+  mock.control.reconcileAssetPaths(rows, { albums, tags });
+  assert.equal(mock.state.assetByPath('/mnt/photo/new.jpg')?.isFavorite, true);
+  assert.equal(mock.state.assetByPath('/mnt/photo/new.jpg')?.rating, 5);
+  assert.equal(mock.state.assetByPath('/mnt/photo/new.jpg')?.description, 'fixture description');
+  assert.equal(mock.state.assetByPath('/mnt/photo/new.jpg')?.visibility, 'archive');
+  assert.equal(mock.state.albumsOf(id).length, albums.length);
+  const response = await call(mock, 'GET', `/api/assets/${id}`, { key });
+  assert.equal(response.body.isFavorite, true);
+  assert.equal(response.body.tags.length, tags.length);
 });
 
 test('backing refresh runs before asset reads and failures cannot return stale results', async (t) => {
@@ -138,6 +196,10 @@ test('backing refresh runs before asset reads and failures cannot return stale r
     checksum: String(asset.checksum),
     updatedAt: String(asset.updatedAt),
     isOffline: Boolean(asset.isOffline),
+    isFavorite: Boolean(asset.isFavorite),
+    rating: asset.rating === null ? null : Number(asset.rating),
+    description: String(asset.description),
+    visibility: 'timeline',
     deletedAt: asset.deletedAt === null ? null : String(asset.deletedAt),
   }));
   const id = rows[0]?.id;
