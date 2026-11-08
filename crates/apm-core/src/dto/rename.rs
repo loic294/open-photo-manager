@@ -97,6 +97,67 @@ pub struct RenameIssue {
     pub end: u32,
 }
 
+/// Request for a bounded preview of the first matching folder.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, TS)]
+#[serde(deny_unknown_fields)]
+#[ts(export)]
+pub struct RenamePreviewRequest {
+    /// Rules to validate and apply to the sample.
+    pub rules: RenameRules,
+    /// Source folder and filters used by the rename plan.
+    pub source: SideParams,
+    /// Number of matching files to return, clamped to 1 through 200; defaults to 30.
+    #[serde(default)]
+    pub limit: Option<u32>,
+}
+
+/// Whether a sampled file would change, wait for metadata, or fail naming.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, TS)]
+#[serde(rename_all = "snake_case")]
+#[ts(export)]
+pub enum RenameSampleOutcome {
+    Rename,
+    Unchanged,
+    Pending,
+    Failed,
+}
+
+/// One matched file in a rename preview.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, TS)]
+#[ts(export)]
+pub struct RenameSample {
+    /// Stable index id of the real source file.
+    pub file_id: crate::paths::FileId,
+    /// Original filename, exactly as indexed.
+    pub name: String,
+    /// Rendered filename, or `None` when metadata is pending or rendering failed.
+    pub new_name: Option<String>,
+    /// The sample result.
+    pub outcome: RenameSampleOutcome,
+    /// Stable failure code when `outcome` is `failed`.
+    pub error: Option<String>,
+}
+
+/// Preview of the first folder containing a file selected by the matcher.
+#[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize, TS)]
+#[ts(export)]
+pub struct RenamePreviewResponse {
+    /// All rule issues; when non-empty, the response has no samples.
+    pub issues: Vec<RenameIssue>,
+    /// Volume and directory represented by the sample; the requested source base when no folder matches.
+    pub volume_id: Option<crate::paths::VolumeId>,
+    /// Volume-relative sample folder, or the requested source directory when no folder matches.
+    pub dir: String,
+    /// Non-sidecar files in the sample folder, including those not selected by the matcher.
+    pub folder_files: u64,
+    /// Matched files in the sample folder, including files beyond the in-memory sample cap.
+    pub matched: u64,
+    /// Whether matching files exceeded the 20,000-file naming cap.
+    pub truncated: bool,
+    /// At most the requested number of matched samples, in filename order.
+    pub samples: Vec<RenameSample>,
+}
+
 #[cfg(test)]
 mod tests {
     use serde_json::json;
@@ -162,5 +223,41 @@ mod tests {
         let mut unknown = value;
         unknown["future"] = json!(true);
         assert!(serde_json::from_value::<RenameParams>(unknown).is_err());
+    }
+
+    #[test]
+    fn preview_wire_types_roundtrip() {
+        let request = RenamePreviewRequest {
+            rules: RenameRules::default(),
+            source: SideParams {
+                scope: crate::dto::Scope {
+                    volume_id: Some(1),
+                    dir: "photos".into(),
+                    recursive: true,
+                },
+                filter: Default::default(),
+            },
+            limit: Some(30),
+        };
+        roundtrip(&request);
+
+        let sample = RenameSample {
+            file_id: 7,
+            name: "IMG.jpg".into(),
+            new_name: Some("Photo.jpg".into()),
+            outcome: RenameSampleOutcome::Rename,
+            error: None,
+        };
+        roundtrip(&sample);
+        roundtrip(&RenamePreviewResponse {
+            issues: Vec::new(),
+            volume_id: Some(1),
+            dir: "photos".into(),
+            folder_files: 2,
+            matched: 1,
+            truncated: false,
+            samples: vec![sample],
+        });
+        roundtrip(&RenameSampleOutcome::Pending);
     }
 }
