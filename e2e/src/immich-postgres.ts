@@ -318,7 +318,8 @@ export class ImmichPostgres {
     const json = await this.sql(`SELECT COALESCE(json_agg(row_to_json(a)), '[]'::json)
       FROM (SELECT id::text AS "id", "ownerId"::text AS "ownerId",
       "libraryId"::text AS "libraryId", "originalPath", "originalFileName",
-      encode(checksum, 'base64') AS checksum, "updatedAt" AS "updatedAt"
+      encode(checksum, 'base64') AS checksum, "updatedAt" AS "updatedAt",
+      "isOffline", "deletedAt"
       FROM public.asset ORDER BY id) a`);
     mock.control.reconcileAssetPaths(JSON.parse(json) as BackingAssetPath[]);
   }

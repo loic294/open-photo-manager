@@ -19,6 +19,8 @@ test('a complete backing snapshot updates API paths without changing asset ident
       originalFileName: String(asset.originalFileName),
       checksum: String(asset.checksum),
       updatedAt: String(asset.updatedAt),
+      isOffline: Boolean(asset.isOffline),
+      deletedAt: asset.deletedAt === null ? null : String(asset.deletedAt),
     }),
   );
   const first = rows[0];
@@ -47,6 +49,8 @@ test('a complete backing snapshot updates API paths without changing asset ident
     originalFileName: 'new.jpg',
     checksum: 'new-database-checksum',
     updatedAt: '2026-11-08T12:00:00.000Z',
+    isOffline: true,
+    deletedAt: '2026-11-08T11:00:00.000Z',
   };
   for (const invalid of [
     [changed],
@@ -54,6 +58,7 @@ test('a complete backing snapshot updates API paths without changing asset ident
     [changed, { ...second, ownerId: first.id }],
     [changed, { ...second, originalPath: changed.originalPath, originalFileName: 'new.jpg' }],
     [changed, { ...second, updatedAt: 'not-a-date' }],
+    [changed, { ...second, deletedAt: 'not-a-date' }],
   ]) {
     assert.throws(() => mock.control.reconcileAssetPaths(invalid));
     assert.equal(mock.state.assetByPath('/mnt/photo/old.jpg')?.id, first.id);
@@ -65,6 +70,8 @@ test('a complete backing snapshot updates API paths without changing asset ident
   assert.equal(asset?.id, first.id);
   assert.equal(asset?.isFavorite, true);
   assert.equal(asset?.checksum, changed.checksum);
+  assert.equal(asset?.isOffline, true);
+  assert.equal(asset?.deletedAt, changed.deletedAt);
   const response = await call(mock, 'GET', `/api/assets/${first.id}`, { key });
   assert.equal(response.status, 200);
   assert.equal(response.body.originalPath, changed.originalPath);
@@ -97,6 +104,8 @@ test('backing refresh runs before asset reads and failures cannot return stale r
     originalFileName: 'new.jpg',
     checksum: String(asset.checksum),
     updatedAt: String(asset.updatedAt),
+    isOffline: Boolean(asset.isOffline),
+    deletedAt: asset.deletedAt === null ? null : String(asset.deletedAt),
   }));
   const id = rows[0]?.id;
   assert.ok(id);

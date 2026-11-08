@@ -50,6 +50,8 @@ export interface BackingAssetPath {
   originalFileName: string;
   checksum: string;
   updatedAt: string;
+  isOffline: boolean;
+  deletedAt: string | null;
 }
 
 export interface StateQuery {
@@ -309,6 +311,9 @@ function reconcileAssetPaths(ctx: MockContext, rows: readonly BackingAssetPath[]
       row.originalFileName !== row.originalPath.slice(row.originalPath.lastIndexOf('/') + 1) ||
       !row.checksum ||
       !Number.isFinite(Date.parse(row.updatedAt)) ||
+      typeof row.isOffline !== 'boolean' ||
+      (row.deletedAt !== null &&
+        (typeof row.deletedAt !== 'string' || !Number.isFinite(Date.parse(row.deletedAt)))) ||
       paths.has(row.originalPath)
     ) {
       throw new Error(`invalid or duplicate backing asset path: ${row.originalPath}`);
@@ -325,6 +330,8 @@ function reconcileAssetPaths(ctx: MockContext, rows: readonly BackingAssetPath[]
     asset.originalFileName = row.originalFileName;
     asset.checksum = row.checksum;
     asset.updatedAt = Date.parse(row.updatedAt);
+    asset.isOffline = row.isOffline;
+    asset.deletedAt = row.deletedAt === null ? null : Date.parse(row.deletedAt);
     data.assetsByPath.set(row.originalPath, asset);
   }
 }
