@@ -38,6 +38,20 @@ function busyOf(ctx: ToolContext): Signal<boolean> {
  * (through the action's own `disabled`), so it belongs in a render.
  */
 export function actionReason(ctx: ToolContext, action: ToolAction): string | null {
+  if (ctx.config.plan && ctx.plan.status !== 'ready') {
+    switch (ctx.plan.status) {
+      case 'building':
+        return 'Matching...';
+      case 'executing':
+        return 'Working...';
+      case 'error':
+        return ctx.plan.error ?? 'The plan could not be built.';
+      default: {
+        const params = ctx.config.plan.params(ctx);
+        return (!params.ready && params.reason) || 'The plan is not ready.';
+      }
+    }
+  }
   return action.disabled?.(ctx) ?? null;
 }
 

@@ -149,6 +149,34 @@ describe('apm-toast-host', () => {
 });
 
 describe('toast', () => {
+  it('renders an actionable toast as a small button and invokes its callback', async () => {
+    const host = await mountHost();
+    const run = vi.fn();
+    toast.warning('Some files were skipped', { action: { label: 'Details', run } });
+    await host.updateComplete;
+    const action = host.querySelector<HTMLButtonElement>('.alert .btn-sm');
+    expect(action?.textContent?.trim()).toBe('Details');
+    action?.click();
+    expect(run).toHaveBeenCalledOnce();
+  });
+
+  it('keeps toast actions at least ten seconds, including repeated messages', () => {
+    toast.info('Result', { timeout: 1, action: { label: 'Details', run: vi.fn() } });
+    vi.advanceTimersByTime(9999);
+    expect(toasts.value).toHaveLength(1);
+    vi.advanceTimersByTime(1);
+    expect(toasts.value).toHaveLength(0);
+    toast.info('Repeated');
+    toast.info('Repeated', { action: { label: 'Details', run: vi.fn() } });
+    vi.advanceTimersByTime(4000);
+    expect(toasts.value[0]?.action?.label).toBe('Details');
+    vi.advanceTimersByTime(6000);
+    expect(toasts.value).toEqual([]);
+    toast.info('Persistent', { timeout: 0, action: { label: 'Details', run: vi.fn() } });
+    vi.advanceTimersByTime(60000);
+    expect(toasts.value).toHaveLength(1);
+  });
+
   it('returns the id so a toast can be dismissed by code', () => {
     const id = toast.info('working', { timeout: 0 });
 

@@ -8,11 +8,13 @@ export interface Toast {
   readonly message: string;
   /** Milliseconds on screen once not held. 0 keeps it until dismissed. */
   readonly timeout: number;
+  readonly action?: ToastOptions['action'];
 }
 
 export interface ToastOptions {
   /** Milliseconds before it goes away (0 = until dismissed). Defaults depend on the kind. */
   timeout?: number;
+  action?: { label: string; run: () => void };
 }
 
 /** Errors stay longest: they usually need to be read, and often copied. */
@@ -58,14 +60,17 @@ function startTimer(toast: Toast): void {
  * does not stack a copy: the existing toast stays and its timer restarts.
  */
 export function pushToast(kind: ToastKind, message: string, options: ToastOptions = {}): number {
-  const timeout = Math.max(0, options.timeout ?? DEFAULT_TIMEOUT_MS[kind]);
+  const requested = Math.max(0, options.timeout ?? DEFAULT_TIMEOUT_MS[kind]);
+  const timeout = options.action && requested !== 0 ? Math.max(10_000, requested) : requested;
   const existing = list.peek().find((item) => item.kind === kind && item.message === message);
   if (existing) {
-    startTimer(existing);
+    const updated: Toast = { ...existing, timeout, action: options.action };
+    list.value = list.peek().map((item) => (item.id === existing.id ? updated : item));
+    startTimer(updated);
     return existing.id;
   }
 
-  const toast: Toast = { id: ++lastId, kind, message, timeout };
+  const toast: Toast = { id: ++lastId, kind, message, timeout, action: options.action };
   const next = [...list.peek(), toast];
   for (const dropped of next.splice(0, Math.max(0, next.length - MAX_TOASTS))) {
     forget(dropped.id);

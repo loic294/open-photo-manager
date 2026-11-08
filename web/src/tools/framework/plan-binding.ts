@@ -1,5 +1,6 @@
 import type { PlanRef } from '@/api/generated/PlanRef';
 import type { PlanSide } from '@/api/generated/PlanSide';
+import { PlanController } from '@/tools/framework/plan-controller';
 import type { ToolContext } from '@/tools/framework/tool-context';
 
 /**
@@ -30,17 +31,19 @@ export type PlanStatus = 'none' | 'idle' | 'building' | 'ready' | 'executing' | 
 export interface PlanBinding {
   readonly status: PlanStatus;
   readonly error: string | null;
-  /** The READY plan the panes show, else `null`. */
+  /** The preview the panes show (kept while rebuilding), else `null`. */
   readonly planId: number | null;
   /** The plan's statistics, `{}` when there is none. */
   readonly stats: Readonly<Record<string, number>>;
   readonly warnings: readonly PlanWarningView[];
-  /** What a pane passes as `BrowseRequest.plan`: `null` when no plan is ready. */
+  /** What a pane passes as `BrowseRequest.plan`: `null` with no preview or during execution. */
   ref(side: PlanSide): PlanRef | null;
   /** A pane found its plan expired (`plan-stale`): the client builds a new one. */
   stale(ref: PlanRef): void;
   /** Builds again now (the status area's Retry button). */
   retry(): void;
+  /** The execution was queued; the binding holds rebuilding until that task ends. */
+  executing?(taskId: number): void;
   /** Called once when the view disconnects or gets another config: stop all work. Idempotent. */
   dispose?(): void;
 }
@@ -63,6 +66,5 @@ export const NO_PLAN: PlanBinding = Object.freeze<PlanBinding>({
  * returns `NO_PLAN` for a tool without `ctx.config.plan`.
  */
 export function createPlanBinding(ctx: ToolContext): PlanBinding {
-  void ctx;
-  return NO_PLAN;
+  return ctx.config.plan ? new PlanController(ctx) : NO_PLAN;
 }

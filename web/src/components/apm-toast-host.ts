@@ -54,7 +54,7 @@ export class ApmToastHost extends ApmElement {
     `;
   }
 
-  private renderToast({ id, kind, message }: Toast) {
+  private renderToast({ id, kind, message, action }: Toast) {
     return html`
       <div
         class="alert ${ALERT_CLASS[kind]} max-w-md"
@@ -66,6 +66,13 @@ export class ApmToastHost extends ApmElement {
       >
         <apm-icon name=${ICON[kind]}></apm-icon>
         <span class="min-w-0 break-words">${message}</span>
+        ${
+          action
+            ? html`<button type="button" class="btn btn-sm" @click=${() => action.run()}>
+          ${action.label}
+        </button>`
+            : nothing
+        }
         <button
           type="button"
           class="btn btn-ghost btn-xs btn-circle"

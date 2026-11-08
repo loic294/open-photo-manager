@@ -989,3 +989,71 @@ calls it and shows what it answers.
   `makeTrashItem`, `makeTrashBatch`, `makeTrashVolume`, `makeTrashSummary` (items and bytes are the
   sums over its volumes) and `TRASHED_AT`. Toasts expire after a few seconds of fake time and
   identical ones do not stack: spy on `toast.success` and friends when a test advances the clock.
+
+## Plans
+All plan tools share `createPlanBinding(ctx)` (`@/tools/framework/plan-binding`), backed by
+`PlanController`. No tool implements its own build/debounce/execute/result loop or progress UI.
+The shell's task indicator continues showing progress, speed/ETA and cancel while users browse
+or leave the tool. Only explicit confirmation and Details open a modal.
+- `PlanSpec.params(ctx)` is pure and reads signals; return `{ ready: false, reason }` until bases
+  and controls are valid, otherwise `{ ready: true, params }` with the exact planner JSON shape.
+  Embed generated `Scope` objects (from `ctx.scope(pane)`) in those parameters so filesystem
+  invalidations can find both sides. Keys are sorted recursively by exported `paramsKey`;
+  arrays and exact on-disk path bytes are preserved.
+- Parameter changes disable actions immediately and build after 300 ms, aborting obsolete
+  requests. Old preview refs remain while rebuilding (no pane flash). Filesystem changes and
+  stream resync coalesce with 1.5 s quiet / 5 s maximum wait. Terminal index tasks rebuild only
+  when a shown warning has an `INDEX_DEPENDENT_WARNINGS` code (`unhashed_files`,
+  `metadata_pending`). `ctx.plan.retry()` rebuilds now, except while a request or execution is
+  in flight; `stale(ref)` rebuilds expired previews with a loop guard.
+- Declare actions through the existing `ToolAction.run`; e.g.
+  ```ts
+  run: (ctx) => executePlanAction(ctx, {
+    side: 'comparison', options: { action: 'delete_comparison' },
+    confirm: ({ count, bytes, selected }) => deleteConfirmation(count, bytes, selected),
+    emptyMessage: 'No matched files to delete.',
+  }),
+  ```
+  `executePlanAction` (`@/tools/framework/plan-actions`) owns the effective-selection rule:
+  explicit ids from the pane mapped to `side`, restricted by the server, else all matches.
+  It obtains exact counts/bytes before confirmation. `side: null` skips selection (cleanup);
+  its confirmation gets null counts/bytes and can use the planner's displayed statistics.
+  `confirm: null` skips confirmation. All actions of plan tools are gated on status `ready`
+  before their own `disabled(ctx)` reason. Execution clears both selections only after a
+  successful queue response and calls the additive `PlanBinding.executing?(taskId)` hook.
+  Executing plans have no overlay; parameters are remembered and rebuilt once, 1 s after
+  the task ends. A changed/expired plan yields a warning and retry, other failures reject
+  to the framework's error toast.
+- `handOffSelection({ target, origin, selection, label? })`
+  (`@/tools/framework/hand-off`) takes an existing generated `SelectionDto`, replaces the target
+  filter with `selection_id`, writes the removable chip label and source location, pins the
+  source if needed, and navigates while retaining the pane URL. `target: 'move'` is the common
+  duplicate-finder hand-off; pass a target config for any other tool to honor its source base
+  mode without guessing. The label defaults to `selection.label`, else a grouped file count.
+  The duplicate tool chooses the origin/selection (either explicit pane, else comparison);
+  this helper never performs network calls.
+- `@/api/plans`: `createPlan(kind, params, { replaces?, signal?, client? })`, `getPlan(id, options?)`,
+  `deletePlan(id, options?)`, `executePlan(id, { options, only }, fetchOptions?)`,
+  `createPlanSelection(planId, side, { restrictIds?, signal?, client? })`.
+  `@/api/selections`: `createSelection(ids, label?, options?)`, `getSelection(id, options?)`.
+  Every options object accepts `{ signal?, client? }`; wrappers never swallow API errors.
+  DTOs: `CreatePlanRequest`, `PlanDto`, `PlanKind`, `PlanSide`, `PlanRef`, `ExecutePlanRequest`,
+  `PlanSelectionRequest`, `CreateSelectionRequest`, `SelectionDto`, `TaskDto`, `PlanResult`,
+  `ItemFailure` (all generated).
+- `trackPlanRun({ tool, planId, taskId, title })`, `lastRun(tool)` (read-only signal),
+  `dismissLastRun(tool)` and `resetPlanRunsForTests()` (`@/stores/plan-runs`) retain in-memory
+  outcomes across view disposal. Every terminal state retrieves its result with one retry
+  (partial results and cancellation/restart notes included); reconnects
+  reconcile missed terminal tasks. A new execution replaces that tool's last result.
+  Success without omissions is a success toast; failures/skips offer a warning toast's
+  **Details** action and a dismissible Last run link in the status area. Other terminal states
+  retain the task's title/error and use error/info/warning toasts.
+- `openPlanResult(run)` (`@/components/apm-plan-result`) reuses one large `apm-modal`, DaisyUI
+  stats and a bounded table of outcome details. `PlanResult.failures` can contain coded skips
+  as well as failures: **never infer failed counts from rows**. Display the server's separate
+  done/skipped/failed counters, bytes, cancellation/note and the first N of failed + skipped.
+  Reason groups count only displayed details. `describeFailure(code, message)`
+  (`@/util/failure-codes`) is the single human-reason map, with an unknown-code fallback.
+- Toasts accept `{ action: { label, run }, timeout? }`; an actionable toast stays at least
+  10 s (`timeout: 0` remains persistent). Repeated messages update the action rather than
+  keeping an obsolete Details target.

@@ -1,6 +1,9 @@
 import { html, nothing, type TemplateResult } from 'lit';
 import '@/components/apm-icon';
+import { openPlanResult } from '@/components/apm-plan-result';
+import { dismissLastRun, lastRun } from '@/stores/plan-runs';
 import type { ToolContext } from '@/tools/framework/tool-context';
+import { formatCount } from '@/util/format-count';
 
 /**
  * The tool bar's status area for the plan (`renderPlanStatus`): what the matching is doing, why a
@@ -88,12 +91,29 @@ function renderWarnings(ctx: ToolContext) {
 }
 
 export function renderPlanStatus(ctx: ToolContext): TemplateResult {
+  const run = lastRun(ctx.tool).value;
+  const result = run?.result;
   return html`
     <div class="flex min-w-0 max-w-full items-center justify-end gap-x-3">
       <span role="status" class="flex min-w-0 items-center gap-2 text-sm text-base-content/70">
         ${renderProgress(ctx)}
       </span>
       ${renderError(ctx)} ${renderWarnings(ctx)}
+      ${
+        run && result && (result.failed > 0 || result.skipped > 0)
+          ? html`
+        <div class="flex min-w-0 items-center">
+          <button type="button" class="btn btn-ghost btn-xs min-w-0"
+            @click=${() => openPlanResult(run)}>
+            <span class="truncate">Last run: ${formatCount(result.failed)} failed, ${formatCount(result.skipped)} skipped</span>
+          </button>
+          <button type="button" class="btn btn-ghost btn-xs btn-circle"
+            aria-label="Dismiss last run" @click=${() => dismissLastRun(ctx.tool)}>
+            <apm-icon name="x" size="xs"></apm-icon>
+          </button>
+        </div>`
+          : nothing
+      }
     </div>
   `;
 }
