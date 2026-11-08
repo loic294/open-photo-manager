@@ -29,7 +29,9 @@ test('duplicate action choice survives reload and browser context restart', asyn
   const url = new URL('/duplicates', app.url);
   url.searchParams.set('src', 'photos/dupes/m1');
   url.searchParams.set('cmp', 'archive/m1');
+  const planResponse = taskResponse(page, /^\/api\/plans$/);
   await page.goto(url.href);
+  await planResponse;
   await duplicatesPage.chooseAction('Delete source items');
   await expect(duplicatesPage.actionButton()).toContainText('Delete source items');
 
@@ -201,7 +203,8 @@ test('duplicate deletion can target the source while preserving its comparison c
     .toMatchObject({
       items: expect.arrayContaining([expect.objectContaining({ name: 'vacation_copy.jpg' })]),
     });
-  await expect.poll(() => matchedNames(comparison)).toEqual(['vacation_copy.jpg']);
+  await expect.poll(() => matchedNames(comparison)).toEqual([]);
+  await expect(comparison.card('vacation_copy.jpg').element).toBeVisible();
 
   const planId = Number(new URL(executed.url()).pathname.split('/')[3]);
   const result = (await app.api.request<PlanDto>('GET', `/api/plans/${planId}`)).result;
