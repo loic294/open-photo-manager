@@ -19,8 +19,10 @@ pub mod cleanup;
 pub mod common;
 pub mod duplicates;
 pub mod files;
+pub mod format;
 pub mod immich;
 pub mod index;
+pub mod moves;
 pub mod plans;
 pub mod settings;
 pub mod tasks;
@@ -34,11 +36,13 @@ pub use cleanup::*;
 pub use common::*;
 pub use duplicates::*;
 pub use files::*;
+pub use format::*;
 // The next three modules are still empty; the allow stays so their owners never
 // need to touch this file.
 #[allow(unused_imports)]
 pub use immich::*;
 pub use index::*;
+pub use moves::*;
 pub use plans::*;
 #[allow(unused_imports)]
 pub use settings::*;
