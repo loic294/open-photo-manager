@@ -76,6 +76,7 @@ test('a tracked move without database configuration refuses before changing file
   await expect(
     dialog.getByText('Immich database update refused:', { exact: false }).first(),
   ).toBeVisible();
+  await expect(dialog).toContainText('no file moved');
   await expect(dialog).toContainText('retry');
   const warning = result.result?.failures.find((entry) => entry.code === 'immich_move_refused');
   expect(warning?.message).toContain('No file was moved.');

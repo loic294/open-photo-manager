@@ -309,11 +309,12 @@ export class ImmichPostgres {
           (jsonb_populate_record(NULL::public.asset, jsonb_build_object('type', type))).type,
           (jsonb_populate_record(NULL::public.asset, jsonb_build_object('visibility', visibility))).visibility,
           "originalPath", "originalFileName", decode(checksum, 'base64'), 'sha1-path',
-          "fileCreatedAt"::timestamptz, "fileModifiedAt"::timestamptz, "fileCreatedAt"::timestamp
+          "fileCreatedAt"::timestamptz, "fileModifiedAt"::timestamptz, "localDateTime"::timestamptz
         FROM jsonb_to_recordset(${sqlJson(assets.slice(offset, offset + 40))})
           AS x(id text, "ownerId" text, "libraryId" text, type text, "originalPath" text,
                "originalFileName" text, checksum text, "fileCreatedAt" text, "fileModifiedAt" text,
-               "isOffline" boolean, "isFavorite" boolean, "deletedAt" text, visibility text)
+               "localDateTime" text, "isOffline" boolean, "isFavorite" boolean, "deletedAt" text,
+               visibility text)
       `);
       await this.sql(`
         INSERT INTO public.asset_exif ("assetId", rating, description)
