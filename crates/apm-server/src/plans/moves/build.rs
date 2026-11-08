@@ -240,7 +240,21 @@ pub(super) async fn build(ctx: &BuildContext, value: Value) -> Result<Built, Pla
                     .map(|c| (rules.destination_volume, c.dir.clone())),
             );
         }
-        MoveType::KeepSource | MoveType::Custom => {
+        MoveType::KeepSource => {
+            let mut statement =
+                QueryBuilder::<Sqlite>::new("SELECT DISTINCT f.dir_path FROM files f WHERE ");
+            query.push_where(&mut statement, "f");
+            statement.push(" AND f.kind <> 'sidecar'");
+            let mut dirs = statement.build_query_scalar::<String>().fetch(&mut *read);
+            while let Some(dir) = dirs.try_next().await? {
+                ctx.check_cancelled()?;
+                let current = RelPath::new(&dir).map_err(anyhow::Error::from)?;
+                let destination = super::dest::structural_directory_for(&rules, &current, None)
+                    .map_err(|code| PlanError::Internal(anyhow::anyhow!(code)))?;
+                destination_keys.insert((rules.destination_volume, destination));
+            }
+        }
+        MoveType::Custom => {
             // Derived paths use the shared destination function. Stream on the same
             // snapshot, retaining distinct directories rather than every source row.
             let mut statement = source_statement(&query);

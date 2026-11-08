@@ -95,6 +95,25 @@ impl Rules {
     }
 }
 
+pub(super) fn structural_directory_for(
+    rules: &Rules,
+    current_dir: &RelPath,
+    counterpart_dir: Option<&RelPath>,
+) -> Result<RelPath, &'static str> {
+    match rules.move_type {
+        MoveType::KeepSource => Ok(rules.destination_base.join_rel(
+            &current_dir
+                .strip_prefix(&rules.source_base)
+                .ok_or("pattern_failed")?,
+        )),
+        MoveType::Flat => Ok(rules.destination_base.clone()),
+        MoveType::KeepDestination => Ok(counterpart_dir
+            .cloned()
+            .unwrap_or_else(|| rules.destination_base.clone())),
+        MoveType::Custom => Err("pattern_failed"),
+    }
+}
+
 pub(super) fn destination_for(
     rules: &Rules,
     row: &Source,
@@ -109,17 +128,8 @@ pub(super) fn destination_for(
         return Err("reserved_destination");
     }
     let (dir, name) = match rules.move_type {
-        MoveType::KeepSource => {
-            let relative = current_dir
-                .strip_prefix(&rules.source_base)
-                .ok_or("pattern_failed")?;
-            (rules.destination_base.join_rel(&relative), row.name.clone())
-        }
-        MoveType::Flat => (rules.destination_base.clone(), row.name.clone()),
-        MoveType::KeepDestination => (
-            counterpart_dir
-                .cloned()
-                .unwrap_or_else(|| rules.destination_base.clone()),
+        MoveType::KeepSource | MoveType::Flat | MoveType::KeepDestination => (
+            structural_directory_for(rules, &current_dir, counterpart_dir)?,
             row.name.clone(),
         ),
         MoveType::Custom => {
