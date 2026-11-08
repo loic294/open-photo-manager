@@ -98,6 +98,10 @@ single SQL snapshot. The `backedImmich` fixture owns the database, app, mock and
 requires one Playwright worker. Its focused real-schema test and the backed browser scenarios must
 be run to verify SQL coherence before claiming database-backed acceptance.
 
+The experimental `backedImmich` Playwright fixture in `src/immich-test.ts` owns its PostgreSQL,
+APM process and fixture-mounted mock. It requires `E2E_WORKERS=1` to avoid overlapping Compose
+stacks. Its setup and scan-backed SQL are not yet runtime-verified.
+
 ## Adding coverage
 
 Import `test` and `expect` from `src/test.ts`, not a second fixture implementation. Use `sharedApp`
