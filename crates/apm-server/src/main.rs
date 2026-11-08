@@ -30,6 +30,7 @@ async fn main() -> anyhow::Result<()> {
         .context("failed to initialise the application state")?;
     state.immich_sync.start_background(state.shutdown.clone());
     state.index_jobs.start_background();
+    state.trash.start_background(state.shutdown.clone());
 
     let listen = state.config.listen;
     let listener = TcpListener::bind(listen)

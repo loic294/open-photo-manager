@@ -32,6 +32,9 @@ pub type SelectionId = i64;
 /// Primary key of a background task.
 pub type TaskId = i64;
 
+/// Primary key of an item in the trash.
+pub type TrashItemId = i64;
+
 /// Primary key of a mounted volume.
 pub type VolumeId = i64;
 

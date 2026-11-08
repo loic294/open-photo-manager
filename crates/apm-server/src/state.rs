@@ -100,7 +100,13 @@ impl AppState {
 
         let immich_sync = immich::ImmichSync::new(db.clone(), immich.clone(), tasks.clone());
 
-        let trash = trash::TrashService::new();
+        let trash = trash::TrashService::new(
+            db.clone(),
+            settings.clone(),
+            tasks.clone(),
+            volumes.clone(),
+            fsops.clone(),
+        );
 
         Ok(Self {
             config,

@@ -113,6 +113,7 @@ pub mod watcher;
 pub mod xmp;
 
 pub use changes::{ChangeCall, ChangeSink, NoopChanges, RecordingChanges};
+pub(crate) use diff::guard_trips;
 pub use extract::{
     Embedded, ExiftoolExtractor, ExtractFailure, ExtractOutcome, ExtractRequest, ExtractSummary,
     FakeExtractor, MetadataExtractor,
