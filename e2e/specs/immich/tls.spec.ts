@@ -20,7 +20,7 @@ test('a self-signed Immich certificate requires an explicit persisted opt-in', a
   await settingsPage.fill('Email', testUsers.admin.email);
   await settingsPage.fill('Password', testUsers.admin.password);
   await page.getByRole('button', { name: 'Connect', exact: true }).click();
-  await expect(page.getByRole('alert').filter({ hasText: /certificate|TLS/i })).toBeVisible();
+  await expect(page.getByRole('alert').filter({ hasText: /could not be reached/i })).toBeVisible();
   expect((await app.api.request<ImmichStatusDto>('GET', '/api/immich/status')).connected).toBe(
     false,
   );
