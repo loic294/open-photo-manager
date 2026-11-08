@@ -18,6 +18,9 @@ test('a complete backing snapshot updates API paths without changing asset ident
       originalPath: String(asset.originalPath),
       originalFileName: String(asset.originalFileName),
       checksum: String(asset.checksum),
+      fileCreatedAt: String(asset.fileCreatedAt),
+      fileModifiedAt: String(asset.fileModifiedAt),
+      localDateTime: String(asset.localDateTime),
       updatedAt: String(asset.updatedAt),
       isOffline: Boolean(asset.isOffline),
       isFavorite: Boolean(asset.isFavorite),
@@ -52,6 +55,9 @@ test('a complete backing snapshot updates API paths without changing asset ident
     originalPath: '/mnt/photo/new.jpg',
     originalFileName: 'new.jpg',
     checksum: 'new-database-checksum',
+    fileCreatedAt: '2022-01-02T03:04:05.000Z',
+    fileModifiedAt: '2022-02-02T03:04:05.000Z',
+    localDateTime: '2022-01-02T04:04:05.000Z',
     updatedAt: '2026-11-08T12:00:00.000Z',
     isOffline: true,
     deletedAt: '2026-11-08T11:00:00.000Z',
@@ -62,6 +68,7 @@ test('a complete backing snapshot updates API paths without changing asset ident
     [changed, { ...second, ownerId: first.id }],
     [changed, { ...second, originalPath: changed.originalPath, originalFileName: 'new.jpg' }],
     [changed, { ...second, updatedAt: 'not-a-date' }],
+    [changed, { ...second, fileCreatedAt: 'not-a-date' }],
     [changed, { ...second, deletedAt: 'not-a-date' }],
   ]) {
     assert.throws(() => mock.control.reconcileAssetPaths(invalid));
@@ -81,6 +88,9 @@ test('a complete backing snapshot updates API paths without changing asset ident
   assert.equal(response.body.originalPath, changed.originalPath);
   assert.equal(response.body.originalFileName, changed.originalFileName);
   assert.equal(response.body.checksum, changed.checksum);
+  assert.equal(response.body.fileCreatedAt, changed.fileCreatedAt);
+  assert.equal(response.body.fileModifiedAt, changed.fileModifiedAt);
+  assert.equal(response.body.localDateTime, changed.localDateTime);
   assert.equal(response.body.updatedAt, changed.updatedAt);
   assert.deepEqual(mock.state.albumsOf(first.id), [{ id: album.id, name: album.name }]);
   assert.deepEqual(mock.state.tags()[0]?.assetIds, [first.id]);
@@ -110,6 +120,9 @@ test('association views refresh the backing asset state before calculating count
     originalPath: String(asset.originalPath),
     originalFileName: String(asset.originalFileName),
     checksum: String(asset.checksum),
+    fileCreatedAt: String(asset.fileCreatedAt),
+    fileModifiedAt: String(asset.fileModifiedAt),
+    localDateTime: String(asset.localDateTime),
     updatedAt: String(asset.updatedAt),
     isOffline: true,
     isFavorite: Boolean(asset.isFavorite),
@@ -122,6 +135,49 @@ test('association views refresh the backing asset state before calculating count
   assert.equal(response.status, 200);
   assert.equal(response.body[0].assetCount, 0);
   assert.equal(mock.state.assetByPath('/mnt/photo/old.jpg')?.isOffline, true);
+});
+
+test('a backing capture-date change invalidates the search order', async (t) => {
+  const mock = await startMock(t);
+  const { key } = await connect(mock);
+  mock.control.addAssets([
+    { path: '/mnt/photo/early.jpg', fileCreatedAt: '2022-01-01T00:00:00.000Z' },
+    { path: '/mnt/photo/late.jpg', fileCreatedAt: '2023-01-01T00:00:00.000Z' },
+  ]);
+  const names = async () => {
+    const result = await call(mock, 'POST', '/api/search/metadata', {
+      key,
+      body: { orderBy: { field: 'fileCreatedAt', direction: 'asc' }, filter: {} },
+    });
+    assert.equal(result.status, 200);
+    return result.body.assets.items.map(
+      (item: { originalFileName: string }) => item.originalFileName,
+    );
+  };
+  assert.deepEqual(await names(), ['early.jpg', 'late.jpg']);
+  const rows: BackingAssetPath[] = mock.state.assets().map((asset) => ({
+    id: String(asset.id),
+    ownerId: String(asset.ownerId),
+    libraryId: String(asset.libraryId),
+    originalPath: String(asset.originalPath),
+    originalFileName: String(asset.originalFileName),
+    checksum: String(asset.checksum),
+    fileCreatedAt:
+      asset.originalFileName === 'early.jpg'
+        ? '2024-01-01T00:00:00.000Z'
+        : String(asset.fileCreatedAt),
+    fileModifiedAt: String(asset.fileModifiedAt),
+    localDateTime: String(asset.localDateTime),
+    updatedAt: String(asset.updatedAt),
+    isOffline: Boolean(asset.isOffline),
+    isFavorite: Boolean(asset.isFavorite),
+    rating: asset.rating === null ? null : Number(asset.rating),
+    description: String(asset.description),
+    visibility: 'timeline',
+    deletedAt: asset.deletedAt === null ? null : String(asset.deletedAt),
+  }));
+  mock.control.reconcileAssetPaths(rows);
+  assert.deepEqual(await names(), ['late.jpg', 'early.jpg']);
 });
 
 test('backing associations and favorite state are validated before publishing a snapshot', async (t) => {
@@ -139,6 +195,9 @@ test('backing associations and favorite state are validated before publishing a 
       originalPath: '/mnt/photo/new.jpg',
       originalFileName: 'new.jpg',
       checksum: String(asset.checksum),
+      fileCreatedAt: String(asset.fileCreatedAt),
+      fileModifiedAt: String(asset.fileModifiedAt),
+      localDateTime: String(asset.localDateTime),
       updatedAt: String(asset.updatedAt),
       isOffline: false,
       isFavorite: true,
@@ -194,6 +253,9 @@ test('backing refresh runs before asset reads and failures cannot return stale r
     originalPath: '/mnt/photo/new.jpg',
     originalFileName: 'new.jpg',
     checksum: String(asset.checksum),
+    fileCreatedAt: String(asset.fileCreatedAt),
+    fileModifiedAt: String(asset.fileModifiedAt),
+    localDateTime: String(asset.localDateTime),
     updatedAt: String(asset.updatedAt),
     isOffline: Boolean(asset.isOffline),
     isFavorite: Boolean(asset.isFavorite),

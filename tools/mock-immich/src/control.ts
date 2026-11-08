@@ -49,6 +49,9 @@ export interface BackingAssetPath {
   originalPath: string;
   originalFileName: string;
   checksum: string;
+  fileCreatedAt: string;
+  fileModifiedAt: string;
+  localDateTime: string;
   updatedAt: string;
   isOffline: boolean;
   isFavorite: boolean;
@@ -329,6 +332,9 @@ function reconcileAssetPaths(
       row.originalPath.endsWith('/') ||
       row.originalFileName !== row.originalPath.slice(row.originalPath.lastIndexOf('/') + 1) ||
       !row.checksum ||
+      !Number.isFinite(Date.parse(row.fileCreatedAt)) ||
+      !Number.isFinite(Date.parse(row.fileModifiedAt)) ||
+      !Number.isFinite(Date.parse(row.localDateTime)) ||
       !Number.isFinite(Date.parse(row.updatedAt)) ||
       typeof row.isOffline !== 'boolean' ||
       typeof row.isFavorite !== 'boolean' ||
@@ -380,6 +386,10 @@ function reconcileAssetPaths(
     asset.originalPath = row.originalPath;
     asset.originalFileName = row.originalFileName;
     asset.checksum = row.checksum;
+    if (asset.fileCreatedAt !== Date.parse(row.fileCreatedAt)) data.order = null;
+    asset.fileCreatedAt = Date.parse(row.fileCreatedAt);
+    asset.fileModifiedAt = Date.parse(row.fileModifiedAt);
+    asset.localDateTime = Date.parse(row.localDateTime);
     asset.updatedAt = Date.parse(row.updatedAt);
     asset.isOffline = row.isOffline;
     asset.isFavorite = row.isFavorite;

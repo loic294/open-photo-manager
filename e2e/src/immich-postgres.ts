@@ -347,7 +347,8 @@ export class ImmichPostgres {
       'assets', (SELECT COALESCE(json_agg(row_to_json(a)), '[]'::json)
         FROM (SELECT asset.id::text AS "id", asset."ownerId"::text AS "ownerId",
           asset."libraryId"::text AS "libraryId", asset."originalPath", asset."originalFileName",
-          encode(asset.checksum, 'base64') AS checksum, asset."updatedAt", asset."isOffline",
+          encode(asset.checksum, 'base64') AS checksum, asset."fileCreatedAt",
+          asset."fileModifiedAt", asset."localDateTime", asset."updatedAt", asset."isOffline",
           asset."isFavorite", asset."deletedAt", asset.visibility::text AS visibility,
           exif.rating, COALESCE(exif.description, '') AS description
           FROM public.asset LEFT JOIN public.asset_exif exif ON exif."assetId" = asset.id

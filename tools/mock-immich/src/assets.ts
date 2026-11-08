@@ -221,6 +221,7 @@ export function assetState(asset: Asset): Obj {
     checksum: asset.checksum,
     fileCreatedAt: iso(asset.fileCreatedAt),
     fileModifiedAt: iso(asset.fileModifiedAt),
+    localDateTime: iso(asset.localDateTime),
     createdAt: iso(asset.createdAt),
     updatedAt: iso(asset.updatedAt),
     deletedAt: isoOrNull(asset.deletedAt),
