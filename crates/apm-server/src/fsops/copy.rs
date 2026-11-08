@@ -93,7 +93,8 @@ pub(crate) fn is_part_name(name: &str) -> bool {
 /// fails: a part that cannot be deleted is logged and swept by the next recovery.
 pub(crate) fn discard_part(root: &VolumeRoot, part: &RelPath) {
     if !part.file_name().is_some_and(is_part_name) {
-        tracing::error!(path = %part.as_str(), "refusing to delete a file that is not a part file");
+        tracing::error!("refusing to delete a file that is not a part file");
+        tracing::debug!(path = %part.as_str(), "the name that is not a part file");
         return;
     }
     match root.resolve_existing(part) {
@@ -101,12 +102,14 @@ pub(crate) fn discard_part(root: &VolumeRoot, part: &RelPath) {
             Ok(()) => {}
             Err(err) if err.kind() == io::ErrorKind::NotFound => {}
             Err(err) => {
-                tracing::warn!(path = %part.as_str(), error = %err, "could not delete a part file");
+                tracing::warn!(error = %err, "could not delete a part file");
+                tracing::debug!(path = %part.as_str(), "the part file that stays");
             }
         },
         Err(FsError::NotFound(_) | FsError::NotADirectory(_)) => {}
         Err(err) => {
-            tracing::warn!(path = %part.as_str(), error = %err, "could not resolve a part file");
+            tracing::warn!(kind = ?err.kind(), "could not resolve a part file");
+            tracing::debug!(path = %part.as_str(), error = %err, "the part file that stays");
         }
     }
 }

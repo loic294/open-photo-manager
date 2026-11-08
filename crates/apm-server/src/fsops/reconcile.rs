@@ -205,9 +205,13 @@ impl FsOps {
             }
             Verdict::Unclear(reason) => {
                 tracing::warn!(
-                    journal_id = row.id, op = ?row.op, src = ?row.src, dst = ?row.dst, reason,
+                    journal_id = row.id, op = ?row.op, reason,
                     "an interrupted file operation left a state recovery does not recognise; \
                      nothing was deleted or changed"
+                );
+                tracing::debug!(
+                    journal_id = row.id, src = ?row.src, dst = ?row.dst,
+                    "the files of the operation recovery does not recognise"
                 );
                 self.journal.abandon(row.id, reason).await;
                 pass.report.abandoned += 1;
