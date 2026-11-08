@@ -274,11 +274,15 @@ describe('invalidations', () => {
     expect(post).toHaveBeenCalledTimes(2);
   });
 
-  it.each(['unhashed_files', 'metadata_pending', 'unrelated'])(
+  it.each(['unhashed_files', 'metadata_pending', 'index_running', 'unrelated'])(
     'index completion rebuilds only for %s when index dependent',
     async (code) => {
       const { post } = setup();
-      expect(INDEX_DEPENDENT_WARNINGS).toEqual(['unhashed_files', 'metadata_pending']);
+      expect(INDEX_DEPENDENT_WARNINGS).toEqual([
+        'unhashed_files',
+        'metadata_pending',
+        'index_running',
+      ]);
       post.mockResolvedValue(plan(1, { warnings: [{ code, count: 2, message: 'Pending' }] }));
       await vi.advanceTimersByTimeAsync(300);
       events.emit(taskEvent({ kind: 'immich_sync', state: 'done' }));
@@ -288,6 +292,34 @@ describe('invalidations', () => {
       events.emit(taskEvent({ kind: 'index', state: 'done' }));
       await vi.advanceTimersByTimeAsync(1500);
       expect(post).toHaveBeenCalledTimes(code === 'unrelated' ? 1 : 2);
+    },
+  );
+
+  it.each(['done', 'failed', 'cancelled', 'interrupted'] as const)(
+    'an ended index task (%s) clears index_running only when that warning is present',
+    async (state) => {
+      const { post, controller } = setup();
+      post.mockResolvedValue(
+        plan(1, {
+          warnings: [{ code: 'index_running', count: 1, message: 'Indexing' }],
+        }),
+      );
+      await vi.advanceTimersByTimeAsync(300);
+      events.emit(taskEvent({ kind: 'index', state }));
+      await vi.advanceTimersByTimeAsync(1500);
+      expect(post).toHaveBeenCalledTimes(2);
+      controller.dispose();
+      post.mockClear();
+      const second = setup();
+      second.post.mockResolvedValue(
+        plan(2, {
+          warnings: [{ code: 'metadata_pending', count: 1, message: 'Metadata pending' }],
+        }),
+      );
+      await vi.advanceTimersByTimeAsync(300);
+      events.emit(taskEvent({ kind: 'index', state }));
+      await vi.advanceTimersByTimeAsync(1500);
+      expect(second.post).toHaveBeenCalledTimes(state === 'done' ? 2 : 1);
     },
   );
 

@@ -71,6 +71,25 @@ impl Subtree {
             .push_bind(format!("{}/", self.dir))
             .push("))");
     }
+
+    /// Strict descendants of a non-root directory supplied by a correlated SQL column.
+    /// Both column names must be trusted literals. Combine with an equality on volume_id.
+    /// Keep the exact-directory probe separate so each EXISTS uses an index SEARCH.
+    pub fn push_correlated_descendants(
+        qb: &mut QueryBuilder<Sqlite>,
+        column: &str,
+        directory: &str,
+    ) {
+        qb.push("(")
+            .push(column)
+            .push(" >= (")
+            .push(directory)
+            .push(" || '/') AND ")
+            .push(column)
+            .push(" < (")
+            .push(directory)
+            .push(" || '0'))");
+    }
 }
 
 #[cfg(test)]

@@ -37,6 +37,12 @@ fn is_protected_name(name: &str) -> bool {
     name.eq_ignore_ascii_case("#recycle") || name.eq_ignore_ascii_case("#snapshot")
 }
 
+/// Synology's data directories and their descendants are never cleanup targets,
+/// regardless of the configurable junk rules.
+pub fn is_protected_path(rel: &RelPath) -> bool {
+    rel.components().any(is_protected_name)
+}
+
 /// Whether `rel` is the trash folder or something inside it.
 pub(crate) fn in_trash(rel: &RelPath) -> bool {
     rel.components()
@@ -306,6 +312,9 @@ impl FsOps {
         }
         if in_trash(&loc.rel) {
             return Err(FsOpError::DestinationInvalid("the trash cannot be removed"));
+        }
+        if is_protected_path(&loc.rel) {
+            return Err(FsOpError::NotEmpty);
         }
 
         let contents = {

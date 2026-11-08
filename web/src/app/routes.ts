@@ -61,7 +61,14 @@ export const routes: readonly AppRoute[] = [
   },
   comingSoon('/move', 'Asset move', 'folder-input', 'tools'),
   comingSoon('/format', 'Folder formatting', 'folder-tree', 'tools'),
-  comingSoon('/cleanup', 'Empty folder cleanup', 'folder-x', 'tools'),
+  {
+    path: '/cleanup',
+    tag: 'apm-cleanup-page',
+    label: 'Empty folder cleanup',
+    icon: 'folder-x',
+    menu: 'tools',
+    load: () => import('@/tools/cleanup/apm-cleanup-page'),
+  },
   {
     path: '/trash',
     tag: 'apm-trash-page',

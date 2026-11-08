@@ -15,6 +15,7 @@
 //!   of your own area, never this one.
 
 pub mod browse;
+pub mod cleanup;
 pub mod common;
 pub mod duplicates;
 pub mod files;
@@ -29,6 +30,7 @@ pub mod trash;
 pub(crate) mod testing;
 
 pub use browse::*;
+pub use cleanup::*;
 pub use common::*;
 pub use duplicates::*;
 pub use files::*;

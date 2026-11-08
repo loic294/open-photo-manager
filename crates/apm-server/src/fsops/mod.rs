@@ -217,7 +217,7 @@ use apm_core::sidecar::SidecarMatcher;
 
 pub use backend::{FreeSpace, Mover, SystemFreeSpace, SystemMover};
 pub use context::{OpContext, TaskChangeSink, TrashBatch};
-pub use dirs::RmdirOutcome;
+pub use dirs::{RmdirOutcome, is_protected_path};
 pub use error::FsOpError;
 pub use executor::{MoveOutcome, MoveRequest, SkipReason};
 pub use failpoints::{FailAction, Failpoints, Step};

@@ -17,7 +17,11 @@ export const PLAN_CHANGE_MAX_WAIT_MS = 5_000;
 export const PLAN_AFTER_RUN_MS = 1_000;
 export const PLAN_STALE_WINDOW_MS = 10_000;
 export const PLAN_STALE_LIMIT = 3;
-export const INDEX_DEPENDENT_WARNINGS = ['unhashed_files', 'metadata_pending'] as const;
+export const INDEX_DEPENDENT_WARNINGS = [
+  'unhashed_files',
+  'metadata_pending',
+  'index_running',
+] as const;
 
 /** Stable JSON: object key order is irrelevant; array order and exact path bytes are not. */
 export function paramsKey(params: Record<string, unknown>): string {
@@ -93,9 +97,12 @@ export class PlanController implements PlanBinding {
         this.finished(task);
         if (
           task.kind === 'index' &&
-          task.state === 'done' &&
-          this.warnings.some((warning) =>
-            INDEX_DEPENDENT_WARNINGS.some((code) => code === warning.code),
+          isEnded(task) &&
+          this.warnings.some(
+            (warning) =>
+              warning.code === 'index_running' ||
+              (task.state === 'done' &&
+                INDEX_DEPENDENT_WARNINGS.some((code) => code === warning.code)),
           )
         ) {
           this.invalidate();

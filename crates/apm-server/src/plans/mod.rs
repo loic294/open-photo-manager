@@ -185,7 +185,7 @@ pub struct PlanDeps {
 /// Every planner todo adds its own line (and nothing else here); rename `_deps` to `deps` with it.
 fn planners(deps: &PlanDeps) -> Vec<Arc<dyn Planner>> {
     vec![
-        // Arc::new(cleanup::CleanupPlanner::new(deps)),
+        Arc::new(cleanup::CleanupPlanner::new(deps)),
         Arc::new(duplicates::DuplicatesPlanner::new(deps)),
         // Arc::new(moves::MovePlanner::new(deps)),
     ]
