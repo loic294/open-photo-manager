@@ -11,6 +11,7 @@ describe('route table', () => {
       '/move',
       '/format',
       '/cleanup',
+      '/rename',
       '/trash',
       '/settings',
     ]);
@@ -23,6 +24,7 @@ describe('route table', () => {
       'Asset move',
       'Folder formatting',
       'Empty folder cleanup',
+      'Batch rename',
     ]);
     expect(routes.filter((route) => route.menu === 'footer').map((route) => route.label)).toEqual([
       'Trash',

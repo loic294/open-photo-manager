@@ -781,6 +781,23 @@ html`<apm-pane pane="comparison" heading="Comparison" .filter=${filter} .plan=${
   disconnected. Keep that.
 
 ## Tool view (`apm-tool-view`, `ToolConfig`, `ToolContext`, `src/tools/framework/`)
+### Batch rename
+`/rename` uses `tools/rename/` and the existing tool view, source filters, recursive scope,
+`followSource`, plan overlays and `executePlanAction`. Comparison browsing never changes rename
+destinations: each file stays in its own folder with the same extension, and sidecars follow.
+Comparison items show real files plus non-selectable new-name ghosts; folder counts remain real.
+Match/clean/rewrite and counter controls are in compact disclosures; rule preferences use
+rename-specific validated storage keys. Smart, Skip and Rename are the only conflict policies.
+The live sample describes the first matching folder, not final conflict resolution or all folders.
+Execution requires a successful preview for the current scope/filter/rules revision.
+
+`apm-pattern-editor` accepts a stable typed `PatternPreviewAdapter` (`catalogue`, `preview`),
+`rules: RenameRules | null`, and `requestKey`. Format is the default adapter; rename uses its own
+API/cache and maps generated responses to presentation rows, never to format wire DTOs.
+The editor still owns debounce, cancellation, IME, UTF-8 spans, suggestions and catalogue retry.
+`pattern-change` includes the request key and all rename issues; only name-pattern issues affect
+pattern highlights/suggestions, while the tool routes other issues to their controls.
+
 Every tool page is ONE declarative `ToolConfig` that `<apm-tool-view .config=${config}>` renders: a tool
 writes no layout, no event wiring and no store plumbing, and the framework never knows a tool by name.
 `tools/browse/` is the model (`tool.ts` holds the config, `apm-browse-page.ts` the page element). A tool

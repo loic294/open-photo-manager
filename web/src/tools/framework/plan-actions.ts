@@ -51,7 +51,7 @@ export async function executePlanAction(ctx: ToolContext, spec: PlanActionSpec):
       selected,
     });
     const database = immichStatus.peek()?.direct_database;
-    if (confirmation && ['move', 'format'].includes(ctx.tool)) {
+    if (confirmation && ['move', 'format', 'rename'].includes(ctx.tool)) {
       confirmation.message = html`<div class="flex flex-col gap-4">
         <div>${confirmation.message}</div>
         <div class="alert alert-warning" role="alert"><span>${

@@ -66,6 +66,14 @@ export const routes: readonly AppRoute[] = [
     load: () => import('@/tools/cleanup/apm-cleanup-page'),
   },
   {
+    path: '/rename',
+    tag: 'apm-rename-page',
+    label: 'Batch rename',
+    icon: 'pencil',
+    menu: 'tools',
+    load: () => import('@/tools/rename/apm-rename-page'),
+  },
+  {
     path: '/trash',
     tag: 'apm-trash-page',
     load: () => import('@/tools/trash/apm-trash-page'),

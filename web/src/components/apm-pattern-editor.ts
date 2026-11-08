@@ -1,18 +1,24 @@
 import { html, nothing, type PropertyValues } from 'lit';
 import { live } from 'lit/directives/live.js';
 import { errorMessage, isAbortError } from '@/api/errors';
-import { fetchFormatTokens, previewFormat } from '@/api/format';
-import type { FormatPreviewResponse } from '@/api/generated/FormatPreviewResponse';
 import type { FormatToken } from '@/api/generated/FormatToken';
 import type { FormatTokensResponse } from '@/api/generated/FormatTokensResponse';
+import type { RenameIssue } from '@/api/generated/RenameIssue';
+import type { RenameRules } from '@/api/generated/RenameRules';
 import type { SideParams } from '@/api/generated/SideParams';
 import { ApmElement } from '@/base/apm-element';
 import '@/components/apm-icon';
-import { skipLabel } from '@/util/skip-codes';
+import {
+  formatPreviewAdapter,
+  type PatternPreview,
+  type PatternPreviewAdapter,
+} from '@/components/pattern-preview-adapter';
 
 export interface PatternChangeDetail {
   value: string;
   status: 'checking' | 'valid' | 'invalid' | 'idle';
+  requestKey?: string;
+  issues?: RenameIssue[];
 }
 export type PatternChangeEvent = CustomEvent<PatternChangeDetail>;
 
@@ -47,6 +53,9 @@ export class ApmPatternEditor extends ApmElement {
     preview: { state: true },
     previewError: { state: true },
     checking: { state: true },
+    adapter: { attribute: false },
+    rules: { attribute: false },
+    requestKey: { type: String },
   };
   value = '';
   source: SideParams | null = null;
@@ -54,9 +63,12 @@ export class ApmPatternEditor extends ApmElement {
   disabled = false;
   label = 'Folder pattern';
   limit = 5;
+  adapter: PatternPreviewAdapter = formatPreviewAdapter;
+  rules: RenameRules | null = null;
+  requestKey = '';
   private catalogue: FormatTokensResponse | null = null;
   private catalogueError = '';
-  private preview: FormatPreviewResponse | null = null;
+  private preview: PatternPreview | null = null;
   private previewError = '';
   private checking = false;
   private composing = false;
@@ -65,6 +77,7 @@ export class ApmPatternEditor extends ApmElement {
   private request: AbortController | null = null;
   private generation = 0;
   private key = '';
+  private catalogueGeneration = 0;
   private caret: [number, number] | null = null;
 
   override connectedCallback(): void {
@@ -78,10 +91,23 @@ export class ApmPatternEditor extends ApmElement {
   override disconnectedCallback(): void {
     super.disconnectedCallback();
     this.cancelPreview();
+    ++this.catalogueGeneration;
   }
 
   protected override willUpdate(_changed: PropertyValues): void {
-    const key = JSON.stringify([this.value, this.source, this.limit, this.disabled]);
+    if (_changed.has('adapter')) {
+      this.catalogue = null;
+      void this.loadCatalogue();
+      this.key = '';
+    }
+    const key = JSON.stringify([
+      this.value,
+      this.source,
+      this.limit,
+      this.disabled,
+      this.rules,
+      this.requestKey,
+    ]);
     if (this.key !== key) {
       this.key = key;
       this.schedule();
@@ -100,7 +126,7 @@ export class ApmPatternEditor extends ApmElement {
   private emit(value: string, status: PatternChangeDetail['status']): void {
     this.dispatchEvent(
       new CustomEvent<PatternChangeDetail>('pattern-change', {
-        detail: { value, status },
+        detail: { value, status, requestKey: this.requestKey, issues: this.preview?.issues ?? [] },
         bubbles: true,
       }),
     );
@@ -116,6 +142,7 @@ export class ApmPatternEditor extends ApmElement {
   private schedule(): void {
     this.cancelPreview();
     this.previewError = '';
+    this.preview = null;
     if (this.disabled || this.composing || !this.source) {
       this.checking = false;
       this.preview = null;
@@ -134,17 +161,18 @@ export class ApmPatternEditor extends ApmElement {
     this.request = request;
     const value = this.value;
     try {
-      const preview = await previewFormat(
+      const preview = await this.adapter.preview(
         {
           pattern: value,
           source: this.source,
           limit: this.limit,
+          rules: this.rules,
         },
         request.signal,
       );
       if (generation !== this.generation || !this.isConnected) return;
       this.preview = preview;
-      this.emit(value, preview.error ? 'invalid' : 'valid');
+      this.emit(value, preview.error || preview.issues.length > 0 ? 'invalid' : 'valid');
     } catch (error) {
       if (generation !== this.generation || !this.isConnected || isAbortError(error)) return;
       this.previewError = errorMessage(error, 'Could not check the pattern');
@@ -159,12 +187,14 @@ export class ApmPatternEditor extends ApmElement {
   }
 
   private async loadCatalogue(): Promise<void> {
+    const generation = ++this.catalogueGeneration;
     this.catalogueError = '';
     try {
-      const catalogue = await fetchFormatTokens();
-      if (this.isConnected) this.catalogue = catalogue;
+      const catalogue = await this.adapter.catalogue();
+      if (this.isConnected && generation === this.catalogueGeneration) this.catalogue = catalogue;
     } catch (error) {
-      if (this.isConnected) this.catalogueError = errorMessage(error, 'Variables unavailable');
+      if (this.isConnected && generation === this.catalogueGeneration)
+        this.catalogueError = errorMessage(error, 'Variables unavailable');
     }
   }
 
@@ -228,6 +258,8 @@ export class ApmPatternEditor extends ApmElement {
           @compositionstart=${() => {
             this.composing = true;
             this.cancelPreview();
+            this.preview = null;
+            this.emit(this.value, 'checking');
           }}
           @compositionend=${(event: CompositionEvent) => {
             this.composing = false;
@@ -249,6 +281,7 @@ export class ApmPatternEditor extends ApmElement {
         }
         ${!this.source ? 'Pick a source folder to preview' : nothing}
         ${!this.checking && this.preview?.appends_filename ? 'No file name in the pattern: the original name is added at the end' : nothing}
+        ${!this.checking ? this.preview?.issues.filter((entry) => entry.field === 'pattern' && entry !== issue).map((entry) => html`<p role="alert">${entry.message}</p>`) : nothing}
       </div>
       <details class="dropdown block min-w-0">
         <summary class="btn btn-ghost btn-xs w-full justify-between">Variables and examples
@@ -303,21 +336,22 @@ export class ApmPatternEditor extends ApmElement {
       }
       <div class="min-h-4" role="status" aria-live="polite">${this.checking ? html`<span class="loading loading-dots loading-xs"></span> Checking pattern...` : nothing}</div>
       ${
-        this.preview && !this.preview.error
+        this.preview && !this.preview.error && this.preview.issues.length === 0
           ? html`<details class="dropdown block min-w-0">
         <summary class="btn btn-ghost btn-xs w-full justify-between">Live preview (${this.preview.samples.length} ${this.preview.samples.length === 1 ? 'sample' : 'samples'})
           <apm-icon name="chevron-down" size="xs"></apm-icon></summary>
         <div class="dropdown-content left-0 z-30 w-full rounded-box bg-base-100 p-2 shadow-lg">
+          ${this.preview.note ? html`<p class="mb-2">${this.preview.note}</p>` : nothing}
           ${
             this.preview.samples.length === 0
               ? 'No files to preview in the selected source'
               : html`<table class="table table-xs table-fixed w-full">
-            <thead><tr><th>Source</th><th>Destination</th><th>Date from</th></tr></thead>
+            <thead><tr>${this.preview.columns.map((column) => html`<th>${column}</th>`)}</tr></thead>
             <tbody>${this.preview.samples.map(
               (sample) => html`<tr>
               <td class="break-all">${sample.source}</td>
-              <td class="break-all">${sample.skip ? skipLabel(sample.skip) : `${this.basePrefix ?? ''}${sample.destination ?? ''}`}</td>
-              <td>${sample.capture_src ? html`<span class="badge badge-ghost badge-xs">${sample.capture_src}</span>` : nothing}</td>
+              <td class="break-all">${sample.prefix ? (this.basePrefix ?? '') : ''}${sample.destination}</td>
+              <td>${sample.detail ? html`<span class="badge badge-ghost badge-xs">${sample.detail}</span>` : nothing}</td>
             </tr>`,
             )}</tbody></table>`
           }

@@ -1,7 +1,7 @@
 import { batch, computed, type ReadonlySignal, type Signal, signal } from '@preact/signals-core';
 
 /** The tools of the main menu. The first path segment of a tool's route is its id. */
-export const TOOLS = ['browse', 'duplicates', 'move', 'format', 'cleanup'] as const;
+export const TOOLS = ['browse', 'duplicates', 'move', 'format', 'cleanup', 'rename'] as const;
 export type ToolId = (typeof TOOLS)[number];
 
 /** Every tool has a source pane; tools that compare also use the comparison pane. */

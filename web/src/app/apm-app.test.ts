@@ -210,6 +210,7 @@ describe('main menu', () => {
       'Asset move',
       'Folder formatting',
       'Empty folder cleanup',
+      'Batch rename',
     ]);
     expect(entriesOf(footer).map(text)).toEqual([
       'Re-index current folders',
@@ -234,6 +235,7 @@ describe('main menu', () => {
       '/move',
       '/format',
       '/cleanup',
+      '/rename',
       '/trash',
       '/settings',
     ]);

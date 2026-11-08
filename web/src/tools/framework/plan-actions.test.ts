@@ -38,7 +38,7 @@ const spec = (patch: Partial<PlanActionSpec> = {}): PlanActionSpec => ({
   ...patch,
 });
 
-function setup(tool: 'duplicates' | 'move' | 'format' = 'duplicates') {
+function setup(tool: 'duplicates' | 'move' | 'format' | 'rename' = 'duplicates') {
   const ctx = createToolContext(
     toolConfig({
       id: tool,
@@ -76,7 +76,7 @@ afterEach(() => {
 });
 
 describe('effective selection and execution', () => {
-  it.each(['move', 'format'] as const)(
+  it.each(['move', 'format', 'rename'] as const)(
     'shows the unsupported-write and outage warning for %s confirmation',
     async (tool) => {
       const status = sampleImmichStatus();
