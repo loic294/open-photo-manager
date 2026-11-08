@@ -1593,6 +1593,7 @@ async fn run_returns_the_counts_of_the_scan() {
         run(ScanRequest::default()).await,
         IndexSummary {
             changed: 1,
+            hashed: 2,
             ..IndexSummary::default()
         }
     );
