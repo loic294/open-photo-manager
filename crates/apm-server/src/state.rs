@@ -28,6 +28,7 @@ pub struct AppState {
     pub fsops: fsops::FsOps,
     pub immich: immich::ImmichService,
     pub immich_sync: immich::ImmichSync,
+    pub index_jobs: indexer::IndexJobs,
     pub indexer: indexer::Indexer,
     pub media: media::MediaService,
     pub plans: plans::PlanService,
@@ -79,6 +80,12 @@ impl AppState {
         );
         fsops.reconcile_at_startup(shutdown.clone()).await;
 
+        let index_jobs = indexer::IndexJobs::new(
+            indexer.clone(),
+            tasks.clone(),
+            fsops.clone(),
+            shutdown.clone(),
+        );
         let plans = plans::PlanService::new();
 
         let immich = immich::ImmichService::new(db.clone(), config.data_dir.clone());
@@ -93,6 +100,7 @@ impl AppState {
             fsops,
             immich,
             immich_sync,
+            index_jobs,
             indexer,
             media,
             plans,

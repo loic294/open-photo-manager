@@ -5,10 +5,12 @@ import { live } from 'lit/directives/live.js';
 import { createRef, ref } from 'lit/directives/ref.js';
 import { events } from '@/api/sse';
 import { type ReindexScope, requestReindex } from '@/app/app-actions';
+import { reindexDisabled, reindexPending, startReindex } from '@/app/reindex';
 import { type AppRouter, createAppRouter } from '@/app/router';
 import { type AppRoute, routes as appRoutes, notFound, redirects, routeAt } from '@/app/routes';
 import { startTheme } from '@/app/theme';
 import { ApmElement } from '@/base/apm-element';
+import { startIndexStatus } from '@/stores/index-status';
 import { currentPath, linkTo, startNavSync } from '@/stores/nav';
 import { startTasks } from '@/stores/tasks';
 import { startVolumes } from '@/stores/volumes';
@@ -16,6 +18,7 @@ import { startVolumes } from '@/stores/volumes';
 // feature provides (for example `import '@/components/apm-task-indicator';`).
 import '@/app/apm-theme-toggle';
 import '@/components/apm-icon';
+import '@/components/apm-index-notices';
 import '@/components/apm-task-indicator';
 import '@/components/apm-toast-host';
 
@@ -37,13 +40,14 @@ const REINDEX_ITEMS: readonly { scope: ReindexScope; label: string }[] = [
  *
  *   drawer (menu)  |  top bar: page heading ......... task indicator, theme toggle
  *   tools          |  connection banner (only while the server connection is down)
- *   -------------- |  <main>: the router outlet, one page element per route
- *   re-index       |
+ *   -------------- |  index notices (only while the scanner holds removals back)
+ *   re-index       |  <main>: the router outlet, one page element per route
  *   trash/settings |
  *
- * It owns the app-wide services: the theme, the nav/URL sync, the volumes and tasks stores, the SSE
- * connection, the router and the single toast host. The menu is built from the route table in
- * `app/routes.ts`; below the `lg` breakpoint it collapses into a drawer opened by the menu button.
+ * It owns the app-wide services: the theme, the nav/URL sync, the volumes, tasks and index-status
+ * stores, the re-index menu actions, the SSE connection, the router and the single toast host. The
+ * menu is built from the route table in `app/routes.ts`; below the `lg` breakpoint it collapses
+ * into a drawer opened by the menu button.
  */
 export class ApmApp extends ApmElement {
   static override properties = {
@@ -74,6 +78,8 @@ export class ApmApp extends ApmElement {
       startNavSync(),
       startTasks(),
       startVolumes(),
+      startIndexStatus(),
+      startReindex(),
       effect(() => {
         document.title = `${this.pageFor(currentPath.value).label} · ${APP_NAME}`;
       }),
@@ -160,10 +166,15 @@ export class ApmApp extends ApmElement {
   }
 
   private renderReindex(item: { scope: ReindexScope; label: string }) {
+    const disabled = reindexDisabled.value;
     return html`
-      <li>
-        <button type="button" @click=${() => requestReindex(item.scope)}>
-          <apm-icon name="refresh-cw" size="sm"></apm-icon>
+      <li class=${classMap({ 'menu-disabled': disabled })}>
+        <button type="button" ?disabled=${disabled} @click=${() => requestReindex(item.scope)}>
+          ${
+            reindexPending.value === item.scope
+              ? html`<span class="loading loading-spinner loading-xs"></span>`
+              : html`<apm-icon name="refresh-cw" size="sm"></apm-icon>`
+          }
           ${item.label}
         </button>
       </li>
@@ -227,6 +238,7 @@ export class ApmApp extends ApmElement {
             </div>
           </header>
           ${this.renderConnectionBanner()}
+          <apm-index-notices></apm-index-notices>
           <main class="min-h-0 flex-1 overflow-hidden">${this.router?.outlet()}</main>
         </div>
         <div class="drawer-side">

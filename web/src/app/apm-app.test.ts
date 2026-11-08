@@ -1,16 +1,24 @@
 import type { Signal } from '@preact/signals-core';
-import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
+import { afterEach, beforeEach, describe, expect, it, type MockInstance, vi } from 'vitest';
 import { api } from '@/api/client';
+import { ApiError } from '@/api/errors';
+import type { IndexStatusDto } from '@/api/generated/IndexStatusDto';
+import type { TaskDto } from '@/api/generated/TaskDto';
+import type { VolumeDto } from '@/api/generated/VolumeDto';
 import { type ConnectionState, events } from '@/api/sse';
-import { onReindex } from '@/app/app-actions';
+import { requestReindex } from '@/app/app-actions';
 import type { AppRoute } from '@/app/routes';
+import { resetIndexStatusForTests } from '@/stores/index-status';
 import { currentPath, navigate } from '@/stores/nav';
 import { theme } from '@/stores/prefs';
 import { resetTasksForTests, tasks } from '@/stores/tasks';
 import { clearToasts, toasts } from '@/stores/toasts';
+import { volumeIdByName } from '@/stores/volumes';
+import { stubBrowseServer } from '@/test/browse-server';
+import { pressConfirm, shownConfirm } from '@/test/confirm';
 import { FakeEventSource } from '@/test/fake-event-source';
 import { mount } from '@/test/helpers';
-import { taskEvent } from '@/test/task-fixtures';
+import { makeTask, taskEvent } from '@/test/task-fixtures';
 import '@/app/apm-app';
 
 type App = HTMLElementTagNameMap['apm-app'];
@@ -22,6 +30,34 @@ const until = (check: () => unknown) => vi.waitFor(check, { interval: 1, timeout
 async function mountApp(url: string, props: Partial<App> = {}): Promise<App> {
   window.history.replaceState(null, '', url);
   return mount('apm-app', props);
+}
+
+const photos: VolumeDto = { id: 1, name: 'photos', writable: true, online: true };
+const IDLE: IndexStatusDto = { held_removals: [], active_task_id: null };
+const RESCAN = '/api/index/rescan';
+
+interface Answers {
+  volumes: readonly VolumeDto[];
+  status: IndexStatusDto;
+}
+
+/** Makes `api.get` answer the volume list and the index status (and `[]` to anything else). */
+function serve(initial: Partial<Answers> = {}): Answers {
+  const answers: Answers = { volumes: [], status: IDLE, ...initial };
+  vi.spyOn(api, 'get').mockImplementation(async (path: string) => {
+    if (path === '/api/volumes') return answers.volumes;
+    if (path === '/api/index/status') return answers.status;
+    return [];
+  });
+  return answers;
+}
+
+function deferred<T>() {
+  let resolve!: (value: T) => void;
+  const promise = new Promise<T>((res) => {
+    resolve = res;
+  });
+  return { promise, resolve };
 }
 
 const text = (element: Element | null | undefined) =>
@@ -80,6 +116,7 @@ beforeEach(() => {
 afterEach(() => {
   events.stop();
   resetTasksForTests();
+  resetIndexStatusForTests();
   vi.useRealTimers();
   vi.restoreAllMocks();
   vi.unstubAllGlobals();
@@ -287,30 +324,201 @@ describe('page heading and title', () => {
 });
 
 describe('re-index actions', () => {
-  it('asks the app to re-index the current folders or all assets', async () => {
-    const app = await mountApp('/browse');
-    const handler = vi.fn();
-    const stop = onReindex(handler);
+  const queued = makeTask({ id: 7, kind: 'index', state: 'queued' });
+  const messages = () => toasts.value.map((t) => [t.kind, t.message]);
+  const reindexEntries = (app: App) => [
+    entry(app, 'Re-index current folders') as HTMLButtonElement,
+    entry(app, 'Re-index all assets') as HTMLButtonElement,
+  ];
 
-    try {
-      entry(app, 'Re-index current folders').click();
-      entry(app, 'Re-index all assets').click();
-    } finally {
-      stop();
-    }
+  let post: MockInstance<typeof api.post>;
+  /** What the server answers to the rescan request; a test replaces it to refuse or to wait. */
+  let answer: () => Promise<TaskDto>;
+  /** The rescan requests only: the Browse panes post their own queries through the same client. */
+  const rescans = () => post.mock.calls.filter(([path]) => path === RESCAN);
 
-    expect(handler.mock.calls).toEqual([['current'], ['all']]);
-    expect(toasts.value).toEqual([]);
+  beforeEach(() => {
+    // A pane on a folder asks for its files too, which the shell's empty answer cannot serve.
+    stubBrowseServer({ volumes: [photos] });
+    answer = () => Promise.resolve(queued);
+    const realPost = api.post;
+    post = vi
+      .spyOn(api, 'post')
+      .mockImplementation(((path, options) =>
+        path === RESCAN ? answer() : realPost(path, options)) as typeof api.post);
   });
 
-  it('tells the user when nothing can re-index yet', async () => {
-    const app = await mountApp('/browse');
+  /** The entries are off while the event stream is down, so open it before looking at them. */
+  async function mountConnected(url: string): Promise<App> {
+    serve({ volumes: [photos] });
+    const app = await mountApp(url);
+    FakeEventSource.last().open();
+    await until(() => expect(volumeIdByName('photos')).toBe(1));
+    await app.updateComplete;
+    return app;
+  }
+
+  it('re-indexes the folders of the panes, with their subfolders', async () => {
+    const app = await mountConnected('/browse?src=photos/trips&cmp=photos/trips/2024');
+
+    entry(app, 'Re-index current folders').click();
+
+    await until(() => expect(rescans()).toHaveLength(1));
+    expect(rescans()[0]?.[1]).toMatchObject({
+      body: {
+        targets: [
+          { volume_id: 1, dir: 'trips', recursive: true },
+          { volume_id: 1, dir: 'trips/2024', recursive: true },
+        ],
+        force: true,
+        confirm_removals: false,
+      },
+    });
+    await until(() => expect(messages()).toEqual([['success', 'Re-indexing 2 folders']]));
+  });
+
+  it('asks the user to open a folder first when the panes show none', async () => {
+    const app = await mountConnected('/browse');
+
+    entry(app, 'Re-index current folders').click();
+
+    await until(() => expect(messages()).toEqual([['info', 'Open a folder first']]));
+    expect(rescans()).toEqual([]);
+  });
+
+  it('asks before re-indexing all assets, and sends nothing when the user declines', async () => {
+    const app = await mountConnected('/browse');
 
     entry(app, 'Re-index all assets').click();
+    const dialog = await shownConfirm();
+    expect(dialog.title).toBe('Re-index all assets?');
+    await pressConfirm('Cancel');
+    await until(() => expect(reindexEntries(app).some((item) => item.disabled)).toBe(false));
 
-    expect(toasts.value.map((t) => [t.kind, t.message])).toEqual([
-      ['info', 'Re-indexing is not available yet.'],
-    ]);
+    expect(rescans()).toEqual([]);
+    expect(messages()).toEqual([]);
+
+    entry(app, 'Re-index all assets').click();
+    await pressConfirm('Re-index all assets');
+
+    await until(() => expect(rescans()).toHaveLength(1));
+    expect(rescans()[0]?.[1]).toMatchObject({
+      body: { targets: [], force: true, confirm_removals: false },
+    });
+    await until(() => expect(messages()).toEqual([['success', 'Re-indexing all assets']]));
+  });
+
+  it('shows the message of the server when the request is refused', async () => {
+    const app = await mountConnected('/browse?src=photos/trips');
+    answer = () =>
+      Promise.reject(
+        new ApiError({ status: 409, code: 'volume_offline', message: 'Volume photos is offline' }),
+      );
+
+    entry(app, 'Re-index current folders').click();
+
+    await until(() => expect(messages()).toEqual([['error', 'Volume photos is offline']]));
+  });
+
+  it('turns both entries off, with a spinner on the one pressed, while the request is sent', async () => {
+    const app = await mountConnected('/browse?src=photos/trips');
+    const reply = deferred<TaskDto>();
+    answer = () => reply.promise;
+
+    entry(app, 'Re-index current folders').click();
+    await app.updateComplete;
+
+    for (const item of reindexEntries(app)) {
+      expect(item.disabled).toBe(true);
+      expect(item.closest('li')?.classList.contains('menu-disabled')).toBe(true);
+    }
+    expect(entry(app, 'Re-index current folders').querySelector('.loading')).not.toBeNull();
+    expect(entry(app, 'Re-index current folders').querySelector('apm-icon')).toBeNull();
+    expect(entry(app, 'Re-index all assets').querySelector('.loading')).toBeNull();
+    expect(entry(app, 'Re-index all assets').querySelector('apm-icon')).not.toBeNull();
+
+    reply.resolve(queued);
+    await until(() => expect(reindexEntries(app).some((item) => item.disabled)).toBe(false));
+
+    for (const item of reindexEntries(app)) {
+      expect(item.closest('li')?.classList.contains('menu-disabled')).toBe(false);
+      expect(item.querySelector('.loading')).toBeNull();
+    }
+    expect(rescans()).toHaveLength(1);
+  });
+
+  it('turns both entries off while the event stream is down, and back on when it is back', async () => {
+    const app = await mountConnected('/browse?src=photos/trips');
+
+    FakeEventSource.last().error();
+    await app.updateComplete;
+
+    expect(events.connection.value).toBe('reconnecting');
+    for (const item of reindexEntries(app)) {
+      expect(item.disabled).toBe(true);
+      expect(item.closest('li')?.classList.contains('menu-disabled')).toBe(true);
+      item.click();
+    }
+    expect(rescans()).toEqual([]);
+    expect(document.querySelector('apm-confirm-dialog')).toBeNull();
+    expect(toasts.value).toEqual([]);
+
+    events.stop();
+    events.start();
+    FakeEventSource.last().open();
+    await app.updateComplete;
+
+    expect(reindexEntries(app).some((item) => item.disabled)).toBe(false);
+  });
+
+  it('hands the menu back to the "not available" notice once the shell is gone', async () => {
+    const app = await mountConnected('/browse');
+
+    app.remove();
+    requestReindex('all');
+
+    expect(messages()).toEqual([['info', 'Re-indexing is not available yet.']]);
+    expect(rescans()).toEqual([]);
+  });
+});
+
+describe('index notices', () => {
+  const held: IndexStatusDto = {
+    held_removals: [{ volume_id: 1, volume_name: 'photos', files: 12_345 }],
+    active_task_id: null,
+  };
+  const notices = (app: App) => app.querySelector('apm-index-notices');
+  const alertOf = (app: App) => notices(app)?.querySelector('[role="alert"]');
+
+  /** The connection banner would sit between the top bar and the notices; keep it out of the way. */
+  async function mountConnected(): Promise<App> {
+    const app = await mountApp('/browse');
+    FakeEventSource.last().open();
+    await app.updateComplete;
+    return app;
+  }
+
+  it('stay out of the way while the scanner holds nothing back', async () => {
+    serve({ status: IDLE });
+    const app = await mountConnected();
+    await until(() => expect(api.get).toHaveBeenCalledWith('/api/index/status', expect.anything()));
+
+    expect(alertOf(app)).toBeNull();
+  });
+
+  it('warn above the page about the removals the scanner holds back, until a scan clears them', async () => {
+    const answers = serve({ status: held });
+    const app = await mountConnected();
+
+    await until(() => expect(alertOf(app)).not.toBeNull());
+    expect(text(notices(app))).toContain('Volume photos:');
+    expect(notices(app)?.previousElementSibling?.localName).toBe('header');
+    expect(notices(app)?.nextElementSibling?.localName).toBe('main');
+
+    answers.status = IDLE;
+    FakeEventSource.last().message(taskEvent({ kind: 'index', state: 'done', finished_at: 2 }));
+
+    await until(() => expect(alertOf(app)).toBeNull());
   });
 });
 
@@ -371,7 +579,8 @@ describe('connection banner', () => {
     await app.updateComplete;
 
     expect(banner(app)?.previousElementSibling?.localName).toBe('header');
-    expect(banner(app)?.nextElementSibling?.localName).toBe('main');
+    expect(banner(app)?.nextElementSibling?.localName).toBe('apm-index-notices');
+    expect(banner(app)?.nextElementSibling?.nextElementSibling?.localName).toBe('main');
     expect(classesOf(banner(app))).toContain('flex-none');
   });
 });
@@ -485,12 +694,12 @@ describe('small screens', () => {
 });
 
 describe('app services', () => {
-  it('connects to the server events and loads the volumes and the tasks', async () => {
+  it('connects to the server events and loads the volumes, the tasks and the index status', async () => {
     await mountApp('/browse');
 
     expect(FakeEventSource.instances.map((source) => source.url)).toEqual(['/api/events']);
     const loaded = vi.mocked(api.get).mock.calls.map((call) => call[0]);
-    expect(loaded.sort()).toEqual(['/api/tasks', '/api/volumes']);
+    expect(loaded.sort()).toEqual(['/api/index/status', '/api/tasks', '/api/volumes']);
   });
 
   it('shows the tasks the server reports in the indicator of the top bar', async () => {
@@ -517,6 +726,18 @@ describe('app services', () => {
     events.emit(taskEvent({ id: 2 }));
 
     expect(tasks.value.map((task) => task.id)).toEqual([1]);
+  });
+
+  it('stops following the index status when it is removed', async () => {
+    const app = await mountApp('/browse');
+    await until(() => expect(api.get).toHaveBeenCalledWith('/api/index/status', expect.anything()));
+
+    app.remove();
+    vi.mocked(api.get).mockClear();
+    events.emit(taskEvent({ kind: 'index', state: 'done', finished_at: 2 }));
+    await new Promise((resolve) => setTimeout(resolve, 5));
+
+    expect(api.get).not.toHaveBeenCalled();
   });
 
   it('applies the theme preference while it is mounted', async () => {

@@ -64,8 +64,9 @@ A second caller of a concern uses or extends the existing building block, never 
   watcher, plan executors, trash and Immich code never call `std::fs` / `tokio::fs` mutators on a
   volume path.
 - Index work (scan, extract, hash, thumbnails) is started by production code only through
-  `IndexJobs::submit` (`indexer/jobs.rs`, todo `building-index-controls`), which owns de-duplication,
-  concurrency and the task. Until it lands, `Indexer::run` is the entry point for tests.
+  `IndexJobs::submit(ScanRequest, IndexOrigin)` (`indexer/jobs.rs`), which owns de-duplication,
+  concurrency and the `index` task and runs the startup and periodic rescans. `Indexer::run` stays the
+  entry point for tests.
 - Every foreign key column needs an index: `db/schema_tests.rs` fails the gate when a migration adds
   an unindexed one.
 - Services are `Clone` structs held by `AppState` (`state.rs`). Background workers and SSE streams
@@ -153,7 +154,7 @@ the parallel work protocol at the end of this file). Never edit a merged migrati
 - `building-browse-api`: `api/browse.rs`, `api/files.rs`, `api/volumes.rs`.
 - `serving-media`: `media/**`, `api/media.rs`. `securing-api-baseline`: `security/**`.
 - `building-task-engine`: `tasks/**`, `api/tasks.rs`, `api/events.rs`.
-- `implementing-safe-file-ops`: `fsops/**`. `building-index-controls`: `api/index.rs`.
+- `implementing-safe-file-ops`: `fsops/**`. `building-index-controls`: `api/index.rs`, `indexer/jobs.rs`.
 - `building-trash-management`: `trash/**`, `api/trash.rs`.
 - `building-plan-engine`: `plans/{engine,store,overlay,selections}.rs`, `api/plans.rs`,
   `api/selections.rs`. `implementing-duplicate-matching`: `plans/duplicates.rs`.

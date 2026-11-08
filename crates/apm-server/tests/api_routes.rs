@@ -39,6 +39,7 @@ const ROUTES: &[(&str, &str)] = &[
     ("POST", "/api/tasks/1/cancel"),
     ("GET", "/api/events"),
     ("POST", "/api/index/rescan"),
+    ("GET", "/api/index/status"),
     ("GET", "/api/trash"),
     ("POST", "/api/trash/restore"),
     ("POST", "/api/trash/empty"),

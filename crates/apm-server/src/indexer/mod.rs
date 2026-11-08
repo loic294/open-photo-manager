@@ -98,6 +98,7 @@ mod changes;
 mod diff;
 pub mod extract;
 pub mod hash;
+pub mod jobs;
 pub mod links;
 pub mod pending;
 mod progress;
@@ -116,6 +117,7 @@ pub use extract::{
     Embedded, ExiftoolExtractor, ExtractFailure, ExtractOutcome, ExtractRequest, ExtractSummary,
     FakeExtractor, MetadataExtractor,
 };
+pub use jobs::{IndexJobs, IndexOrigin, SchedulerOptions, SubmitOutcome};
 pub use progress::{
     IndexPhase, IndexProgress, NoopProgress, PhaseProgress, ProgressSink, REPORT_INTERVAL,
     RecordingProgress,

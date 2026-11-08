@@ -6,10 +6,18 @@ import type { Scope } from "./Scope";
  */
 export type RescanRequest = { 
 /**
- * Scopes to rescan; empty means every volume.
+ * Scopes to rescan; empty means every volume. A scope with a null `volume_id` and an empty
+ * `dir` stands for every online volume.
  */
 targets: Array<Scope>, 
 /**
- * Re-extract metadata even for files whose size and mtime are unchanged.
+ * Re-process every file in scope (metadata, checksums and thumbnails) even when its size and
+ * modification time are unchanged. It does not apply index removals the safety guard held
+ * back: that is `confirm_removals`.
  */
-force: boolean, };
+force: boolean, 
+/**
+ * Apply the index removals the mass-disappearance guard held back for the volumes in scope,
+ * after the user confirmed that the files are really gone. No file is touched on disk.
+ */
+confirm_removals: boolean, };

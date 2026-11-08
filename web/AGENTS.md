@@ -103,11 +103,11 @@ declare global {
 
 ## App shell and layout contract
 `index.html` holds one element, `<apm-app>` (`src/app/apm-app.ts`). It starts every app-wide service
-(theme, nav/URL sync, volumes, tasks, the SSE connection, the router) and renders the single toast host:
-never start those anywhere else.
+(theme, nav/URL sync, volumes, tasks, the index status, the re-index actions, the SSE connection, the
+router) and renders the single toast host: never start those anywhere else.
 - **The page itself never scrolls.** Chain: shell root `h-screen w-screen overflow-hidden grid-rows-1`
-  → `drawer-content flex min-h-0 min-w-0 flex-col` → top bar and connection banner (`flex-none`) and
-  `<main class="min-h-0 flex-1 overflow-hidden">`. The router renders each page as
+  → `drawer-content flex min-h-0 min-w-0 flex-col` → top bar, connection banner and index notices
+  (`flex-none`) and `<main class="min-h-0 flex-1 overflow-hidden">`. The router renders each page as
   `<tag class="block h-full min-h-0">` inside `<main>`: a page is exactly the viewport minus the top bar.
 - **Pages own their scrolling.** Lay a page out with flex/grid and give every flex or grid child that
   must shrink `min-h-0` (`min-w-0` sideways). Only a pane body (or its virtualizer) gets `overflow-auto`.
@@ -123,10 +123,14 @@ never start those anywhere else.
   `aria-current="page"`. Below the `lg` breakpoint it is a DaisyUI drawer (menu button, overlay,
   Escape, closes on navigation, focus returns to the menu button).
 - A DaisyUI `alert` (`role="alert"`) shows while `events.connection` is `reconnecting` or `closed`
-  (not during the first `connecting`).
-- The "Re-index" menu entries call `requestReindex('current' | 'all')` (`@/app/app-actions`). The
-  index-controls feature registers `onReindex((scope) => ...)` (returns an unsubscribe function);
-  until then the user sees an info toast. The request is a cancelable `apm-reindex` event on `document`.
+  (not during the first `connecting`). Right under it `<apm-index-notices>` warns about the removals the
+  scanner held back (see Index controls).
+- The "Re-index" menu entries call `requestReindex('current' | 'all')` (`@/app/app-actions`), and
+  `startReindex()` (`@/app/reindex`, started by the shell) is the `onReindex` handler that does the work
+  (see Index controls). The entries are `disabled` (`menu-disabled` on the `li`) while a request is being
+  sent and while the event stream is down; the pressed one shows a spinner instead of its icon. The
+  request is a cancelable `apm-reindex` event on `document`; with no handler (the shell is not mounted)
+  the user sees an info toast.
 - `main.ts` loads `urlpattern-polyfill` only when the browser has no `URLPattern` (the router needs
   it), then imports the shell.
 
@@ -883,3 +887,45 @@ customElements.define('apm-tidy-page', ApmTidyPage);
   `apm-tool-view.test.ts`); mock `@/components/apm-viewer` when the viewer is not under test; use
   `stubBrowseServer()` for the panes. Reset in `afterEach`: `resetToolStateForTests()`, `resetFilters()`,
   `resetSelectionForTests()`, and remove the views BEFORE `vi.unstubAllGlobals()`.
+
+## Index controls (`api/indexing.ts`, `stores/index-status.ts`, `app/reindex.ts`, `apm-index-notices`)
+The server's `IndexJobs` is the only thing that starts index work (scan, metadata, checksums,
+thumbnails). The UI asks for it through ONE endpoint and watches the `index` task in the task indicator,
+so **nothing here has a progress UI of its own**. Identical requests coalesce into the job that is already
+queued or running, so asking twice is harmless.
+- `@/api/indexing`: `rescan(request: RescanRequest, signal?)` is `POST /api/index/rescan` (202, the
+  `TaskDto`) and `getIndexStatus(signal?)` is `GET /api/index/status` (`IndexStatusDto`: `held_removals`,
+  `active_task_id`). `RescanRequest` is `{ targets: Scope[], force, confirm_removals }`: `targets: []` means
+  every volume, a target with `volume_id: null` and `dir: ''` every online volume, `force: true` treats
+  every file in scope as changed (metadata, checksums and thumbnails are redone), `confirm_removals: true`
+  lets a scan of that scope drop the entries it would otherwise hold back. Errors: 400 `invalid_path`,
+  404 `not_found`, 409 `volume_offline`.
+- `stores/index-status.ts`: `indexStatus` (`ReadonlySignal<IndexStatusDto>`, nothing held until the first
+  answer), `refreshIndexStatus()` (never rejects: a failure or an answer that is not an `IndexStatusDto`
+  is ignored, concurrent calls coalesce, an unchanged answer keeps its identity), `startIndexStatus()`
+  (the shell calls it once: loads now, again after a resync and whenever an `index` task ends) and
+  `resetIndexStatusForTests()`. Nothing else needs to refresh it: a scan you start ends with an `index`
+  task event.
+- `app/reindex.ts`: `reindexCurrentFolders()` (recursive and forced, on the folders of BOTH panes,
+  `currentFolderTargets()`: the same folder in both panes is sent once, a pane at the volumes root shows
+  none and the info toast says "Open a folder first"), `reindexAllAssets()` (a `confirmDialog` first,
+  then `targets: []`), `reindexPending` (`ReadonlySignal<ReindexScope | null>`: the request being sent,
+  a confirmation not answered yet included), `reindexDisabled` (true while one is being sent and while
+  `events.connection` is `reconnecting` or `closed`: a task started then could not be followed) and
+  `startReindex()` (registers the `onReindex` handler; the shell calls it once). An offline volume is not
+  filtered out here: the server answers 409 `volume_offline` and its message becomes the error toast.
+- `<apm-index-notices>` (no properties, no events; host `block flex-none`; the shell renders it between
+  the connection banner and `<main>`): when a scan would remove at least 50 entries and more than a
+  fifth of what a volume had (a share that is not mounted looks exactly like that), the scanner holds ALL
+  removals of that volume back and reports the count in `held_removals`. One `alert alert-warning` per
+  volume says how many files were not found, with "Rescan" (`force: false`: the entries are fine again
+  when the share is back) and "Remove from the index" (a danger `confirmDialog` with the count and the
+  volume name, then `confirm_removals: true`; no file on disk is ever touched). While a request runs
+  every button of the notices is disabled and the pressed one shows a spinner. A notice goes away by
+  itself when the next scan ends.
+- Tests: `shownConfirm()` and `pressConfirm(label)` (`@/test/confirm`) drive the shared confirm dialog
+  (the module also removes stray dialogs after each test). Set the connection with
+  `(events.connection as Signal<ConnectionState>).value = 'open'`. In `apm-app.test.ts` every test but the
+  first mounts with the connection `reconnecting` (the shared client resyncs after `events.stop()`), so
+  call `FakeEventSource.last().open()` before expecting an enabled Re-index entry or a notice without the
+  connection banner above it. Call `resetIndexStatusForTests()` in `afterEach`.
