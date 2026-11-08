@@ -17,7 +17,7 @@
 //! A scan that is cancelled or fails stops between two transactions and removes nothing: step 3
 //! only runs after the last listing was handled.
 
-use std::collections::{BTreeMap, BTreeSet, HashSet};
+use std::collections::{BTreeSet, HashSet};
 use std::io;
 use std::sync::Arc;
 
@@ -31,11 +31,12 @@ use tokio_util::sync::CancellationToken;
 
 use super::changes::ChangeSink;
 use super::diff::{self, StoredFile, guard_trips};
+use super::pending::{Scope, VolumePlan, plan_targets};
 use super::progress::{IndexPhase, PhaseProgress};
 use super::store::{self, DELETE_CHUNK, DirUnit, HeldUpdate, Stored};
 use super::volumes::Lookup;
 use super::walk::{self, DirListing, WalkEnd, WalkSpec};
-use super::{HeldRemovals, IndexError, Indexer, RunContext, ScanRequest, ScanTarget};
+use super::{HeldRemovals, IndexError, Indexer, RunContext, ScanRequest};
 use crate::db::subtree::Subtree;
 use crate::db::{Db, DbError};
 use crate::security::VolumeRoot;
@@ -93,80 +94,6 @@ impl ScanSummary {
         self.skipped_invalid += other.skipped_invalid;
         self.unreadable_dirs += other.unreadable_dirs;
     }
-}
-
-/// One directory of a volume to walk.
-#[derive(Debug, Clone, PartialEq, Eq)]
-struct Scope {
-    dir: RelPath,
-    recursive: bool,
-}
-
-/// What to do on one volume: its scopes, parents before children, none inside a recursive one.
-#[derive(Debug, Clone, PartialEq, Eq)]
-struct VolumePlan {
-    volume_id: VolumeId,
-    scopes: Vec<Scope>,
-}
-
-impl VolumePlan {
-    /// Does a scope cover the whole volume?
-    fn whole_volume(&self) -> bool {
-        self.scopes
-            .iter()
-            .any(|scope| scope.dir.is_root() && scope.recursive)
-    }
-}
-
-/// Groups the targets by volume and drops the ones that are already covered. No targets means
-/// every volume in `online`, completely.
-fn plan_targets(targets: &[ScanTarget], online: &[VolumeId]) -> Vec<VolumePlan> {
-    if targets.is_empty() {
-        return online
-            .iter()
-            .map(|&volume_id| VolumePlan {
-                volume_id,
-                scopes: vec![Scope {
-                    dir: RelPath::root(),
-                    recursive: true,
-                }],
-            })
-            .collect();
-    }
-    let mut by_volume: BTreeMap<VolumeId, Vec<Scope>> = BTreeMap::new();
-    for target in targets {
-        by_volume.entry(target.volume_id).or_default().push(Scope {
-            dir: target.dir.clone(),
-            recursive: target.recursive,
-        });
-    }
-    by_volume
-        .into_iter()
-        .map(|(volume_id, scopes)| VolumePlan {
-            volume_id,
-            scopes: merge_scopes(scopes),
-        })
-        .collect()
-}
-
-/// Sorts scopes (a directory before what lies below it, a recursive scope before a non-recursive
-/// one of the same directory) and drops every scope that a kept one already covers.
-fn merge_scopes(mut scopes: Vec<Scope>) -> Vec<Scope> {
-    scopes.sort_by(|a, b| {
-        a.dir
-            .cmp(&b.dir)
-            .then_with(|| b.recursive.cmp(&a.recursive))
-    });
-    let mut kept: Vec<Scope> = Vec::new();
-    for scope in scopes {
-        let covered = kept.iter().any(|other| {
-            other.dir == scope.dir || (other.recursive && scope.dir.starts_with(&other.dir))
-        });
-        if !covered {
-            kept.push(scope);
-        }
-    }
-    kept
 }
 
 /// The directories among `vanished` that have no ancestor in the set: removing those (with
@@ -846,117 +773,6 @@ mod tests {
 
     fn rel(path: &str) -> RelPath {
         RelPath::new(path).unwrap()
-    }
-
-    fn scope(path: &str, recursive: bool) -> Scope {
-        Scope {
-            dir: rel(path),
-            recursive,
-        }
-    }
-
-    fn plan(targets: &[ScanTarget]) -> Vec<(VolumeId, Vec<(String, bool)>)> {
-        plan_targets(targets, &[7, 8])
-            .into_iter()
-            .map(|plan| {
-                let scopes = plan
-                    .scopes
-                    .iter()
-                    .map(|scope| (scope.dir.as_str().to_owned(), scope.recursive))
-                    .collect();
-                (plan.volume_id, scopes)
-            })
-            .collect()
-    }
-
-    #[test]
-    fn no_targets_means_every_online_volume_completely() {
-        let plans = plan_targets(&[], &[7, 8]);
-        assert_eq!(plans.len(), 2);
-        assert_eq!(plans[0].volume_id, 7);
-        assert_eq!(plans[1].scopes, [scope("", true)]);
-        assert!(plans.iter().all(VolumePlan::whole_volume));
-    }
-
-    #[test]
-    fn targets_are_grouped_by_volume() {
-        let plans = plan(&[
-            ScanTarget::subtree(8, rel("x")),
-            ScanTarget::subtree(2, rel("a")),
-            ScanTarget::dir(8, rel("y")),
-        ]);
-        assert_eq!(
-            plans,
-            [
-                (2, vec![("a".to_owned(), true)]),
-                (8, vec![("x".to_owned(), true), ("y".to_owned(), false)]),
-            ]
-        );
-    }
-
-    #[test]
-    fn a_scope_inside_a_recursive_one_is_dropped() {
-        let plans = plan(&[
-            ScanTarget::subtree(1, rel("a/b/c")),
-            ScanTarget::dir(1, rel("a/b")),
-            ScanTarget::subtree(1, rel("a")),
-            ScanTarget::subtree(1, rel("a/b")),
-        ]);
-        assert_eq!(plans, [(1, vec![("a".to_owned(), true)])]);
-    }
-
-    #[test]
-    fn only_a_path_prefix_that_is_a_parent_covers() {
-        let plans = plan(&[
-            ScanTarget::subtree(1, rel("2019")),
-            ScanTarget::subtree(1, rel("2019.old")),
-            ScanTarget::subtree(1, rel("2019/Rome")),
-        ]);
-        assert_eq!(
-            plans,
-            [(
-                1,
-                vec![("2019".to_owned(), true), ("2019.old".to_owned(), true)]
-            )]
-        );
-    }
-
-    #[test]
-    fn a_non_recursive_scope_does_not_cover_what_is_below_it() {
-        let plans = plan(&[
-            ScanTarget::dir(1, rel("a")),
-            ScanTarget::subtree(1, rel("a/b")),
-            ScanTarget::dir(1, rel("a")),
-        ]);
-        assert_eq!(
-            plans,
-            [(1, vec![("a".to_owned(), false), ("a/b".to_owned(), true)])]
-        );
-    }
-
-    #[test]
-    fn a_recursive_scope_absorbs_the_non_recursive_one_of_the_same_directory() {
-        let plans = plan(&[
-            ScanTarget::dir(1, rel("a")),
-            ScanTarget::subtree(1, rel("a")),
-        ]);
-        assert_eq!(plans, [(1, vec![("a".to_owned(), true)])]);
-    }
-
-    #[test]
-    fn the_whole_volume_covers_everything() {
-        let plans = plan_targets(
-            &[
-                ScanTarget::dir(1, rel("a")),
-                ScanTarget::volume(1),
-                ScanTarget::subtree(1, rel("b")),
-            ],
-            &[],
-        );
-        assert_eq!(plans.len(), 1);
-        assert_eq!(plans[0].scopes, [scope("", true)]);
-        assert!(plans[0].whole_volume());
-        assert!(!plan_targets(&[ScanTarget::dir(1, RelPath::root())], &[])[0].whole_volume());
     }
 
     #[test]

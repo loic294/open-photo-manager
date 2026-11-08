@@ -17,6 +17,11 @@
 //! its `pending` rows, reports through the [`RunContext`] and checks `ctx.cancel` between units of
 //! work.
 //!
+//! A stage reads those rows through the shared stage queue ([`pending::PendingQueue`], `pending.rs`,
+//! owned by todo `building-stage-queue`): keyset pages of the pending files of the run's scope
+//! ([`Indexer::stage_scope`], planned like the scan's own), in the order `(volume_id, dir_path,
+//! name)`, and the totals for its progress. A stage writes no scope or paging SQL of its own.
+//!
 //! # The volume registry
 //! [`VolumeRegistry`] (`AppState.volumes`) is the single place where any module obtains the
 //! [`VolumeRoot`](crate::security::VolumeRoot) of a volume: `registry.get(id)` fails with 404
@@ -92,6 +97,7 @@ mod diff;
 pub mod extract;
 pub mod hash;
 pub mod links;
+pub mod pending;
 mod progress;
 pub mod scanner;
 mod store;
