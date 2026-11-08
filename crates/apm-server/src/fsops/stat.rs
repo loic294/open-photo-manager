@@ -52,10 +52,14 @@ impl FileStat {
         self.size == expect.size && self.mtime == expect.mtime
     }
 
-    /// Whether `other` is the same file in the same state: same inode, size and modification
-    /// time down to the nanosecond.
+    /// Whether `other` is the same file in the same state: a nonzero stable inode, size and
+    /// modification time down to the nanosecond. Zero inode values cannot establish identity.
     pub fn same_file(&self, other: &Self) -> bool {
-        self.dev == other.dev
+        self.dev != 0
+            && self.ino != 0
+            && other.dev != 0
+            && other.ino != 0
+            && self.dev == other.dev
             && self.ino == other.ino
             && self.size == other.size
             && self.mtime == other.mtime
@@ -116,5 +120,20 @@ mod tests {
     #[test]
     fn permissions_drop_the_file_type() {
         assert_eq!(stat(1, 1).permissions(), 0o644);
+    }
+
+    #[test]
+    fn zero_or_unstable_inode_identity_fails_closed() {
+        let current = stat(10, 100);
+        let mut zero = current;
+        zero.dev = 0;
+        zero.ino = 0;
+        assert!(!zero.same_file(&zero));
+        let mut unstable = current;
+        unstable.ino += 1;
+        assert!(!current.same_file(&unstable));
+        unstable = current;
+        unstable.dev += 1;
+        assert!(!current.same_file(&unstable));
     }
 }

@@ -19,9 +19,36 @@ import { loadVolumes } from '@/stores/volumes';
 import { pressConfirm, shownConfirm } from '@/test/confirm';
 import { makeTask } from '@/test/task-fixtures';
 
-const photos: VolumeDto = { id: 1, name: 'photos', writable: true, online: true };
-const backup: VolumeDto = { id: 2, name: 'backup', writable: false, online: true };
-const nas: VolumeDto = { id: 3, name: 'nas', writable: true, online: false };
+const photos: VolumeDto = {
+  id: 1,
+  name: 'photos',
+  writable: true,
+  online: true,
+  fs_type: null,
+  case_insensitive: null,
+  watch_mode: 'watching',
+  watch_reason: null,
+};
+const backup: VolumeDto = {
+  id: 2,
+  name: 'backup',
+  writable: false,
+  online: true,
+  fs_type: null,
+  case_insensitive: null,
+  watch_mode: 'watching',
+  watch_reason: null,
+};
+const nas: VolumeDto = {
+  id: 3,
+  name: 'nas',
+  writable: true,
+  online: false,
+  fs_type: null,
+  case_insensitive: null,
+  watch_mode: 'watching',
+  watch_reason: null,
+};
 
 const queued = makeTask({ id: 7, kind: 'index', state: 'queued', title: 'Re-indexing 1 folder' });
 

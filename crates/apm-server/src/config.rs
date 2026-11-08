@@ -19,6 +19,14 @@ const DEFAULT_WEB_DIR: &str = "./web/dist";
 const DEFAULT_IMMICH_QUIET_SECS: u64 = 15;
 const MAX_IMMICH_QUIET_SECS: u64 = 600;
 
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
+pub enum WatchPolicy {
+    #[default]
+    Auto,
+    Watch,
+    Poll,
+}
+
 /// An environment variable holds a value the server cannot use.
 #[derive(Debug, Error, PartialEq, Eq)]
 #[error("invalid {var}={value:?}: {reason}")]
@@ -68,6 +76,9 @@ pub struct Config {
     /// `APM_WEB_DIR` (default `./web/dist`): built web app. The Docker image
     /// sets `/app/web`.
     pub web_dir: PathBuf,
+    /// `APM_WATCH_MODE` (default `auto`): `auto` selects watchers by mounted filesystem type;
+    /// `watch` forces them on and `poll` disables them globally.
+    pub watch_mode: WatchPolicy,
 }
 
 impl Config {
@@ -130,6 +141,19 @@ impl Config {
             },
         };
 
+        let watch_mode = match var("APM_WATCH_MODE").as_deref() {
+            None | Some("auto") => WatchPolicy::Auto,
+            Some("watch") => WatchPolicy::Watch,
+            Some("poll") => WatchPolicy::Poll,
+            Some(value) => {
+                return Err(ConfigError::new(
+                    "APM_WATCH_MODE",
+                    value,
+                    "must be auto, watch, or poll",
+                ));
+            }
+        };
+
         Ok(Self {
             volumes_dir: var("APM_VOLUMES_DIR")
                 .map_or_else(|| PathBuf::from(DEFAULT_VOLUMES_DIR), PathBuf::from),
@@ -143,6 +167,7 @@ impl Config {
             log: var("APM_LOG").unwrap_or_else(|| DEFAULT_LOG.to_owned()),
             web_dir: var("APM_WEB_DIR")
                 .map_or_else(|| PathBuf::from(DEFAULT_WEB_DIR), PathBuf::from),
+            watch_mode,
         })
     }
 
@@ -161,6 +186,7 @@ impl Config {
             index_concurrency: 1,
             log: "warn".to_owned(),
             web_dir: dir.join("web"),
+            watch_mode: WatchPolicy::Auto,
         }
     }
 }
@@ -190,6 +216,7 @@ mod tests {
         assert_eq!(config.index_concurrency, 2);
         assert_eq!(config.log, "info");
         assert_eq!(config.web_dir, PathBuf::from("./web/dist"));
+        assert_eq!(config.watch_mode, WatchPolicy::Auto);
     }
 
     #[test]
@@ -214,6 +241,7 @@ mod tests {
                 ("APM_INDEX_CONCURRENCY", "6"),
                 ("APM_LOG", "debug,sqlx=warn"),
                 ("APM_WEB_DIR", "/app/web"),
+                ("APM_WATCH_MODE", "poll"),
             ]),
             8,
         )
@@ -229,6 +257,22 @@ mod tests {
         assert_eq!(config.index_concurrency, 6);
         assert_eq!(config.log, "debug,sqlx=warn");
         assert_eq!(config.web_dir, PathBuf::from("/app/web"));
+        assert_eq!(config.watch_mode, WatchPolicy::Poll);
+    }
+
+    #[test]
+    fn watch_mode_accepts_all_values_and_rejects_invalid_values() {
+        for (value, expected) in [
+            ("auto", WatchPolicy::Auto),
+            ("watch", WatchPolicy::Watch),
+            ("poll", WatchPolicy::Poll),
+        ] {
+            let config = Config::from_lookup(lookup(&[("APM_WATCH_MODE", value)]), 2).unwrap();
+            assert_eq!(config.watch_mode, expected);
+        }
+        let error = Config::from_lookup(lookup(&[("APM_WATCH_MODE", "sometimes")]), 2).unwrap_err();
+        assert_eq!(error.var, "APM_WATCH_MODE");
+        assert!(error.reason.contains("auto, watch, or poll"));
     }
 
     #[test]

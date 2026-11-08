@@ -22,14 +22,26 @@ pub fn routes() -> Router<AppState> {
 async fn list(State(state): State<AppState>) -> AppResult<Json<Vec<VolumeDto>>> {
     let mut volumes = volumes::list(&state.db).await?;
     volumes.sort_by_cached_key(|volume| volume_sort_key(&volume.name, volume.id));
+    let watch_enabled = state.settings.get().index.watch_enabled;
     Ok(Json(
         volumes
             .into_iter()
-            .map(|volume| VolumeDto {
-                id: volume.id,
-                name: volume.name,
-                writable: volume.writable,
-                online: volume.online,
+            .map(|volume| {
+                let capabilities = state.volumes.capabilities(volume.id);
+                let (watch_mode, watch_reason) = state.volumes.watch_mode(volume.id, watch_enabled);
+                VolumeDto {
+                    id: volume.id,
+                    name: volume.name,
+                    writable: volume.writable,
+                    online: volume.online,
+                    fs_type: capabilities
+                        .as_ref()
+                        .and_then(|capabilities| capabilities.fs_type.clone()),
+                    case_insensitive: capabilities
+                        .and_then(|capabilities| capabilities.case_insensitive),
+                    watch_mode,
+                    watch_reason,
+                }
             })
             .collect(),
     ))

@@ -305,10 +305,10 @@ async fn the_volume_list_is_sorted_and_includes_offline_volumes() {
     assert_eq!(
         response,
         json!([
-            {"id": lib.alpha, "name": "alpha", "writable": true, "online": true},
-            {"id": lib.empty, "name": "empty", "writable": true, "online": true},
-            {"id": lib.photos, "name": "photos", "writable": true, "online": true},
-            {"id": lib.zeta, "name": "Zeta", "writable": true, "online": false},
+            {"id": lib.alpha, "name": "alpha", "writable": true, "online": true, "fs_type": null, "case_insensitive": null, "watch_mode": "watching", "watch_reason": null},
+            {"id": lib.empty, "name": "empty", "writable": true, "online": true, "fs_type": null, "case_insensitive": null, "watch_mode": "watching", "watch_reason": null},
+            {"id": lib.photos, "name": "photos", "writable": true, "online": true, "fs_type": null, "case_insensitive": null, "watch_mode": "watching", "watch_reason": null},
+            {"id": lib.zeta, "name": "Zeta", "writable": true, "online": false, "fs_type": null, "case_insensitive": null, "watch_mode": "watching", "watch_reason": null},
         ])
     );
 }

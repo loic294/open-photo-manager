@@ -46,7 +46,11 @@ function sameVolumes(a: readonly VolumeDto[], b: readonly VolumeDto[]): boolean 
         volume.id === other.id &&
         volume.name === other.name &&
         volume.writable === other.writable &&
-        volume.online === other.online
+        volume.online === other.online &&
+        volume.fs_type === other.fs_type &&
+        volume.case_insensitive === other.case_insensitive &&
+        volume.watch_mode === other.watch_mode &&
+        volume.watch_reason === other.watch_reason
       );
     })
   );
@@ -126,4 +130,11 @@ export function startVolumes(): () => void {
   return () => {
     for (const stop of stops) stop();
   };
+}
+
+/** Back to the initial state, for tests. */
+export function resetVolumesForTests(): void {
+  list.value = [];
+  status.value = 'idle';
+  error.value = undefined;
 }

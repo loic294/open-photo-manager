@@ -14,7 +14,8 @@ it('shows and clears the accessible Settings menu dot reactively', async () => {
   vi.stubGlobal('EventSource', FakeEventSource);
   vi.spyOn(api, 'get').mockImplementation(async (path) => {
     if (path === '/api/immich/status') return sampleImmichStatus();
-    if (path === '/api/index/status') return { held_removals: [], active_task_id: null };
+    if (path === '/api/index/status')
+      return { held_removals: [], active_task_id: null, watcher: null, warnings: [] };
     return [];
   });
   const attention = signal(false);

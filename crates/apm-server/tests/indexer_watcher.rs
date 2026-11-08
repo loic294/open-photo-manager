@@ -4,11 +4,46 @@ mod common;
 use std::time::Duration;
 
 use apm_core::dto::{ConflictPolicy, WatcherState};
+use apm_server::config::WatchPolicy;
 use axum::http::Method;
 use notify::event::{CreateKind, DataChange, ModifyKind, RemoveKind, RenameMode};
 use notify::{Event, EventKind};
 
 use common::watcher::{Harness, eventually, options, until};
+
+#[tokio::test]
+async fn polling_policy_registers_nothing_and_reports_polling_only() {
+    let mut h = Harness::with_watch_policy(WatchPolicy::Poll).await;
+    h.scan().await;
+    let fake = h.install_fake(options(Some(100)));
+    eventually(|| h.app.state.watcher.status().state == WatcherState::PollingOnly).await;
+
+    assert!(fake.paths().is_empty());
+    assert_eq!(h.app.state.watcher.status().watched_dirs, 0);
+
+    let (_, body) = h.app.call(Method::GET, "/api/volumes", None).await;
+    assert_eq!(body[0]["watch_mode"], "polling_only");
+    assert!(
+        body[0]["watch_reason"]
+            .as_str()
+            .unwrap()
+            .contains("APM_WATCH_MODE=poll")
+    );
+    h.stop().await;
+}
+
+#[tokio::test]
+async fn watch_policy_forces_registration_and_reports_why() {
+    let mut h = Harness::with_watch_policy(WatchPolicy::Watch).await;
+    h.scan().await;
+    let fake = h.start_fake(options(Some(100))).await;
+
+    assert!(!fake.paths().is_empty());
+    let (_, body) = h.app.call(Method::GET, "/api/volumes", None).await;
+    assert_eq!(body[0]["watch_mode"], "watching");
+    assert!(body[0]["watch_reason"].as_str().unwrap().contains("forced"));
+    h.stop().await;
+}
 
 #[derive(Clone, Default)]
 struct LimitWarnings(std::sync::Arc<std::sync::atomic::AtomicUsize>);

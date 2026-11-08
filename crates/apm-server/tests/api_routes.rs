@@ -103,7 +103,7 @@ async fn health_reports_ok_and_the_version() {
     assert_eq!(status, StatusCode::OK);
     assert_eq!(
         body,
-        json!({ "status": "ok", "version": env!("CARGO_PKG_VERSION") })
+        json!({ "status": "ok", "version": env!("CARGO_PKG_VERSION"), "warnings": [] })
     );
 }
 

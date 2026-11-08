@@ -10,6 +10,7 @@ pub mod config;
 pub mod db;
 pub mod error;
 pub mod fsops;
+pub mod hostfs;
 pub mod immich;
 pub mod indexer;
 pub mod media;

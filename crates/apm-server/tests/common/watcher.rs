@@ -7,6 +7,7 @@ use std::sync::{Arc, Mutex};
 use std::time::Duration;
 
 use apm_core::dto::TaskState;
+use apm_server::config::WatchPolicy;
 use apm_server::indexer::watch_backend::{EventSender, WatchBackend};
 use apm_server::indexer::watcher::{Watcher, WatcherDeps, WatcherOptions};
 use apm_server::indexer::{FakeExtractor, IndexJobs, IndexOrigin, Indexer, ScanRequest};
@@ -108,7 +109,11 @@ pub struct Harness {
 
 impl Harness {
     pub async fn new() -> Self {
-        let app = TestApp::new().await;
+        Self::with_watch_policy(WatchPolicy::Auto).await
+    }
+
+    pub async fn with_watch_policy(policy: WatchPolicy) -> Self {
+        let app = TestApp::with_config(|config| config.watch_mode = policy).await;
         let (id, tree) = app.add_volume("photos").await;
         let indexer = Indexer::new(
             app.state.db.clone(),
@@ -155,6 +160,12 @@ impl Harness {
         assert_eq!(done.state, TaskState::Done, "{done:?}");
     }
     pub async fn start_fake(&mut self, options: WatcherOptions) -> Fake {
+        let fake = self.install_fake(options);
+        eventually(|| self.app.state.watcher.status().watched_dirs > 0).await;
+        fake
+    }
+
+    pub fn install_fake(&mut self, options: WatcherOptions) -> Fake {
         let fake = Fake::default();
         let backend = fake.clone();
         self.app.state.watcher = Watcher::with_backend(self.deps(), options, move |ingress| {
@@ -162,7 +173,6 @@ impl Harness {
         });
         self.app.state.watcher.start();
         self.app.router = apm_server::app::router(self.app.state.clone());
-        eventually(|| self.app.state.watcher.status().watched_dirs > 0).await;
         fake
     }
     pub async fn start_native(&mut self) -> Fake {

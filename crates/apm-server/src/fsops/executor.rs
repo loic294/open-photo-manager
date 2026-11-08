@@ -15,10 +15,12 @@
 //! placing step itself never replaces anything, and when it finds the destination taken the engine
 //! looks again and decides again (at most [`ATTEMPTS`] times).
 
+use std::collections::HashSet;
 use std::fs;
 use std::io;
 use std::os::unix::ffi::OsStrExt;
 use std::os::unix::fs::DirEntryExt;
+use std::os::unix::fs::MetadataExt;
 use std::path::Path;
 use std::sync::Arc;
 
@@ -278,16 +280,65 @@ pub(crate) fn names_with_inode(
     root: &VolumeRoot,
     dir: &RelPath,
     ino: u64,
+    candidates: &[String],
 ) -> Result<Vec<Vec<u8>>, FsOpError> {
     let path = root.resolve_dir(dir).map_err(FsOpError::from_destination)?;
-    let mut names = Vec::new();
-    for entry in fs::read_dir(&path)? {
-        let entry = entry?;
-        if entry.ino() == ino {
-            names.push(entry.file_name().as_bytes().to_vec());
+    if ino == 0 {
+        return Ok(Vec::new());
+    }
+    let entries = fs::read_dir(&path)?
+        .map(|entry| entry.map(|entry| (entry.file_name().as_bytes().to_vec(), entry.ino())))
+        .collect::<Result<Vec<_>, _>>()?;
+    candidate_matches(&entries, candidates, |name| {
+        let rel = dir
+            .join(name)
+            .map_err(|_| FsOpError::DestinationInvalid("that name is invalid"))?;
+        Ok(root.stat(&rel).is_ok_and(|meta| meta.ino() == ino))
+    })
+}
+
+fn candidate_matches(
+    entries: &[(Vec<u8>, u64)],
+    candidates: &[String],
+    mut is_expected_inode: impl FnMut(&str) -> Result<bool, FsOpError>,
+) -> Result<Vec<Vec<u8>>, FsOpError> {
+    let wanted: HashSet<_> = candidates
+        .iter()
+        .map(|name| apm_core::names::normalize_name(name))
+        .collect();
+    let mut matched = Vec::new();
+    for (bytes, _readdir_inode) in entries {
+        let Some(name) = std::str::from_utf8(bytes).ok() else {
+            continue;
+        };
+        if wanted.contains(&apm_core::names::normalize_name(name)) && is_expected_inode(name)? {
+            matched.push(bytes.clone());
         }
     }
-    Ok(names)
+    Ok(matched)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn inode_lookup_stats_only_name_candidates_and_ignores_readdir_inode_values() {
+        let entries = vec![
+            (b"IMG_1.JPG".to_vec(), 0),
+            (b"unrelated.jpg".to_vec(), 42),
+            (b"img_1.jpg".to_vec(), 999),
+        ];
+        let candidates = vec!["img_1.jpg".to_owned()];
+        let mut stats = Vec::new();
+        let matches = candidate_matches(&entries, &candidates, |name| {
+            stats.push(name.to_owned());
+            Ok(true)
+        })
+        .unwrap();
+        assert_eq!(matches, [b"IMG_1.JPG".to_vec(), b"img_1.jpg".to_vec()]);
+        assert_eq!(stats, ["IMG_1.JPG", "img_1.jpg"]);
+    }
 }
 
 /// The SHA-1 of a file through the shared hasher, refused when the file is not the one that was
@@ -780,12 +831,13 @@ impl FsOps {
     /// identical content; one file reached under a name that differs in case (a case-insensitive
     /// file system) is the same place, or a case-only rename for a move within one folder.
     async fn resolve_same_inode(&self, run: &Run<'_>) -> Result<Resolution, FsOpError> {
-        let (root, dir, ino) = (
+        let (root, dir, ino, candidates) = (
             Arc::clone(&run.dst_root),
             run.target.dir(),
             run.src_stat.ino,
+            vec![run.job.src.name().to_owned(), run.target.name().to_owned()],
         );
-        let names = blocking(move || names_with_inode(&root, &dir, ino)).await?;
+        let names = blocking(move || names_with_inode(&root, &dir, ino, &candidates)).await?;
         let exact = names
             .iter()
             .any(|name| name.as_slice() == run.target.name().as_bytes());

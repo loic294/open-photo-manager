@@ -37,7 +37,7 @@ use std::sync::atomic::{AtomicBool, AtomicI64, AtomicU8, AtomicU64, Ordering};
 use std::sync::{Arc, Mutex, PoisonError};
 use std::time::{Duration, Instant};
 
-use apm_core::dto::{ServerEvent, TaskKind, TaskState, WatcherState, WatcherStatusDto};
+use apm_core::dto::{ServerEvent, TaskKind, TaskState, WatchMode, WatcherState, WatcherStatusDto};
 use apm_core::junk::JunkRules;
 use apm_core::paths::{RelPath, TaskId, VolumeId};
 use tokio::sync::{broadcast, mpsc};
@@ -165,6 +165,7 @@ impl Watcher {
                 1 => WatcherState::Starting,
                 2 => WatcherState::Watching,
                 3 => WatcherState::Degraded,
+                4 => WatcherState::PollingOnly,
                 _ => WatcherState::Disabled,
             },
             watched_dirs: status.watched.load(Ordering::Relaxed),
@@ -361,7 +362,15 @@ impl Supervisor {
         let junk = JunkRules::new(&settings.junk_names, &settings.junk_prefixes);
         let mut desired = BTreeMap::new();
         let mut failed_volumes = BTreeSet::new();
+        let mut polling_volumes = 0_u64;
         for volume in deps.volumes.online() {
+            let (watch_mode, _) = deps
+                .volumes
+                .watch_mode(volume.id, settings.index.watch_enabled);
+            if watch_mode == WatchMode::PollingOnly {
+                polling_volumes += 1;
+                continue;
+            }
             let root = match deps.volumes.get(volume.id) {
                 Ok(root) => root,
                 Err(error) => {
@@ -415,6 +424,28 @@ impl Supervisor {
                 self.errors.remove(&volume.name);
             }
         }
+        let stale: Vec<_> = self
+            .registered
+            .keys()
+            .filter(|key| !desired.contains_key(*key) && !failed_volumes.contains(&key.0))
+            .cloned()
+            .collect();
+        for key in &stale {
+            self.unwatch(key);
+        }
+        if desired.is_empty()
+            && polling_volumes > 0
+            && failed_volumes.is_empty()
+            && self.registered.is_empty()
+            && self.errors.is_empty()
+        {
+            let status = &self.watcher.0.status;
+            status.watched.store(0, Ordering::Relaxed);
+            status.unwatched.store(0, Ordering::Relaxed);
+            status.limit.store(false, Ordering::Relaxed);
+            status.state.store(4, Ordering::Release);
+            return;
+        }
         if self.backend.is_none() {
             match (self.watcher.0.factory)(self.ingress.clone()) {
                 Ok(backend) => {
@@ -431,15 +462,6 @@ impl Supervisor {
                     return;
                 }
             }
-        }
-        let stale: Vec<_> = self
-            .registered
-            .keys()
-            .filter(|key| !desired.contains_key(*key) && !failed_volumes.contains(&key.0))
-            .cloned()
-            .collect();
-        for key in &stale {
-            self.unwatch(key);
         }
         if stale.iter().any(|key| self.registered.contains_key(key)) {
             return; // Never register a renamed inode while its old descriptor remains.

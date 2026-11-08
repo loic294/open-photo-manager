@@ -19,6 +19,8 @@ pub const DEFAULT_JUNK_NAMES: &[&str] = &[
     ".DS_Store",
     "Thumbs.db",
     "desktop.ini",
+    "$RECYCLE.BIN",
+    "System Volume Information",
 ];
 
 /// Default value of the `junk_prefixes` setting (AppleDouble resource forks).

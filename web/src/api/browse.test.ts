@@ -4,8 +4,26 @@ import type { FoldersResponse } from '@/api/generated/FoldersResponse';
 import type { PlanRef } from '@/api/generated/PlanRef';
 import type { VolumeDto } from '@/api/generated/VolumeDto';
 
-const photos: VolumeDto = { id: 4, name: 'photos', writable: true, online: true };
-const backup: VolumeDto = { id: 9, name: 'backup', writable: false, online: false };
+const photos: VolumeDto = {
+  id: 4,
+  name: 'photos',
+  writable: true,
+  online: true,
+  fs_type: null,
+  case_insensitive: null,
+  watch_mode: 'watching',
+  watch_reason: null,
+};
+const backup: VolumeDto = {
+  id: 9,
+  name: 'backup',
+  writable: false,
+  online: false,
+  fs_type: null,
+  case_insensitive: null,
+  watch_mode: 'watching',
+  watch_reason: null,
+};
 
 const filter: Filter = {
   cameras: ['Canon EOS R5'],

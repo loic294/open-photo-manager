@@ -1167,13 +1167,45 @@ fn finish_component(raw: &str, is_file: bool, original: &str, max: usize) -> Str
     } else {
         cut_to_bytes(raw, max).to_owned()
     };
-    if !untouched {
-        text.truncate(text.trim_end_matches(['.', ' ']).len());
+    if untouched && !matches!(text.as_str(), "" | "." | "..") {
+        return text;
     }
+    text.truncate(text.trim_end_matches(['.', ' ']).len());
     if matches!(text.as_str(), "" | "." | "..") {
         text = "_".to_owned();
     }
+    if is_reserved_device_name(&text) {
+        let dot = text.find('.').unwrap_or(text.len());
+        let base = text[..dot].trim_end_matches(' ');
+        text = format!("{base}_{}", &text[dot..]);
+    }
+    if text.len() > max {
+        text = if is_file {
+            cut_keeping_extension(&text, max)
+        } else {
+            cut_to_bytes(&text, max).to_owned()
+        };
+    }
+    text.truncate(text.trim_end_matches(['.', ' ']).len());
+    if is_reserved_device_name(&text) || matches!(text.as_str(), "" | "." | "..") {
+        text = if max == 0 {
+            String::new()
+        } else {
+            "_".to_owned()
+        };
+    }
     text
+}
+
+fn is_reserved_device_name(text: &str) -> bool {
+    let base = text.split('.').next().unwrap_or(text).trim_end_matches(' ');
+    let upper = base.to_ascii_uppercase();
+    matches!(upper.as_str(), "CON" | "PRN" | "AUX" | "NUL")
+        || ["COM", "LPT"].iter().any(|prefix| {
+            upper.strip_prefix(prefix).is_some_and(|suffix| {
+                matches!(suffix, "1" | "2" | "3" | "4" | "5" | "6" | "7" | "8" | "9")
+            })
+        })
 }
 
 /// Cuts `name` to `max` bytes, shortening the stem so that the extension survives.
@@ -2040,6 +2072,18 @@ mod tests {
         }
 
         #[test]
+        fn generated_components_are_portable_and_within_the_byte_limit(
+            raw in any_text(160),
+            max in 1usize..100,
+            is_file in any::<bool>(),
+        ) {
+            let result = finish_component(&raw, is_file, "different-original", max);
+            prop_assert!(result.len() <= max, "{result:?} exceeds {max}");
+            prop_assert!(!result.ends_with('.') && !result.ends_with(' '));
+            prop_assert!(!is_reserved_device_name(&result), "{result:?} is reserved");
+        }
+
+        #[test]
         fn the_original_name_survives_when_it_is_appended(
             name in "[^/\\x00]{1,100}",
             text in pattern_text(),
@@ -2105,5 +2149,28 @@ mod tests {
                 prop_assert!(Token::from_name(name).is_some());
             }
         }
+
+    }
+
+    #[test]
+    fn windows_reserved_device_names_are_escaped_before_extensions() {
+        for (raw, expected) in [
+            ("CON", "CON_"),
+            ("con.txt", "con_.txt"),
+            ("NUL.tar.gz", "NUL_.tar.gz"),
+            ("LPT9", "LPT9_"),
+            ("COM1.jpg", "COM1_.jpg"),
+        ] {
+            assert_eq!(finish_component(raw, true, "different", 40), expected);
+        }
+        assert_eq!(finish_component("CON", false, "different", 40), "CON_");
+        assert_eq!(finish_component("CON", true, "CON", 40), "CON");
+    }
+
+    #[test]
+    fn reserved_device_escaping_respects_a_tight_component_limit() {
+        let output = finish_component("CON.txt", true, "different", 3);
+        assert!(output.len() <= 3);
+        assert!(!is_reserved_device_name(&output));
     }
 }

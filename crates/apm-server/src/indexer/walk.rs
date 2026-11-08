@@ -506,6 +506,29 @@ mod tests {
     }
 
     #[tokio::test]
+    async fn an_unreadable_windows_system_directory_is_skipped_as_junk() {
+        use std::os::unix::fs::PermissionsExt as _;
+
+        let tmp = scratch_dir();
+        touch(tmp.path(), "open/a.jpg", b"a");
+        let protected = tmp.path().join("System Volume Information");
+        fs::create_dir(&protected).unwrap();
+        fs::set_permissions(&protected, fs::Permissions::from_mode(0o000)).unwrap();
+
+        let walked = run(tmp.path(), "", true).await;
+
+        fs::set_permissions(&protected, fs::Permissions::from_mode(0o755)).unwrap();
+        assert_eq!(walked.end, WalkEnd::Complete);
+        assert_eq!(dirs(&walked), ["", "open"]);
+        let open = walked
+            .listings
+            .iter()
+            .find(|listing| listing.dir.as_str() == "open")
+            .unwrap();
+        assert_eq!(names(open), ["a.jpg"]);
+    }
+
+    #[tokio::test]
     async fn cancelling_stops_the_walk() {
         let tmp = scratch_dir();
         for index in 0..50 {

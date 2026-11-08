@@ -34,7 +34,10 @@ pub enum RmdirOutcome {
 /// Synology's own folders: the scanner skips them, but they are somebody's data, so a folder that
 /// holds one is never removable.
 fn is_protected_name(name: &str) -> bool {
-    name.eq_ignore_ascii_case("#recycle") || name.eq_ignore_ascii_case("#snapshot")
+    name.eq_ignore_ascii_case("#recycle")
+        || name.eq_ignore_ascii_case("#snapshot")
+        || name.eq_ignore_ascii_case("$RECYCLE.BIN")
+        || name.eq_ignore_ascii_case("System Volume Information")
 }
 
 /// Synology's data directories and their descendants are never cleanup targets,
@@ -598,13 +601,24 @@ mod tests {
             Contents::Content
         );
 
+        fs::create_dir_all(dir.path().join("c/$RECYCLE.BIN")).unwrap();
+        assert_eq!(
+            list_contents(&root, &rel("c"), &junk).unwrap(),
+            Contents::Content
+        );
+
+        fs::create_dir_all(dir.path().join("d/System Volume Information")).unwrap();
+        assert_eq!(
+            list_contents(&root, &rel("d"), &junk).unwrap(),
+            Contents::Content
+        );
+
         fs::create_dir_all(dir.path().join("c/sub")).unwrap();
         assert_eq!(
             list_contents(&root, &rel("c"), &junk).unwrap(),
             Contents::Content
         );
 
-        fs::create_dir(dir.path().join("d")).unwrap();
         std::os::unix::fs::symlink("nowhere", dir.path().join("d/.DS_Store")).unwrap();
         assert_eq!(
             list_contents(&root, &rel("d"), &junk).unwrap(),

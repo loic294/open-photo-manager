@@ -905,7 +905,12 @@ fn classify_pair(ends: &Ends, from: FileStat, to: FileStat) -> Result<RenameStat
     let (src_leaf, dst_leaf) = (src.name().as_bytes(), dst.name().as_bytes());
     let src_dir = folder_identity(&ends.src_root, &src.dir())?;
     let dst_dir = folder_identity(&ends.dst_root, &dst.dir())?;
-    let names_in_dst = names_with_inode(&ends.dst_root, &dst.dir(), to.ino)?;
+    let dst_candidates = vec![src_leaf.to_vec(), dst_leaf.to_vec()];
+    let dst_candidates: Vec<_> = dst_candidates
+        .into_iter()
+        .filter_map(|name| String::from_utf8(name).ok())
+        .collect();
+    let names_in_dst = names_with_inode(&ends.dst_root, &dst.dir(), to.ino, &dst_candidates)?;
     let has = |names: &[Vec<u8>], leaf: &[u8]| names.iter().any(|name| name == leaf);
     let hard_links = if src_dir == dst_dir {
         match names_in_dst.as_slice() {
@@ -914,7 +919,12 @@ fn classify_pair(ends: &Ends, from: FileStat, to: FileStat) -> Result<RenameStat
             names => names.len() >= 2 && has(names, src_leaf) && has(names, dst_leaf),
         }
     } else {
-        let names_in_src = names_with_inode(&ends.src_root, &src.dir(), from.ino)?;
+        let src_candidates = vec![src_leaf.to_vec(), dst_leaf.to_vec()];
+        let src_candidates: Vec<_> = src_candidates
+            .into_iter()
+            .filter_map(|name| String::from_utf8(name).ok())
+            .collect();
+        let names_in_src = names_with_inode(&ends.src_root, &src.dir(), from.ino, &src_candidates)?;
         has(&names_in_src, src_leaf) && has(&names_in_dst, dst_leaf)
     };
     if !hard_links {

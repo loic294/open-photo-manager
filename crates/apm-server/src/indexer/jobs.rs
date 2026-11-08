@@ -303,6 +303,7 @@ impl IndexJobs {
             held_removals,
             active_task_id,
             watcher: None,
+            warnings: Vec::new(),
         })
     }
 

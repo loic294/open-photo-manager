@@ -5,15 +5,18 @@
 //! marked offline, so its indexed files, tags and history survive until it comes back. Volume ids are
 //! stable: a directory that reappears under the same name gets its old row.
 
-use std::fs::{self, OpenOptions};
-use std::io::ErrorKind;
+use std::collections::HashMap;
+use std::fs;
 use std::path::Path;
-use std::sync::atomic::{AtomicU64, Ordering};
 
 use apm_core::paths::VolumeId;
 
 use super::models::Volume;
 use super::{Db, DbError, now_secs};
+use crate::hostfs::{
+    VolumeCapabilities,
+    probe::{probe_volume, probe_writable},
+};
 
 /// Prefix of the temporary file [`sync_volumes`] creates (and removes) in a volume root to find out
 /// whether the volume is writable. Watchers and scanners should ignore names with this prefix.
@@ -26,6 +29,7 @@ struct Found {
     root: String,
     online: bool,
     writable: bool,
+    capabilities: VolumeCapabilities,
 }
 
 /// Registers the volumes found in `volumes_dir` and returns every known volume (found or not),
@@ -40,8 +44,26 @@ struct Found {
 ///
 /// The file system is inspected first; the table is then updated in one short transaction.
 pub async fn sync_volumes(db: &Db, volumes_dir: &Path) -> Result<Vec<Volume>, DbError> {
+    sync_volumes_with_capabilities(db, volumes_dir)
+        .await
+        .map(|(volumes, _)| volumes)
+}
+
+/// Synchronises the volume table and returns the capabilities from the same probe pass.
+pub async fn sync_volumes_with_capabilities(
+    db: &Db,
+    volumes_dir: &Path,
+) -> Result<(Vec<Volume>, HashMap<VolumeId, VolumeCapabilities>), DbError> {
+    sync_volumes_with_cached_capabilities(db, volumes_dir, HashMap::new()).await
+}
+
+pub(crate) async fn sync_volumes_with_cached_capabilities(
+    db: &Db,
+    volumes_dir: &Path,
+    cached: HashMap<String, VolumeCapabilities>,
+) -> Result<(Vec<Volume>, HashMap<VolumeId, VolumeCapabilities>), DbError> {
     let dir = volumes_dir.to_path_buf();
-    let found = tokio::task::spawn_blocking(move || discover(&dir))
+    let found = tokio::task::spawn_blocking(move || discover(&dir, &cached))
         .await
         .map_err(|err| DbError::Setup(format!("volume discovery failed: {err}")))?;
 
@@ -67,10 +89,19 @@ pub async fn sync_volumes(db: &Db, volumes_dir: &Path) -> Result<Vec<Volume>, Db
     tx.commit().await?;
 
     let volumes = list(db).await?;
+    let capabilities = volumes
+        .iter()
+        .filter_map(|volume| {
+            found
+                .iter()
+                .find(|found| found.name == volume.name)
+                .map(|found| (volume.id, found.capabilities.clone()))
+        })
+        .collect();
     for volume in volumes.iter().filter(|volume| !volume.online) {
         tracing::warn!(volume = %volume.name, root = %volume.root, "volume is offline");
     }
-    Ok(volumes)
+    Ok((volumes, capabilities))
 }
 
 /// Every known volume, ordered by name (case-insensitively), then id.
@@ -94,7 +125,7 @@ pub async fn get(db: &Db, id: VolumeId) -> Result<Option<Volume>, DbError> {
     .await?)
 }
 
-fn discover(volumes_dir: &Path) -> Vec<Found> {
+fn discover(volumes_dir: &Path, cached: &HashMap<String, VolumeCapabilities>) -> Vec<Found> {
     let entries = match fs::read_dir(volumes_dir) {
         Ok(entries) => entries,
         Err(err) => {
@@ -139,49 +170,26 @@ fn discover(volumes_dir: &Path) -> Vec<Found> {
             continue;
         };
         let online = fs::read_dir(&root).is_ok();
-        let writable = online && probe_writable(Path::new(&root));
+        let (writable, capabilities) = if online {
+            if let Some(capabilities) = cached.get(&root) {
+                (probe_writable(Path::new(&root)), capabilities.clone())
+            } else {
+                let probe = probe_volume(Path::new(&root));
+                (probe.writable, probe.capabilities)
+            }
+        } else {
+            (false, VolumeCapabilities::default())
+        };
         found.push(Found {
             name,
             root,
             online,
             writable,
+            capabilities,
         });
     }
     found.sort_by(|a, b| a.name.cmp(&b.name));
     found
-}
-
-/// Creates and removes a uniquely named file in `root`. A volume where the probe file can be created
-/// but not removed counts as read-only: nothing could be cleaned up on it either.
-fn probe_writable(root: &Path) -> bool {
-    static COUNTER: AtomicU64 = AtomicU64::new(0);
-    for _ in 0..8 {
-        let name = format!(
-            "{PROBE_PREFIX}{}-{}",
-            std::process::id(),
-            COUNTER.fetch_add(1, Ordering::Relaxed)
-        );
-        let path = root.join(name);
-        match OpenOptions::new().write(true).create_new(true).open(&path) {
-            Ok(file) => {
-                drop(file);
-                return match fs::remove_file(&path) {
-                    Ok(()) => true,
-                    Err(err) => {
-                        tracing::warn!(
-                            path = %path.display(),
-                            error = %err,
-                            "created a probe file but could not remove it, treating the volume as read-only"
-                        );
-                        false
-                    }
-                };
-            }
-            Err(err) if err.kind() == ErrorKind::AlreadyExists => {}
-            Err(_) => return false,
-        }
-    }
-    false
 }
 
 #[cfg(test)]

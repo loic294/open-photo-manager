@@ -81,6 +81,7 @@ describe('getIndexStatus', () => {
       held_removals: [{ volume_id: 1, volume_name: 'photos', files: 12_345 }],
       active_task_id: 4,
       watcher: null,
+      warnings: [],
     };
     const fetchMock = stubFetch(200, status);
 

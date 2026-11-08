@@ -479,3 +479,10 @@ regex uses Rust syntax and rewrites affect stems only; the simple `-N` clean can
 date-like tail, `_N` is not cleaned, and names freed by the same batch are not reused. Replace is
 unavailable; an explicit Replace policy is rejected and a default Replace setting falls back to
 Smart.
+
+## Windows hosts
+
+The Linux Docker image also supports Docker Desktop on Windows: probe mounted filesystems at runtime and keep
+unknown capabilities native. `APM_WATCH_MODE=auto|watch|poll` controls global watcher registration; unsafe
+SQLite mounts fall back to the rollback journal. Never loosen identity or durability checks on a normal
+filesystem. Filesystem detection and fallback policy live in `apm_core::mounts` and `apm_server::hostfs`.

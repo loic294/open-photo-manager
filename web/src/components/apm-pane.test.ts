@@ -260,7 +260,19 @@ describe('the listing it shows', () => {
     const pane = await mountPane();
     expect(pane.browseRequest).toBeNull();
 
-    server.state.volumes = [VOLUME_PHOTOS, { id: 3, name: 'nas', writable: true, online: true }];
+    server.state.volumes = [
+      VOLUME_PHOTOS,
+      {
+        id: 3,
+        name: 'nas',
+        writable: true,
+        online: true,
+        fs_type: null,
+        case_insensitive: null,
+        watch_mode: 'watching',
+        watch_reason: null,
+      },
+    ];
     await loadVolumes();
     await settle(pane);
 

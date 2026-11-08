@@ -1,9 +1,11 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
-import { CSRF_HEADER } from '@/api/client';
+import { api, CSRF_HEADER } from '@/api/client';
 import type { SettingsDto } from '@/api/generated/SettingsDto';
 import type { ApmChipInput } from '@/components/apm-chip-input';
 import type { ApmSelect } from '@/components/apm-select';
+import { refreshIndexStatus, resetIndexStatusForTests } from '@/stores/index-status';
 import { clearToasts, toasts } from '@/stores/toasts';
+import { loadVolumes, resetVolumesForTests } from '@/stores/volumes';
 import { mount } from '@/test/helpers';
 import { sampleSettings } from '@/test/settings-fixtures';
 import '@/tools/settings/apm-settings-general';
@@ -51,7 +53,18 @@ function serve(...replies: Reply[]): Sent[] {
         body: typeof init?.body === 'string' ? JSON.parse(init.body) : undefined,
         headers: new Headers(init?.headers),
       });
-      const reply = queue.shift();
+      const path = new URL(String(input), 'http://localhost').pathname;
+      const reply =
+        path === '/api/volumes'
+          ? ok([])
+          : path === '/api/index/status'
+            ? ok({
+                held_removals: [],
+                active_task_id: null,
+                warnings: [],
+                watcher: null,
+              })
+            : queue.shift();
       if (!reply) throw new Error(`Unexpected request: ${init?.method} ${String(input)}`);
       await reply.gate;
       return new Response(JSON.stringify(reply.body), {
@@ -158,11 +171,56 @@ beforeEach(() => {
 });
 
 afterEach(() => {
+  vi.restoreAllMocks();
+  resetIndexStatusForTests();
+  resetVolumesForTests();
   clearToasts();
   vi.unstubAllGlobals();
 });
 
 describe('apm-settings-general', () => {
+  it('shows volume capabilities and host warnings read-only', async () => {
+    const { element } = await open();
+    vi.spyOn(api, 'get').mockImplementation(async (path) => {
+      if (path === '/api/volumes')
+        return [
+          {
+            id: 1,
+            name: 'photos',
+            writable: true,
+            online: true,
+            fs_type: '9p',
+            case_insensitive: true,
+            watch_mode: 'polling_only',
+            watch_reason: 'Changes arrive only by polling',
+          },
+        ] as never;
+      if (path === '/api/index/status')
+        return {
+          held_removals: [],
+          active_task_id: null,
+          watcher: null,
+          warnings: [{ code: 'volumes_polling_only', message: 'Re-index after host changes.' }],
+        } as never;
+      throw new Error(`Unexpected request: ${path}`);
+    });
+    await Promise.all([loadVolumes(), refreshIndexStatus()]);
+    await element.updateComplete;
+
+    const volumesFieldset = [...element.querySelectorAll('fieldset')].find(
+      (fieldset) => fieldset.querySelector('legend')?.textContent?.trim() === 'Volumes',
+    );
+    expect(volumesFieldset?.textContent).toContain('photos');
+    expect(volumesFieldset?.textContent).toContain('9p');
+    expect(volumesFieldset?.textContent).toContain('case-insensitive');
+    expect(volumesFieldset?.textContent).toContain('polling only');
+    expect(volumesFieldset?.querySelector('[data-tip]')?.getAttribute('data-tip')).toBe(
+      'Changes arrive only by polling',
+    );
+    expect(volumesFieldset?.textContent).toContain('Re-index after host changes.');
+    expect(volumesFieldset?.querySelector('button')).toBeNull();
+  });
+
   describe('loading', () => {
     it('shows a skeleton until the settings arrive', async () => {
       const gate = deferred();
@@ -208,13 +266,13 @@ describe('apm-settings-general', () => {
   });
 
   describe('the loaded document', () => {
-    it('is shown in three cards', async () => {
+    it('is shown in three settings cards and one read-only volumes card', async () => {
       const { element } = await open();
 
       const legends = [...element.querySelectorAll('fieldset > legend')].map((legend) =>
         legend.textContent?.trim(),
       );
-      expect(legends).toEqual(['Files and sidecars', 'Moving and deleting', 'Indexing']);
+      expect(legends).toEqual(['Files and sidecars', 'Moving and deleting', 'Indexing', 'Volumes']);
       expect(element.querySelector('form')?.getAttribute('aria-label')).toBe('General settings');
     });
 
@@ -733,6 +791,10 @@ describe('apm-settings-general', () => {
 
       expect(requests).toHaveLength(2);
       for (const card of element.querySelectorAll('fieldset')) {
+        if (card.querySelector('legend')?.textContent?.trim() === 'Volumes') {
+          expect(card.hasAttribute('disabled')).toBe(false);
+          continue;
+        }
         expect(card.hasAttribute('disabled')).toBe(true);
       }
       expect(save(element).disabled).toBe(true);

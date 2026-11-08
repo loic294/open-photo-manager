@@ -83,7 +83,18 @@ function answerPending(): void {
 
 function fakeGet(path: string, options?: GetOptions): Promise<unknown> {
   if (path === '/api/volumes') {
-    return Promise.resolve([{ id: 1, name: 'photos', writable: true, online: true }]);
+    return Promise.resolve([
+      {
+        id: 1,
+        name: 'photos',
+        writable: true,
+        online: true,
+        fs_type: null,
+        case_insensitive: null,
+        watch_mode: 'watching',
+        watch_reason: null,
+      },
+    ]);
   }
   const id = Number(/^\/api\/files\/(\d+)$/.exec(path)?.[1]);
   if (Number.isNaN(id)) return Promise.reject(new Error(`Unexpected GET ${path}`));

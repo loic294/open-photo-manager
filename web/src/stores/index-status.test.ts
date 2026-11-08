@@ -16,11 +16,17 @@ interface Loaded {
   events: typeof import('@/api/sse')['events'];
 }
 
-const idle: IndexStatusDto = { held_removals: [], active_task_id: null, watcher: null };
+const idle: IndexStatusDto = {
+  held_removals: [],
+  active_task_id: null,
+  watcher: null,
+  warnings: [],
+};
 const held: IndexStatusDto = {
   held_removals: [{ volume_id: 1, volume_name: 'photos', files: 12_345 }],
   active_task_id: null,
   watcher: null,
+  warnings: [],
 };
 
 let current: Loaded | undefined;
@@ -109,6 +115,7 @@ describe('refreshIndexStatus', () => {
     ['without held_removals', { active_task_id: null }],
     ['with a malformed entry', { held_removals: [{ volume_id: 1 }], active_task_id: null }],
     ['with a bad active task', { held_removals: [], active_task_id: 'x' }],
+    ['with malformed warnings', { ...held, warnings: [{ code: 'warning' }] }],
     ['with a bad watcher', { ...held, watcher: { state: 'watched' } }],
   ])('ignores an answer of the wrong shape (%s)', async (_what, answer) => {
     const { store, get } = await setup();
@@ -152,6 +159,10 @@ describe('refreshIndexStatus', () => {
       { ...held, held_removals: [{ volume_id: 1, volume_name: 'pics', files: 12_345 }] },
     ],
     ['another active task', { ...held, active_task_id: 8 }],
+    [
+      'another host warning',
+      { ...held, warnings: [{ code: 'host_notice', message: 'A new warning' }] },
+    ],
     [
       'watcher health',
       {

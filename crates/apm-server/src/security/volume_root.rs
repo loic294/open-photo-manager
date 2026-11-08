@@ -279,7 +279,13 @@ impl VolumeRoot {
         if !opened.is_file() {
             return Err(FsError::NotAFile(rel.clone()));
         }
-        if opened.dev() != walked.dev() || opened.ino() != walked.ino() {
+        if opened.dev() == 0
+            || opened.ino() == 0
+            || walked.dev() == 0
+            || walked.ino() == 0
+            || opened.dev() != walked.dev()
+            || opened.ino() != walked.ino()
+        {
             return Err(FsError::NotFound(rel.clone()));
         }
         // `NONBLOCK` only protected the `open`; hand out an ordinary file.

@@ -13,6 +13,7 @@ export const FAILURE_REASONS: Readonly<Record<string, string>> = {
   volume_offline: 'Volume is offline',
   unknown_volume: 'Volume is unknown',
   volume_read_only: 'Volume is read-only',
+  file_in_use: 'File is open in another program; close it and retry',
   destination_invalid: 'Destination is invalid',
   name_too_long: 'File name is too long',
   no_space: 'Not enough free space',

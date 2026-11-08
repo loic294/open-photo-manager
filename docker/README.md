@@ -272,6 +272,18 @@ creation, so a `chown` of an empty named volume does not last.
 If `/data` is not writable by the user, the container stops at once and says so in its log (`docker logs apm`)
 instead of failing later with a database error.
 
+On Docker Desktop for Windows with Linux containers, use a Docker named volume for `/data` and omit `user:`.
+Docker Desktop's user mapping does not use the NAS's numeric uid/gid convention. Windows photo folders can be
+bind-mounted under `/volumes`; use the volume details in Settings to see whether watching and case sensitivity
+are available on the mounted filesystem.
+
+### Watch policy
+
+`APM_WATCH_MODE=auto` is the default: known network/shared filesystems that do not deliver host-side change
+events are polled by the configured full-rescan interval. Set `watch` to force filesystem watchers on every
+online volume, or `poll` to disable watchers globally. Prefer `auto` unless a filesystem's behavior is known;
+the setting does not change the rescan interval.
+
 ## Hardening
 
 Everything below is on in `compose.yml` and in `make docker-run`, and the smoke test runs with it:

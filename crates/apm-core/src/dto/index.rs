@@ -5,7 +5,7 @@
 use serde::{Deserialize, Serialize};
 use ts_rs::TS;
 
-use super::common::Scope;
+use super::common::{HostWarning, Scope};
 use crate::paths::{TaskId, VolumeId};
 
 /// Body of `POST /api/index/rescan`.
@@ -52,6 +52,8 @@ pub struct IndexStatusDto {
     /// Live filesystem watching health; null for a producer without a watcher.
     #[serde(default)]
     pub watcher: Option<WatcherStatusDto>,
+    #[serde(default)]
+    pub warnings: Vec<HostWarning>,
 }
 
 // Owned by watching-filesystem.
@@ -64,6 +66,7 @@ pub enum WatcherState {
     Starting,
     Watching,
     Degraded,
+    PollingOnly,
 }
 
 /// Watch limits are shared with other NAS applications. Degraded watching relies on periodic scans.
@@ -131,6 +134,7 @@ mod tests {
                 pending_dirs: 2,
                 last_event_at: Some(1_700_000_000),
             }),
+            warnings: vec![],
         });
         assert_eq!(wire["held_removals"][0]["volume_id"], json!(2));
         assert_eq!(wire["held_removals"][0]["volume_name"], json!("photos"));
@@ -145,6 +149,7 @@ mod tests {
 
         let idle = roundtrip(&IndexStatusDto::default());
         assert_eq!(idle["held_removals"], json!([]));
+        assert_eq!(idle["warnings"], json!([]));
         assert!(idle["active_task_id"].is_null());
     }
 }

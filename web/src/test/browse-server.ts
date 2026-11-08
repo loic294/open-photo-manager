@@ -49,8 +49,26 @@ export interface BrowseServer {
   release(endpoint: Endpoint): void;
 }
 
-export const VOLUME_PHOTOS: VolumeDto = { id: 1, name: 'photos', writable: true, online: true };
-export const VOLUME_BACKUP: VolumeDto = { id: 2, name: 'backup', writable: false, online: true };
+export const VOLUME_PHOTOS: VolumeDto = {
+  id: 1,
+  name: 'photos',
+  writable: true,
+  online: true,
+  fs_type: null,
+  case_insensitive: null,
+  watch_mode: 'watching',
+  watch_reason: null,
+};
+export const VOLUME_BACKUP: VolumeDto = {
+  id: 2,
+  name: 'backup',
+  writable: false,
+  online: true,
+  fs_type: null,
+  case_insensitive: null,
+  watch_mode: 'watching',
+  watch_reason: null,
+};
 
 export function footerCounts(counts: Partial<FooterCounts> = {}): FooterCounts {
   return { in_folder: 0, in_subfolders: 0, ...counts };

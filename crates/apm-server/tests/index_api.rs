@@ -388,7 +388,7 @@ async fn an_idle_index_has_nothing_to_report() {
     assert_eq!(code, StatusCode::OK);
     assert_eq!(
         body,
-        json!({"held_removals": [], "active_task_id": null, "watcher": app.state.watcher.status()})
+        json!({"held_removals": [], "active_task_id": null, "warnings": [], "watcher": app.state.watcher.status()})
     );
     let (_, tasks) = app.call(Method::GET, "/api/tasks", None).await;
     assert_eq!(tasks, json!([]));

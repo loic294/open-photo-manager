@@ -32,6 +32,7 @@ Fix the ownership of the folder mounted at $data_dir on the host, for example ov
     sudo chown -R $uid:$gid /volume1/docker/apm
 or run the container as the user that owns that folder (compose: user: "UID:GID"; find the numbers with: id <user>).
 If the folder is mounted read-only (":ro"), remove that suffix.
+On Docker Desktop for Windows, use a Docker named volume for /data and omit the compose "user:" line.
 See docker/README.md, section "Users and permissions".
 EOF
     exit 1

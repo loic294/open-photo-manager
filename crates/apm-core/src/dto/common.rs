@@ -188,6 +188,30 @@ pub struct VolumeDto {
     pub writable: bool,
     /// Whether the volume is currently reachable.
     pub online: bool,
+    #[serde(default)]
+    pub fs_type: Option<String>,
+    #[serde(default)]
+    pub case_insensitive: Option<bool>,
+    #[serde(default)]
+    pub watch_mode: WatchMode,
+    #[serde(default)]
+    pub watch_reason: Option<String>,
+}
+
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Serialize, Deserialize, TS)]
+#[serde(rename_all = "snake_case")]
+#[ts(export)]
+pub enum WatchMode {
+    #[default]
+    Watching,
+    PollingOnly,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, TS)]
+#[ts(export)]
+pub struct HostWarning {
+    pub code: String,
+    pub message: String,
 }
 
 /// Body of `GET /api/health`.
@@ -198,6 +222,8 @@ pub struct HealthResponse {
     pub status: String,
     /// Server version.
     pub version: String,
+    #[serde(default)]
+    pub warnings: Vec<HostWarning>,
 }
 
 /// Machine-readable error code plus a human-readable message.
@@ -327,11 +353,30 @@ mod tests {
             name: "photo".to_owned(),
             writable: true,
             online: false,
+            fs_type: Some("9p".to_owned()),
+            case_insensitive: Some(true),
+            watch_mode: WatchMode::PollingOnly,
+            watch_reason: Some("mount does not deliver change events".to_owned()),
         });
         roundtrip(&HealthResponse {
             status: "ok".to_owned(),
             version: "0.1.0".to_owned(),
+            warnings: vec![HostWarning {
+                code: "volumes_polling_only".to_owned(),
+                message: "next rescan".to_owned(),
+            }],
         });
+        let old_volume: VolumeDto = serde_json::from_value(json!({
+            "id": 2, "name": "backup", "writable": true, "online": true
+        }))
+        .unwrap();
+        assert_eq!(old_volume.watch_mode, WatchMode::Watching);
+        assert!(old_volume.fs_type.is_none());
+        let old_health: HealthResponse = serde_json::from_value(json!({
+            "status": "ok", "version": "0.1.0"
+        }))
+        .unwrap();
+        assert!(old_health.warnings.is_empty());
         let wire = roundtrip(&ErrorBody {
             error: ErrorDetail {
                 code: "not_found".to_owned(),

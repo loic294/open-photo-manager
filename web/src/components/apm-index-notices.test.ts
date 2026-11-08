@@ -4,6 +4,7 @@ import { ApiError } from '@/api/errors';
 import type { IndexStatusDto } from '@/api/generated/IndexStatusDto';
 import type { ApmIndexNotices } from '@/components/apm-index-notices';
 import { refreshIndexStatus, resetIndexStatusForTests } from '@/stores/index-status';
+import { dismissedHostWarnings } from '@/stores/prefs';
 import { clearToasts, toasts } from '@/stores/toasts';
 import { pressConfirm, shownConfirm } from '@/test/confirm';
 import { mount } from '@/test/helpers';
@@ -18,7 +19,10 @@ const statusOf = (...held: IndexStatusDto['held_removals']): IndexStatusDto => (
   held_removals: held,
   active_task_id: null,
   watcher: null,
+  warnings: [],
 });
+
+const warning = { code: 'volumes_polling_only', message: 'Changes are noticed at the next scan.' };
 
 let post: MockInstance<typeof api.post>;
 
@@ -71,6 +75,7 @@ beforeEach(() => {
 
 afterEach(() => {
   resetIndexStatusForTests();
+  dismissedHostWarnings.value = {};
   clearToasts();
   vi.restoreAllMocks();
 });
@@ -81,6 +86,24 @@ describe('apm-index-notices', () => {
 
     expect(alerts(host)).toEqual([]);
     expect(host.textContent?.trim()).toBe('');
+  });
+
+  it('shows dismissible host warnings and shows them again when a condition returns', async () => {
+    const host = await mountWith({ ...statusOf(), warnings: [warning] });
+
+    expect(text(alerts(host)[0])).toBe(`${warning.message} Dismiss`);
+    button(host, 'Dismiss').click();
+    await host.updateComplete;
+    expect(alerts(host)).toEqual([]);
+
+    vi.spyOn(api, 'get').mockResolvedValue(statusOf());
+    await refreshIndexStatus();
+    await host.updateComplete;
+    vi.spyOn(api, 'get').mockResolvedValue({ ...statusOf(), warnings: [warning] });
+    await refreshIndexStatus();
+    await host.updateComplete;
+
+    expect(text(alerts(host)[0])).toBe(`${warning.message} Dismiss`);
   });
 
   it('is a block that does not shrink in the shell column', async () => {

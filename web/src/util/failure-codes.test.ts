@@ -11,6 +11,7 @@ describe('shared failure reasons', () => {
       'volume_offline',
       'unknown_volume',
       'volume_read_only',
+      'file_in_use',
       'destination_invalid',
       'name_too_long',
       'no_space',

@@ -7,6 +7,7 @@ import { ApmElement } from '@/base/apm-element';
 import { confirmDialog } from '@/components/confirm-dialog';
 import { toast } from '@/components/toast';
 import { indexStatus } from '@/stores/index-status';
+import { dismissedHostWarnings } from '@/stores/prefs';
 import { formatCount } from '@/util/format-count';
 import '@/components/apm-icon';
 
@@ -34,7 +35,8 @@ function explanation(count: number): string {
  * from the index. This shows one warning per such volume, with the two ways out: "Rescan" looks
  * again (once the share is back the guard clears by itself) and "Remove from the index" confirms
  * that the files are really gone (after the user agreed in a dialog that names the volume and the
- * count). No file on disk is ever touched. Renders nothing when no removal is held.
+ * count). No file on disk is ever touched. Host warnings are independently dismissible and
+ * reappear when the server stops reporting them and later reports them again.
  *
  * The shell mounts one instance, between the connection banner and the page; the data comes from
  * `stores/index-status`, which refreshes whenever an index task ends.
@@ -50,6 +52,23 @@ export class ApmIndexNotices extends ApmElement {
   override connectedCallback() {
     super.connectedCallback();
     this.classList.add('block', 'flex-none');
+  }
+
+  protected override willUpdate() {
+    const activeCodes = new Set(indexStatus.value.warnings.map((warning) => warning.code));
+    const currentCodes = dismissedHostWarnings.peek();
+    const nextCodes = Object.fromEntries(
+      Object.entries(currentCodes).filter(
+        ([code, dismissed]) => dismissed && activeCodes.has(code),
+      ),
+    );
+    if (JSON.stringify(currentCodes) !== JSON.stringify(nextCodes)) {
+      dismissedHostWarnings.value = nextCodes;
+    }
+  }
+
+  private dismissWarning(code: string): void {
+    dismissedHostWarnings.value = { ...dismissedHostWarnings.peek(), [code]: true };
   }
 
   private async run(entry: HeldRemovalsDto, action: Action) {
@@ -118,12 +137,42 @@ export class ApmIndexNotices extends ApmElement {
     `;
   }
 
+  private renderHostWarning(warning: { code: string; message: string }) {
+    return html`
+      <div
+        role="alert"
+        class="alert alert-info alert-vertical sm:alert-horizontal flex-none rounded-none"
+        data-warning-code=${warning.code}
+      >
+        <apm-icon name="info"></apm-icon>
+        <span>${warning.message}</span>
+        <button
+          type="button"
+          class="btn btn-sm"
+          aria-label="Dismiss warning"
+          @click=${() => this.dismissWarning(warning.code)}
+        >
+          Dismiss
+        </button>
+      </div>
+    `;
+  }
+
   protected override render() {
-    return html`${repeat(
-      indexStatus.value.held_removals,
-      (entry) => entry.volume_id,
-      (entry) => this.renderNotice(entry),
-    )}`;
+    const { held_removals: held, warnings } = indexStatus.value;
+    const dismissed = dismissedHostWarnings.value;
+    return html`
+      ${repeat(
+        held,
+        (entry) => entry.volume_id,
+        (entry) => this.renderNotice(entry),
+      )}
+      ${repeat(
+        warnings.filter((warning) => !dismissed[warning.code]),
+        (warning) => warning.code,
+        (warning) => this.renderHostWarning(warning),
+      )}
+    `;
   }
 }
 

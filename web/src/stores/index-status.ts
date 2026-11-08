@@ -1,5 +1,6 @@
 import { type ReadonlySignal, signal } from '@preact/signals-core';
 import type { HeldRemovalsDto } from '@/api/generated/HeldRemovalsDto';
+import type { HostWarning } from '@/api/generated/HostWarning';
 import type { IndexStatusDto } from '@/api/generated/IndexStatusDto';
 import type { WatcherStatusDto } from '@/api/generated/WatcherStatusDto';
 import { getIndexStatus } from '@/api/indexing';
@@ -10,6 +11,7 @@ const IDLE: Readonly<IndexStatusDto> = Object.freeze({
   held_removals: [],
   active_task_id: null,
   watcher: null,
+  warnings: [],
 });
 
 const current = signal<IndexStatusDto>(IDLE);
@@ -32,12 +34,25 @@ function isHeld(value: unknown): value is HeldRemovalsDto {
   );
 }
 
+function isWarning(value: unknown): value is HostWarning {
+  if (typeof value !== 'object' || value === null) return false;
+  const entry = value as Record<string, unknown>;
+  return typeof entry.code === 'string' && typeof entry.message === 'string';
+}
+
 function isStatus(value: unknown): value is IndexStatusDto {
   if (typeof value !== 'object' || value === null) return false;
-  const { held_removals: held, active_task_id: active, watcher } = value as Record<string, unknown>;
+  const {
+    held_removals: held,
+    active_task_id: active,
+    watcher,
+    warnings,
+  } = value as Record<string, unknown>;
   return (
     Array.isArray(held) &&
     held.every(isHeld) &&
+    Array.isArray(warnings) &&
+    warnings.every(isWarning) &&
     (active === null || typeof active === 'number') &&
     (watcher === null || isWatcher(watcher))
   );
@@ -47,7 +62,9 @@ function isWatcher(value: unknown): value is WatcherStatusDto {
   if (typeof value !== 'object' || value === null) return false;
   const entry = value as Record<string, unknown>;
   return (
-    ['disabled', 'starting', 'watching', 'degraded'].includes(String(entry.state)) &&
+    ['disabled', 'starting', 'watching', 'degraded', 'polling_only'].includes(
+      String(entry.state),
+    ) &&
     typeof entry.watched_dirs === 'number' &&
     typeof entry.unwatched_dirs === 'number' &&
     typeof entry.pending_dirs === 'number' &&
@@ -74,6 +91,13 @@ function sameStatus(a: IndexStatusDto, b: IndexStatusDto): boolean {
   return (
     a.active_task_id === b.active_task_id &&
     sameWatcher(a.watcher, b.watcher) &&
+    a.warnings.length === b.warnings.length &&
+    a.warnings.every((warning, index) => {
+      const other = b.warnings[index];
+      return (
+        other !== undefined && warning.code === other.code && warning.message === other.message
+      );
+    }) &&
     a.held_removals.length === b.held_removals.length &&
     a.held_removals.every((held, index) => {
       const other = b.held_removals[index];

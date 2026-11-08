@@ -57,6 +57,9 @@ pub enum FsOpError {
     /// The context was cancelled. The file the operation was on is finished or rolled back.
     #[error("the operation was cancelled")]
     Cancelled,
+    /// Another process has an exclusive handle open on the file.
+    #[error("the file is open in another program; close it and retry")]
+    FileInUse,
     /// The directory holds something that is not junk.
     #[error("the directory is not empty")]
     NotEmpty,
@@ -91,6 +94,7 @@ impl FsOpError {
             Self::DestinationInvalid(_) => "destination_invalid",
             Self::NameTooLong => "name_too_long",
             Self::NoSpace => "no_space",
+            Self::FileInUse => "file_in_use",
             Self::VerifyFailed => "verify_failed",
             Self::Cancelled => "cancelled",
             Self::NotEmpty => "not_empty",
@@ -154,6 +158,9 @@ impl From<FsError> for FsOpError {
 
 impl From<io::Error> for FsOpError {
     fn from(err: io::Error) -> Self {
+        if matches!(err.raw_os_error(), Some(16 | 26)) {
+            return Self::FileInUse;
+        }
         match err.kind() {
             io::ErrorKind::StorageFull | io::ErrorKind::QuotaExceeded => Self::NoSpace,
             kind => Self::Io(kind),
@@ -191,7 +198,8 @@ impl From<FsOpError> for AppError {
             | FsOpError::VolumeOffline
             | FsOpError::VolumeReadOnly
             | FsOpError::Cancelled
-            | FsOpError::NotEmpty => Self::new(StatusCode::CONFLICT, code, message),
+            | FsOpError::NotEmpty
+            | FsOpError::FileInUse => Self::new(StatusCode::CONFLICT, code, message),
             FsOpError::ImmichMoveRefused(_) => Self::new(StatusCode::CONFLICT, code, message),
             FsOpError::NoSpace => Self::new(StatusCode::INSUFFICIENT_STORAGE, code, message),
             FsOpError::VerifyFailed | FsOpError::Io(_) | FsOpError::Aborted => {
@@ -225,6 +233,7 @@ mod tests {
             FsOpError::NoSpace,
             FsOpError::VerifyFailed,
             FsOpError::Cancelled,
+            FsOpError::FileInUse,
             FsOpError::NotEmpty,
             FsOpError::OutsideTrash,
             FsOpError::Io(io::ErrorKind::Other),
@@ -244,6 +253,18 @@ mod tests {
         );
         assert_eq!(
             FsOpError::from(io::Error::from(io::ErrorKind::PermissionDenied)),
+            FsOpError::Io(io::ErrorKind::PermissionDenied)
+        );
+        assert_eq!(
+            FsOpError::from(io::Error::from_raw_os_error(16)),
+            FsOpError::FileInUse
+        );
+        assert_eq!(
+            FsOpError::from(io::Error::from_raw_os_error(26)),
+            FsOpError::FileInUse
+        );
+        assert_eq!(
+            FsOpError::from(io::Error::from_raw_os_error(13)),
             FsOpError::Io(io::ErrorKind::PermissionDenied)
         );
     }

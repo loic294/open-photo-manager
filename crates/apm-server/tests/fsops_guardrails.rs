@@ -31,9 +31,14 @@ const FSOPS_DIR: &str = "apm-server/src/fsops/";
 /// here with a justification. Keep the list sorted by path.
 const ALLOWED_OUTSIDE_FSOPS: &[(&str, usize, &str)] = &[
     (
-        "apm-server/src/db/volumes.rs",
+        "apm-server/src/db/mod.rs",
         1,
-        "the writability probe removes the uniquely named file it has just created in the volume root",
+        "the SQLite WAL probe removes its temporary database and sidecars in the app's own data directory",
+    ),
+    (
+        "apm-server/src/hostfs/probe.rs",
+        1,
+        "the volume capability probe removes the uniquely named file it has just created in the volume root",
     ),
     (
         "apm-server/src/immich/crypto.rs",

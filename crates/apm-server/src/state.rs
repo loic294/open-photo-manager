@@ -49,7 +49,7 @@ impl AppState {
     pub async fn new(config: Config) -> anyhow::Result<Self> {
         let config = Arc::new(config);
 
-        let db = db::Db::from_config(&config).await?;
+        let (db, volume_capabilities) = db::Db::from_config_with_capabilities(&config).await?;
 
         let settings = settings::SettingsService::load(db.clone(), &config).await?;
 
@@ -57,7 +57,13 @@ impl AppState {
 
         let tasks = tasks::TaskEngine::new(db.clone(), shutdown.clone()).await?;
 
-        let volumes = indexer::VolumeRegistry::load(db.clone(), config.volumes_dir.clone()).await?;
+        let volumes = indexer::VolumeRegistry::load_with_policy_and_capabilities(
+            db.clone(),
+            config.volumes_dir.clone(),
+            config.watch_mode,
+            volume_capabilities,
+        )
+        .await?;
 
         let media = media::MediaService::new(
             db.clone(),

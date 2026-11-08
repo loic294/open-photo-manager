@@ -9,8 +9,8 @@
 //! * [`VolumeRegistry::load`] builds the snapshot at startup from the `volumes` table
 //!   (`Db::from_config` has already synchronised it with the directory).
 //! * [`VolumeRegistry::refresh`] re-runs [`db::volumes::sync_volumes`] (picks up newly mounted shares,
-//!   marks missing ones offline, re-probes writability) and rebuilds the roots. The task that runs a
-//!   scan calls it first; scanning does not refresh by itself.
+//!   marks missing ones offline and re-probes writability). Filesystem capabilities are reused for
+//!   an unchanged online root and re-probed when a root changes or comes back online.
 //! * [`VolumeRegistry::get`] is the lookup: an unknown id is a 404 `not_found`, an offline volume a
 //!   409 `volume_offline`.
 //!
@@ -22,8 +22,10 @@ use std::fmt;
 use std::path::PathBuf;
 use std::sync::{Arc, PoisonError, RwLock, RwLockReadGuard, RwLockWriteGuard};
 
+use crate::hostfs::VolumeCapabilities;
 use apm_core::paths::VolumeId;
 
+use crate::config::WatchPolicy;
 use crate::db::models::Volume;
 use crate::db::{self, Db, DbError};
 use crate::error::AppError;
@@ -46,6 +48,7 @@ pub struct VolumeRegistry {
 struct Inner {
     db: Db,
     volumes_dir: PathBuf,
+    watch_policy: WatchPolicy,
     snapshot: RwLock<Snapshot>,
     /// Serialises [`VolumeRegistry::refresh`]: two overlapping refreshes would probe the same
     /// directories twice and could publish their snapshots out of order.
@@ -56,6 +59,7 @@ struct Inner {
 struct Snapshot {
     volumes: Vec<Volume>,
     roots: HashMap<VolumeId, Arc<VolumeRoot>>,
+    capabilities: HashMap<VolumeId, VolumeCapabilities>,
 }
 
 impl fmt::Debug for VolumeRegistry {
@@ -73,12 +77,30 @@ impl VolumeRegistry {
     /// Builds the registry from the volumes already recorded in the database. `volumes_dir` is
     /// `APM_VOLUMES_DIR`, the directory [`refresh`](Self::refresh) looks at.
     pub async fn load(db: Db, volumes_dir: PathBuf) -> Result<Self, DbError> {
+        Self::load_with_policy(db, volumes_dir, WatchPolicy::Auto).await
+    }
+
+    pub async fn load_with_policy(
+        db: Db,
+        volumes_dir: PathBuf,
+        watch_policy: WatchPolicy,
+    ) -> Result<Self, DbError> {
+        Self::load_with_policy_and_capabilities(db, volumes_dir, watch_policy, HashMap::new()).await
+    }
+
+    pub(crate) async fn load_with_policy_and_capabilities(
+        db: Db,
+        volumes_dir: PathBuf,
+        watch_policy: WatchPolicy,
+        capabilities: HashMap<VolumeId, VolumeCapabilities>,
+    ) -> Result<Self, DbError> {
         let volumes = db::volumes::list(&db).await?;
-        let snapshot = build_snapshot(volumes).await;
+        let snapshot = build_snapshot(volumes, capabilities, watch_policy, HashMap::new()).await;
         Ok(Self {
             inner: Arc::new(Inner {
                 db,
                 volumes_dir,
+                watch_policy,
                 snapshot: RwLock::new(snapshot),
                 refreshing: tokio::sync::Mutex::new(()),
             }),
@@ -90,8 +112,15 @@ impl VolumeRegistry {
     /// marked offline (never forgotten).
     pub async fn refresh(&self) -> Result<Vec<Volume>, DbError> {
         let _one_at_a_time = self.inner.refreshing.lock().await;
-        let volumes = db::volumes::sync_volumes(&self.inner.db, &self.inner.volumes_dir).await?;
-        let snapshot = build_snapshot(volumes).await;
+        let (cached, previous) = cached_capabilities(&self.read());
+        let (volumes, capabilities) = db::volumes::sync_volumes_with_cached_capabilities(
+            &self.inner.db,
+            &self.inner.volumes_dir,
+            cached,
+        )
+        .await?;
+        let snapshot =
+            build_snapshot(volumes, capabilities, self.inner.watch_policy, previous).await;
         let volumes = snapshot.volumes.clone();
         *self.write() = snapshot;
         Ok(volumes)
@@ -153,6 +182,21 @@ impl VolumeRegistry {
             .collect()
     }
 
+    pub fn capabilities(&self, id: VolumeId) -> Option<VolumeCapabilities> {
+        self.read().capabilities.get(&id).cloned()
+    }
+
+    pub fn watch_mode(
+        &self,
+        id: VolumeId,
+        enabled: bool,
+    ) -> (apm_core::dto::WatchMode, Option<String>) {
+        let fs_type = self
+            .capabilities(id)
+            .and_then(|capabilities| capabilities.fs_type);
+        crate::hostfs::effective_watch_mode(self.inner.watch_policy, fs_type.as_deref(), enabled)
+    }
+
     fn read(&self) -> RwLockReadGuard<'_, Snapshot> {
         self.inner
             .snapshot
@@ -170,16 +214,25 @@ impl VolumeRegistry {
 
 /// Builds the roots of the online volumes (canonicalising touches the file system, so off the
 /// async threads). A volume whose root cannot be opened after all is reported offline.
-async fn build_snapshot(volumes: Vec<Volume>) -> Snapshot {
+async fn build_snapshot(
+    volumes: Vec<Volume>,
+    capabilities: HashMap<VolumeId, VolumeCapabilities>,
+    watch_policy: WatchPolicy,
+    previous: HashMap<VolumeId, (String, VolumeCapabilities)>,
+) -> Snapshot {
     let built = tokio::task::spawn_blocking(move || {
         let mut roots = HashMap::new();
         let mut volumes = volumes;
+        let mut capabilities = capabilities;
         for volume in &mut volumes {
             if !volume.online {
                 continue;
             }
             match VolumeRoot::new(volume.id, &volume.root) {
                 Ok(root) => {
+                    capabilities.entry(volume.id).or_insert_with(|| {
+                        crate::hostfs::probe::probe_volume(root.path()).capabilities
+                    });
                     roots.insert(volume.id, Arc::new(root));
                 }
                 Err(err) => {
@@ -189,13 +242,64 @@ async fn build_snapshot(volumes: Vec<Volume>) -> Snapshot {
                 }
             }
         }
-        Snapshot { volumes, roots }
+        Snapshot {
+            volumes,
+            roots,
+            capabilities,
+        }
     })
     .await;
-    built.unwrap_or_else(|err| {
+    let snapshot = built.unwrap_or_else(|err| {
         tracing::error!(error = %err, "building the volume roots failed, every volume is offline");
         Snapshot::default()
-    })
+    });
+    for volume in snapshot.volumes.iter().filter(|volume| volume.online) {
+        let capability = snapshot.capabilities.get(&volume.id);
+        if previous
+            .get(&volume.id)
+            .is_some_and(|(root, old)| root == &volume.root && Some(old) == capability)
+        {
+            continue;
+        }
+        let (mode, reason) = crate::hostfs::effective_watch_mode(
+            watch_policy,
+            capability.and_then(|cap| cap.fs_type.as_deref()),
+            true,
+        );
+        tracing::info!(
+            volume = %volume.name,
+            fs_type = capability.and_then(|cap| cap.fs_type.as_deref()).unwrap_or("unknown"),
+            case_insensitive = ?capability.and_then(|cap| cap.case_insensitive),
+            watch_mode = ?mode,
+            reason = reason.as_deref().unwrap_or("native filesystem event support"),
+            "volume capabilities computed"
+        );
+        if capability.is_some_and(|cap| cap.inode_reliable == Some(false)) {
+            tracing::warn!(volume = %volume.name, "filesystem inode identity is unreliable");
+        }
+    }
+    snapshot
+}
+
+fn cached_capabilities(
+    snapshot: &Snapshot,
+) -> (
+    HashMap<String, VolumeCapabilities>,
+    HashMap<VolumeId, (String, VolumeCapabilities)>,
+) {
+    let mut cached = HashMap::new();
+    let mut previous = HashMap::new();
+    for volume in snapshot
+        .volumes
+        .iter()
+        .filter(|volume| snapshot.roots.contains_key(&volume.id))
+    {
+        if let Some(capabilities) = snapshot.capabilities.get(&volume.id) {
+            cached.insert(volume.root.clone(), capabilities.clone());
+            previous.insert(volume.id, (volume.root.clone(), capabilities.clone()));
+        }
+    }
+    (cached, previous)
 }
 
 #[cfg(test)]

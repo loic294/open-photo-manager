@@ -10,7 +10,9 @@ import '@/components/apm-save-bar';
 import '@/components/apm-select';
 import { toast } from '@/components/toast';
 import { UnsavedGuard } from '@/controllers/unsaved-guard';
+import { indexStatus } from '@/stores/index-status';
 import { loadSettings, saveSettings } from '@/stores/settings';
+import { volumes } from '@/stores/volumes';
 import {
   DEFAULT_TRASH_RETENTION_DAYS,
   ENCRYPTED_SHARE_NAME_LEN,
@@ -477,7 +479,10 @@ export class ApmSettingsGeneral extends ApmElement {
         @submit=${(event: Event) => event.preventDefault()}
       >
         ${this.renderAlert()} ${this.renderFiles(doc)} ${this.renderMoving(doc)}
-        ${this.renderIndexing(doc)} ${this.dirty ? this.renderActionBar() : nothing}
+        <div class="grid gap-4 lg:grid-cols-2">
+          ${this.renderIndexing(doc)} ${this.renderVolumes()}
+        </div>
+        ${this.dirty ? this.renderActionBar() : nothing}
       </form>
     `;
   }
@@ -634,6 +639,69 @@ export class ApmSettingsGeneral extends ApmElement {
           unit: 'minutes',
           hint: intervalHint,
         })}
+      </fieldset>
+    `;
+  }
+
+  private renderVolumes() {
+    const hostWarnings = indexStatus.value.warnings;
+    return html`
+      <fieldset class=${CARD}>
+        <legend class="fieldset-legend text-base">Volumes</legend>
+        ${
+          volumes.value.length === 0
+            ? html`<p class="text-sm text-base-content/70">No volumes are available.</p>`
+            : html`
+              <ul class="flex flex-col gap-2">
+                ${volumes.value.map(
+                  (volume) => html`
+                    <li class="flex flex-wrap items-center gap-2">
+                      <span class="font-medium">${volume.name}</span>
+                      ${
+                        volume.fs_type
+                          ? html`<span class="badge badge-sm">${volume.fs_type}</span>`
+                          : nothing
+                      }
+                      ${
+                        volume.case_insensitive === true
+                          ? html`<span class="badge badge-sm">case-insensitive</span>`
+                          : nothing
+                      }
+                      ${
+                        volume.watch_mode === 'polling_only'
+                          ? html`
+                            <span
+                              class="badge badge-sm tooltip"
+                              data-tip=${volume.watch_reason ?? 'Filesystem watching is unavailable'}
+                              >polling only</span
+                            >
+                          `
+                          : nothing
+                      }
+                      ${!volume.writable ? html`<span class="badge badge-sm">read-only</span>` : nothing}
+                      ${!volume.online ? html`<span class="badge badge-sm">offline</span>` : nothing}
+                    </li>
+                  `,
+                )}
+              </ul>
+            `
+        }
+        ${
+          hostWarnings.length > 0
+            ? html`
+              <div class="mt-2 flex flex-col gap-2">
+                ${hostWarnings.map(
+                  (warning) => html`
+                    <div role="alert" class="alert alert-info alert-soft text-sm">
+                      <apm-icon name="info"></apm-icon>
+                      <span>${warning.message}</span>
+                    </div>
+                  `,
+                )}
+              </div>
+            `
+            : nothing
+        }
       </fieldset>
     `;
   }

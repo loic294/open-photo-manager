@@ -17,8 +17,26 @@ interface Loaded {
   events: typeof import('@/api/sse')['events'];
 }
 
-const photos: VolumeDto = { id: 1, name: 'photos', writable: true, online: true };
-const backup: VolumeDto = { id: 2, name: 'backup', writable: false, online: true };
+const photos: VolumeDto = {
+  id: 1,
+  name: 'photos',
+  writable: true,
+  online: true,
+  fs_type: null,
+  case_insensitive: null,
+  watch_mode: 'watching',
+  watch_reason: null,
+};
+const backup: VolumeDto = {
+  id: 2,
+  name: 'backup',
+  writable: false,
+  online: true,
+  fs_type: null,
+  case_insensitive: null,
+  watch_mode: 'watching',
+  watch_reason: null,
+};
 
 let current: Loaded | undefined;
 
@@ -259,6 +277,9 @@ describe('loadVolumes', () => {
     ['goes offline', { ...photos, online: false }],
     ['is renamed', { ...photos, name: 'pictures' }],
     ['becomes read-only', { ...photos, writable: false }],
+    ['reports a different filesystem', { ...photos, fs_type: '9p' }],
+    ['becomes case-insensitive', { ...photos, case_insensitive: true }],
+    ['becomes polling-only', { ...photos, watch_mode: 'polling_only', watch_reason: '9p' }],
   ])('replaces the list when a volume %s', async (_what, changed) => {
     const { store, get } = await setup();
     get.mockResolvedValueOnce([photos]).mockResolvedValueOnce([changed]);
@@ -310,7 +331,18 @@ describe('lookups', () => {
   it('matches names exactly, without normalising them', async () => {
     const { store, get } = await setup();
     const nfd = 'Fe\u0301te';
-    get.mockResolvedValueOnce([{ id: 9, name: nfd, writable: true, online: true }]);
+    get.mockResolvedValueOnce([
+      {
+        id: 9,
+        name: nfd,
+        writable: true,
+        online: true,
+        fs_type: null,
+        case_insensitive: null,
+        watch_mode: 'watching',
+        watch_reason: null,
+      },
+    ]);
     await store.loadVolumes();
 
     expect(store.volumeIdByName(nfd)).toBe(9);

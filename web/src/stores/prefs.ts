@@ -43,6 +43,13 @@ export const hideUnmatchedFolders = persistedSignal<boolean>(
   isBoolean,
 );
 
+/** Host warnings dismissed by code; absent codes reappear if the condition returns later. */
+export const dismissedHostWarnings = persistedSignal<Record<string, boolean>>(
+  'dismissedHostWarnings',
+  {},
+  dictionaryOf(isBoolean),
+);
+
 /** The last choice made in each tool's split button: tool id -> action id (an opaque string). */
 export const lastAction = persistedSignal<Record<string, string>>(
   'lastAction',

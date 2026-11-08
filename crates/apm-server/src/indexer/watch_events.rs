@@ -9,6 +9,7 @@ use notify::Event;
 use notify::event::{AccessKind, AccessMode, ModifyKind};
 
 use super::ScanTarget;
+use crate::db::volumes::PROBE_PREFIX;
 use crate::fsops::SelfWrites;
 use crate::security::VolumeRoot;
 
@@ -41,7 +42,9 @@ pub(crate) fn map_path(
     junk: &JunkRules,
 ) -> Option<RelPath> {
     root.rel_of(path).filter(|rel| {
-        !junk.is_junk_path(rel) && !rel.file_name().is_some_and(|name| junk.is_junk_name(name))
+        !junk.is_junk_path(rel)
+            && !rel.file_name().is_some_and(|name| junk.is_junk_name(name))
+            && !rel.components().any(|name| name.starts_with(PROBE_PREFIX))
     })
 }
 
