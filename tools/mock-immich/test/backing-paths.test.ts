@@ -209,3 +209,39 @@ test('a backed scan publishes its changes only after the backing commit succeeds
   assert.equal(mock.state.assetByPath('/mnt/photo/missing.jpg')?.isOffline, true);
   assert.ok(mock.state.assetByPath('/mnt/photo/new.jpg'));
 });
+
+test('a backed scan serializes asset reads until its commit is published', async (t) => {
+  const photos = scratchDir(t, 'held-scan');
+  writeTree(photos, { 'new.jpg': 'new' });
+  let active = false;
+  let release: (() => void) | undefined;
+  let entered: (() => void) | undefined;
+  const held = new Promise<void>((resolve) => {
+    release = resolve;
+  });
+  const started = new Promise<void>((resolve) => {
+    entered = resolve;
+  });
+  const mock = await startMock(t, {
+    mounts: { '/mnt/photo': photos },
+    readOnlyBacking: () => active,
+    beforeAssetRead: async () => {},
+    beforeScanCommit: async () => {
+      entered?.();
+      await held;
+    },
+  });
+  const { key } = await connect(mock);
+  const asset = mock.control.addAssets([{ path: '/mnt/photo/missing.jpg' }]).items[0];
+  assert.ok(asset);
+  active = true;
+  const scanning = mock.control.scan('Photos');
+  await started;
+  const reading = call(mock, 'GET', `/api/assets/${asset.id}`, { key });
+  release?.();
+  assert.equal((await scanning)[0]?.status, 'completed');
+  const response = await reading;
+  assert.equal(response.status, 200);
+  assert.equal(response.body.isOffline, true);
+  assert.notEqual(response.body.deletedAt, null);
+});
