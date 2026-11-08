@@ -20,6 +20,9 @@ The commands below run over SSH on the NAS; use an account permitted to run Dock
    sudo chown 1026:100 /volume1/docker/apm/data
    cd /volume1/docker/apm
    ```
+   On DSM, Docker commands usually need `sudo`; this has not been verified on a DSM device.
+   Docker login is per OS user, so run `docker login`, `docker compose pull` and `docker compose up -d`
+   consistently with `sudo`, or consistently without it.
 2. Get a **classic GitHub personal access token with `read:packages`**, belonging to an account granted
    read access to the private package (and authorize SSO if required). Log in interactively:
    ```sh
@@ -51,9 +54,9 @@ if the image's built-in health check does not become healthy.
 - For a repeatable deployment, replace `:edge` with an exact version or `@sha256:<manifest-digest>`.
   Docker selects the NAS architecture from the multiarch manifest.
 
-Only the coordinator creates/pushes release tags after explicit user approval and final verification.
-No release tag is created by the publishing workflow. Registry-free installation from a locally built
-tarball remains available in [docker/README.md](docker/README.md).
+The repository owner deliberately creates `vX.Y.Z` release tags after verifying a build; the workflow
+never creates tags itself. No release tag is created by the publishing workflow. Registry-free installation
+from a locally built tarball remains available in [docker/README.md](docker/README.md).
 
 ## Compose example
 

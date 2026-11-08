@@ -41,8 +41,9 @@ those two Linux digests. Failed runs can leave untagged digests, but do not prom
 to full commit SHAs with version comments. Native ARM runner availability/billing must be enabled for the
 private repository's plan; do not silently substitute emulation if a runner is unavailable.
 
-The coordinator alone manages `origin` and pushes `main` or explicitly approved release tags. Development
-publishing is enabled immediately; `latest` is reserved for releases after final application verification.
+The repository owner deliberately creates `vX.Y.Z` release tags after verifying a build; the workflow
+never creates tags itself. Development publishing is enabled immediately; `latest` is reserved for releases
+after final application verification.
 `make check` includes `make check-compose` (Python 3 and Docker Compose required).
 
 ## Offline quick start
