@@ -23,6 +23,9 @@ export interface FixtureFile extends FixturePath {
   tags_expected: string[] | null;
   width: number | null;
   height: number | null;
+  sidecars: { path: string; link: 'exact' | 'stem' }[];
+  unreadable: 'file' | 'dir' | null;
+  capture_offset_min_expected: number | null;
 }
 interface Scenario {
   description: string;

@@ -1,3 +1,16 @@
+import { readFile } from 'node:fs/promises';
+import { basename, dirname } from 'node:path';
+import { expect, type Page } from '@playwright/test';
+import type { ConflictPolicy } from '../../web/src/api/generated/ConflictPolicy';
+import type { FileDetail } from '../../web/src/api/generated/FileDetail';
+import type { MoveParams } from '../../web/src/api/generated/MoveParams';
+import type { PlanDto } from '../../web/src/api/generated/PlanDto';
+import type { TaskDto } from '../../web/src/api/generated/TaskDto';
+import type { TrashBatchesResponse } from '../../web/src/api/generated/TrashBatchesResponse';
+import type { TrashListResponse } from '../../web/src/api/generated/TrashListResponse';
+import { emptyFilter } from './api';
+import type { AppInstance } from './app-instance';
+import { writeFile } from './disk';
 import type { FixtureFile, Manifest } from './manifest';
 
 export type MatchMode = 'hash' | 'name_and_time' | 'name_different_time' | 'name_prefix';
@@ -121,4 +134,138 @@ export function expectedEmptyDirs(
     const relative = path.slice(base.dir ? base.dir.length + 1 : 0);
     return !nonEmptyBranches.has(relative.split('/')[0] ?? '');
   });
+}
+
+// testing-e2e-system: real API/disk setup shared by system task, watcher and trash specs.
+export async function indexedFile(app: AppInstance, volume: string, path: string) {
+  const listing = await app.api.listing(volume, dirname(path) === '.' ? '' : dirname(path));
+  const item = listing.items.find((item) => item.name === basename(path));
+  if (!item) throw new Error(`Not indexed: ${volume}/${path}`);
+  return app.api.request<FileDetail>('GET', `/api/files/${item.id}`);
+}
+
+export async function terminalTask(app: AppInstance, id: number) {
+  await expect
+    .poll(
+      async () => {
+        const task = (await app.api.tasks()).find((task) => task.id === id);
+        return task && !['queued', 'running'].includes(task.state);
+      },
+      { timeout: 120_000 },
+    )
+    .toBe(true);
+  const task = (await app.api.tasks()).find((task) => task.id === id);
+  if (!task) throw new Error(`Task ${id} disappeared`);
+  return task;
+}
+
+export async function movePlan(
+  app: AppInstance,
+  source: { volume: string; dir: string },
+  destination: { volume: string; dir: string },
+  policy: ConflictPolicy | null = 'smart',
+) {
+  const volumes = await app.api.volumes();
+  const id = (name: string) => {
+    const volume = volumes.find((volume) => volume.name === name);
+    if (!volume) throw new Error(`Unknown volume ${name}`);
+    return volume.id;
+  };
+  const params: MoveParams = {
+    source: {
+      scope: { volume_id: id(source.volume), dir: source.dir, recursive: true },
+      filter: emptyFilter,
+    },
+    destination: { volume_id: id(destination.volume), dir: destination.dir },
+    move_type: 'flat',
+    pattern: null,
+    conflict_policy: policy,
+    match_mode: null,
+    strict_prefix: false,
+  };
+  return app.api.request<PlanDto>('POST', '/api/plans', { kind: 'move', params, replaces: null });
+}
+
+export function executePlan(app: AppInstance, plan: PlanDto, options: object = {}) {
+  return app.api.request<TaskDto>('POST', `/api/plans/${plan.id}/execute`, { options, only: null });
+}
+
+/** Retain a byte-identical survivor for each owner before deleting through the duplicate planner. */
+export async function trashFixtures(app: AppInstance, files: readonly FixtureFile[]) {
+  if (files.length === 0) throw new Error('Trash setup needs at least one fixture');
+  const first = files[0];
+  if (
+    files.some((file) => file.volume !== first.volume || dirname(file.path) !== dirname(first.path))
+  )
+    throw new Error('Trash setup requires one source folder');
+  const targetVolume = first.volume === 'photos' ? 'archive' : 'photos';
+  const survivorDir = `system-survivors-${basename(dirname(first.path))}`;
+  for (const file of files)
+    await writeFile(
+      app,
+      targetVolume,
+      `${survivorDir}/${basename(file.path)}`,
+      await readFile(app.volumePath(`${file.volume}/${file.path}`)),
+    );
+  await app.rescan();
+  const volumes = await app.api.volumes();
+  const sourceId = volumes.find((volume) => volume.name === first.volume)?.id;
+  const comparisonId = volumes.find((volume) => volume.name === targetVolume)?.id;
+  if (sourceId === undefined || comparisonId === undefined)
+    throw new Error('Fixture volumes missing');
+  const ids = await Promise.all(
+    files.map(async (file) => (await indexedFile(app, file.volume, file.path)).item.id),
+  );
+  const selection = await app.api.request<{ id: number }>('POST', '/api/selections', {
+    ids,
+    label: 'system trash setup',
+  });
+  const plan = await app.api.request<PlanDto>('POST', '/api/plans', {
+    kind: 'duplicates',
+    replaces: null,
+    params: {
+      mode: 'hash',
+      strict_prefix: false,
+      source: {
+        scope: { volume_id: sourceId, dir: dirname(first.path), recursive: false },
+        filter: { ...emptyFilter, selection_id: selection.id },
+      },
+      comparison: {
+        scope: { volume_id: comparisonId, dir: survivorDir, recursive: false },
+        filter: emptyFilter,
+      },
+    },
+  });
+  const task = await executePlan(app, plan, { action: 'delete_source' });
+  expect((await terminalTask(app, task.id)).state).toBe('done');
+  return task;
+}
+
+export function trashList(app: AppInstance, query = '') {
+  return app.api.request<TrashListResponse>(
+    'GET',
+    `/api/trash?limit=200${query ? `&${query}` : ''}`,
+  );
+}
+
+export function trashBatches(app: AppInstance) {
+  return app.api.request<TrashBatchesResponse>('GET', '/api/trash/batches?limit=200');
+}
+
+/** Observe the real UI submission before clicking, then wait for its specific task to settle. */
+export async function taskAction(
+  app: AppInstance,
+  page: Page,
+  path: string,
+  action: () => Promise<void>,
+) {
+  const response = page.waitForResponse(
+    (response) =>
+      new URL(response.url()).pathname === path && response.request().method() === 'POST',
+  );
+  await action();
+  const submitted = await response;
+  expect(submitted.ok()).toBe(true);
+  const task = (await submitted.json()) as TaskDto;
+  return terminalTask(app, task.id);
 }

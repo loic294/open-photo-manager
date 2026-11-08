@@ -114,6 +114,31 @@ free space without pulling, and tears down its task-owned stack if initializatio
 1.50 GiB free. Its Docker-free guard tests run with `node --test src/docker-capacity.test.ts`
 from `e2e/`.
 
+## System coverage
+
+`specs/system` covers metadata/hash/sidecar accuracy, cold startup, manual re-indexing, native
+watching, host capability diagnostics, task progress/cancellation/recovery, General settings,
+trash lifecycle and HTTP/media boundaries. The HTTP route inventory comes from the merged Rust
+`tests/api_routes.rs` contract and is compared with the actual API routers. `src/http.ts` preserves
+raw paths and duplicate headers for boundary checks that Fetch would normalize.
+
+Run bounded selectors before the full suite. Mount/copy tests require **one worker**, even when
+ordinary browser coverage uses two; a ≥15-second real copy is not interchangeable with the
+64 KiB separate-device lifecycle probe. Keep exact commands, HEAD, logs and results for each run,
+and distinguish skipped or unrun scenarios from passed runtime coverage.
+
+The Settings contract protects dirty drafts with native `beforeunload` and preserves them across
+Settings tabs; it does not veto in-app navigation. Enter in a text field does not submit.
+Host policy tests exercise the real binary with `APM_WATCH_MODE=poll|auto|watch`, invalid values,
+health/index warnings, capability badges and supported WAL startup. They do not simulate an
+unsafe mount and are not evidence from an actual Windows machine or Docker container.
+
+The metadata oracle accounts for two known generator discrepancies without altering fixtures:
+failed zero-byte/unreadable extraction leaves capture fields null rather than assigning file time,
+and successful UTC file-time/video extraction records offset `0` rather than the manifest's null.
+The extractor's failure contract is documented in `indexer/extract.rs`; these discrepancies remain
+fixture follow-up work, not changed product behavior.
+
 ## Adding coverage
 
 Import `test` and `expect` from `src/test.ts`, not a second fixture implementation. Use `sharedApp`

@@ -37,4 +37,32 @@ export class ShellPage {
       .locator('html')
       .evaluate((element, value) => element.setAttribute('data-theme', value), theme);
   }
+
+  // testing-e2e-system
+  taskTrigger() {
+    return this.taskIndicator().getByRole('button').first();
+  }
+  taskPanel() {
+    return this.taskIndicator().getByRole('group', { name: 'Background tasks', exact: true });
+  }
+  taskRows() {
+    return this.taskIndicator().locator('apm-task-row');
+  }
+  taskRow(title: string) {
+    return this.taskRows().filter({
+      has: this.page.getByText(title, { exact: true }),
+    });
+  }
+  reindexButton(all = false) {
+    return this.menu().getByRole('button', {
+      name: all ? 'Re-index all assets' : 'Re-index current folders',
+      exact: true,
+    });
+  }
+  notices() {
+    return this.page.locator('apm-index-notices');
+  }
+  connectionBanner() {
+    return this.page.getByRole('alert').filter({ hasText: /connection|reconnect/i });
+  }
 }
