@@ -3,7 +3,7 @@
 //!
 //! Every item the executor looks at is counted exactly once: [`ResultBuilder::done`],
 //! [`ResultBuilder::skip`] or one of the `fail` methods. The first [`MAX_FAILURE_DETAILS`]
-//! failures keep their details; `PlanResult::failed` counts all of them.
+//! non-success items keep their details; `PlanResult::failed` and `skipped` count them separately.
 
 use apm_core::dto::{ItemFailure, PlanResult};
 use apm_core::paths::{FileId, RelPath, VolumeId};
@@ -12,7 +12,7 @@ use super::planner::ExecutePrep;
 use crate::fsops::FsOpError;
 use crate::indexer::VolumeRegistry;
 
-/// How many failures a [`PlanResult`] keeps with their details.
+/// How many non-success items a [`PlanResult`] keeps with their details.
 pub const MAX_FAILURE_DETAILS: usize = 200;
 
 /// Accumulates the outcome of the items of one execution.
@@ -37,6 +37,18 @@ impl ResultBuilder {
         self.result.skipped += 1;
     }
 
+    /// A safety refusal is a skip, with a stable code explaining why nothing was touched.
+    pub fn skip_with_detail(
+        &mut self,
+        file_id: Option<FileId>,
+        path: impl Into<String>,
+        code: impl Into<String>,
+        message: impl Into<String>,
+    ) {
+        self.result.skipped += 1;
+        self.detail(file_id, path, code, message);
+    }
+
     /// An item could not be processed. `path` is for people (see [`display_path`]), `code` is
     /// stable (`FsOpError::code` or a code of the planner) and `message` never carries an
     /// absolute host path.
@@ -48,6 +60,16 @@ impl ResultBuilder {
         message: impl Into<String>,
     ) {
         self.result.failed += 1;
+        self.detail(file_id, path, code, message);
+    }
+
+    fn detail(
+        &mut self,
+        file_id: Option<FileId>,
+        path: impl Into<String>,
+        code: impl Into<String>,
+        message: impl Into<String>,
+    ) {
         if self.result.failures.len() < MAX_FAILURE_DETAILS {
             self.result.failures.push(ItemFailure {
                 file_id,
@@ -173,6 +195,35 @@ mod tests {
         assert_eq!(result.failures[0].file_id, Some(7));
         assert!(!result.cancelled);
         assert_eq!(result.note, None);
+    }
+
+    #[test]
+    fn coded_skips_and_failures_share_details_but_not_counters() {
+        let mut builder = ResultBuilder::new();
+        builder.done(4);
+        builder.skip();
+        builder.skip_with_detail(Some(1), "Photos/a.jpg", "no_survivor", "No survivor");
+        builder.fail(Some(2), "Photos/b.jpg", "io_error", "Failure");
+        assert_eq!(builder.counted(), 4);
+        let result = builder.finish();
+        assert_eq!((result.done, result.skipped, result.failed), (1, 2, 1));
+        assert_eq!(result.failures.len(), 2);
+        assert_eq!(
+            summary_title(&prep(), &result, Some(4)),
+            "Deleted 1 of 4 files, 2 skipped, 1 failed"
+        );
+        let mut builder = ResultBuilder::new();
+        for id in 0..(MAX_FAILURE_DETAILS + 20) {
+            if id % 2 == 0 {
+                builder.skip_with_detail(Some(id as i64), "", "stale_match", "");
+            } else {
+                builder.fail(Some(id as i64), "", "io_error", "");
+            }
+        }
+        let result = builder.finish();
+        assert_eq!((result.skipped, result.failed), (110, 110));
+        assert_eq!(result.failures.len(), MAX_FAILURE_DETAILS);
+        assert_eq!(result.failures[199].file_id, Some(199));
     }
 
     #[test]

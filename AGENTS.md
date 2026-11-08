@@ -258,6 +258,41 @@ binary, browser checks, end-to-end and load tests. Never write a throwaway Immic
 - `make check-tools` (Biome, `tsc`, `node --test`; `scripts/wt-land.sh` runs it when a path under
   `tools/` or `e2e/` changes). Other todos add their own `check-*` prerequisite to it.
 
+## Duplicate plans
+
+- `DuplicateParams`: `{mode, strict_prefix, source, comparison}`; each side is
+  `SideParams {scope, filter}`. Modes are `hash`, `name_and_time`, `name_different_time`,
+  `name_prefix`. Only image/video/audio participate; each side has independent scope/filter.
+- Stats: `source_candidates`, `comparison_candidates`, `pairs`, `source_matched`,
+  `comparison_matched`, `source_matched_bytes`, `comparison_matched_bytes`,
+  `unmatchable_source`, `unmatchable_comparison`. Warnings: `unhashed_files`,
+  `no_capture_time`, `empty_stem`, `overlapping_scopes`; counts are per-side candidate totals.
+- Execute options: `{action: "delete_source" | "delete_comparison"}` (comparison is the default).
+  `move` is refused with instructions to use `POST /api/plans/{id}/selection` and Asset move.
+  A doomed file needs a live matching counterpart OUTSIDE the entire effective deletion set,
+  plus a fresh size/mtime check; hash survivors need a fresh size/mtime check too.
+  Everything goes through FsOps and one trash batch, including sidecars of the last trashed owner.
+- Safety refusals are coded skips: `no_survivor`, `stale_match`, `file_gone`, `stale_index`.
+  Actual operation errors use `FsOpError::code()` and increment `failed`; the task continues.
+  `ResultBuilder::skip_with_detail` preserves skip counts and shares the first-200-detail cap
+  with failures in `PlanResult.failures`.
+- `candidate_pairs` is the one `pub(crate)` async pair producer for duplicates and move:
+  `(conn: &mut SqliteConnection, params: &DuplicateParams, policy: OverlapPolicy,
+  cancel: &CancellationToken, visitor: &mut dyn PairVisitor) -> Result<u64, PlanError>`.
+  `PairVisitor::visit(&mut self, Pair) -> BoxFuture<'_, Result<(), PlanError>>` supplies
+  backpressure. `Oriented` uses the domain guard; `Unoriented` drops only self-pairs.
+  `query::push_child_segment(&mut QueryBuilder<Sqlite>, column: &str, dir: &str)` is shared by
+  browse folder counts and planners; the column must be a trusted SQL identifier.
+- Caps: 2,000,000 pairs, 1,000,000 matched ids per side; narrow folders or filters on overflow.
+  STRICT rowid child tables intentionally support the engine's bounded cleanup. Pair/file ids
+  have no file FK. Distinct membership has a transactionally maintained location/live cache
+  (insert, relocation, deletion triggers); snapshot ids survive deletion for `file_gone` details.
+  Folder counts read that covering live cache; item flags and hand-offs join live files.
+- Scale gate: `CARGO_BUILD_JOBS=2 cargo test -p apm-server --test plans_duplicates_perf --
+  --ignored --nocapture` (release is preferable for production measurements). At 200k files per
+  side / 520k pairs / 200 children, unoptimized builds took 18.2/18.6/24.2/16.4 seconds for
+  hash/name+time/different-time/prefix; warm folder medians were 46.9/48.4/47.6/48.2 ms.
+
 ## Trash (`trash/`, `api/trash.rs`; reference: the module docs of `trash`)
 
 User-facing trash management over what `FsOps` puts in `<volume root>/.apm-trash/<batch>/<original

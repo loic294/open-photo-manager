@@ -16,6 +16,7 @@
 
 pub mod browse;
 pub mod common;
+pub mod duplicates;
 pub mod files;
 pub mod immich;
 pub mod index;
@@ -29,6 +30,7 @@ pub(crate) mod testing;
 
 pub use browse::*;
 pub use common::*;
+pub use duplicates::*;
 pub use files::*;
 // The next three modules are still empty; the allow stays so their owners never
 // need to touch this file.

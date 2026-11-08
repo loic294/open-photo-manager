@@ -11,7 +11,7 @@ export type PlanResult = {
  */
 done: number, 
 /**
- * Items that needed nothing (already in place, a folder that gained content meanwhile).
+ * Items that needed nothing or were safely refused (already in place, stale match, no survivor).
  */
 skipped: number, 
 /**
@@ -23,7 +23,8 @@ failed: number,
  */
 bytes: number, 
 /**
- * The first failures, at most 200 of them: `failed` counts all of them.
+ * The first 200 non-success details (failures and coded safety skips), in processing order.
+ * `failed` and `skipped` count their outcomes separately, including omitted details.
  */
 failures: Array<ItemFailure>, 
 /**

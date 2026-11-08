@@ -9,6 +9,32 @@ use super::filter::FilterPart;
 use super::{FileQuery, QueryError};
 use crate::db::Db;
 
+/// First child segment below `dir`. `column` must be a trusted SQL identifier.
+pub(crate) fn push_child_segment(qb: &mut QueryBuilder<Sqlite>, column: &str, dir: &str) {
+    let start = if dir.is_empty() {
+        1
+    } else {
+        i64::try_from(dir.chars().count()).unwrap_or(i64::MAX - 2) + 2
+    };
+    qb.push("CASE WHEN instr(substr(")
+        .push(column)
+        .push(", ")
+        .push_bind(start)
+        .push("), '/') = 0 THEN substr(")
+        .push(column)
+        .push(", ")
+        .push_bind(start)
+        .push(") ELSE substr(")
+        .push(column)
+        .push(", ")
+        .push_bind(start)
+        .push(", instr(substr(")
+        .push(column)
+        .push(", ")
+        .push_bind(start)
+        .push("), '/') - 1) END");
+}
+
 /// One subfolder of the listed directory with its counts (see [`FileQuery::folders`]).
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct FolderRow {
@@ -84,13 +110,6 @@ impl FileQuery {
     /// list is the content of `dirs`.
     pub(super) fn folders_statement(&self, volume_id: VolumeId) -> QueryBuilder<Sqlite> {
         let dir = self.scope.dir.as_str();
-        // 1-based position of the first character after `dir/` in a longer path.
-        let rest_start = if dir.is_empty() {
-            1
-        } else {
-            i64::try_from(dir.chars().count()).unwrap_or(i64::MAX - 2) + 2
-        };
-
         let mut qb = QueryBuilder::new(
             "WITH per_dir AS (SELECT f.dir_path AS dir_path, COUNT(*) AS total, ",
         );
@@ -103,20 +122,15 @@ impl FileQuery {
         }
         qb.push(" AS cnt FROM files f WHERE ");
         self.push_condition(&mut qb, "f", true, FilterPart::Nothing);
-        qb.push(
-            " GROUP BY f.dir_path) SELECT child, SUM(cnt), SUM(total) FROM (\
-             SELECT CASE WHEN instr(rest, '/') = 0 THEN rest \
-             ELSE substr(rest, 1, instr(rest, '/') - 1) END AS child, total, cnt, 0 AS listed \
-             FROM (SELECT substr(dir_path, ",
-        )
-        .push_bind(rest_start)
-        .push(") AS rest, total, cnt FROM per_dir WHERE dir_path <> ")
-        .push_bind(dir.to_owned())
-        .push(") UNION ALL SELECT d.name, 0, 0, 1 FROM dirs d WHERE d.volume_id = ")
-        .push_bind(volume_id)
-        .push(" AND d.parent_path = ")
-        .push_bind(dir.to_owned())
-        .push(") GROUP BY child HAVING MAX(listed) = 1");
+        qb.push(" GROUP BY f.dir_path) SELECT child, SUM(cnt), SUM(total) FROM (SELECT ");
+        push_child_segment(&mut qb, "dir_path", dir);
+        qb.push(" AS child, total, cnt, 0 AS listed FROM per_dir WHERE dir_path <> ")
+            .push_bind(dir.to_owned())
+            .push(" UNION ALL SELECT d.name, 0, 0, 1 FROM dirs d WHERE d.volume_id = ")
+            .push_bind(volume_id)
+            .push(" AND d.parent_path = ")
+            .push_bind(dir.to_owned())
+            .push(") GROUP BY child HAVING MAX(listed) = 1");
         qb
     }
 

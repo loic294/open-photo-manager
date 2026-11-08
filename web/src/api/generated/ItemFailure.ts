@@ -14,7 +14,7 @@ file_id: number | null,
  */
 path: string, 
 /**
- * A stable code: the code of the file operation error or one of the planner.
+ * A stable code of a file operation failure or a planner's safety skip.
  */
 code: string, 
 /**

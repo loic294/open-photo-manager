@@ -62,7 +62,7 @@ pub struct ItemFailure {
     /// The volume name and the path inside the volume ("Photos/2019/IMG_0001.jpg"): never an
     /// absolute path of the host.
     pub path: String,
-    /// A stable code: the code of the file operation error or one of the planner.
+    /// A stable code of a file operation failure or a planner's safety skip.
     pub code: String,
     /// A sentence for the user.
     pub message: String,
@@ -75,13 +75,14 @@ pub struct ItemFailure {
 pub struct PlanResult {
     /// Items that were processed.
     pub done: u64,
-    /// Items that needed nothing (already in place, a folder that gained content meanwhile).
+    /// Items that needed nothing or were safely refused (already in place, stale match, no survivor).
     pub skipped: u64,
     /// Items that could not be processed; `failures` says why.
     pub failed: u64,
     /// Bytes moved, copied or deleted.
     pub bytes: u64,
-    /// The first failures, at most 200 of them: `failed` counts all of them.
+    /// The first 200 non-success details (failures and coded safety skips), in processing order.
+    /// `failed` and `skipped` count their outcomes separately, including omitted details.
     pub failures: Vec<ItemFailure>,
     /// The execution was cancelled before it went through every item.
     pub cancelled: bool,

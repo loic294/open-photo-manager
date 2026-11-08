@@ -148,6 +148,7 @@ pub mod volumes;
 
 pub use detail::file_detail;
 pub use folders::FolderRow;
+pub(crate) use folders::push_child_segment;
 pub use items::{ITEM_JOINS, file_item, item_columns, item_from_row};
 
 /// The largest page [`FileQuery::items`] returns.
