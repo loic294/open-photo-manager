@@ -48,6 +48,10 @@ async fn validate(
     let Some(row) = live(&ctx.db, item.file_id).await? else {
         return Ok(Err("file_gone"));
     };
+    let mut identities = ctx.db.read().acquire().await?;
+    if !crate::plans::file_identity::is_live(&mut identities, ctx.plan_id, item.file_id).await? {
+        return Ok(Err("stale_plan"));
+    }
     if row.volume_id != item.src_volume_id
         || row.dir_path != item.src_dir
         || row.name != item.src_name
@@ -57,6 +61,9 @@ async fn validate(
         return Ok(Err("stale_plan"));
     }
     let counterpart = if let Some(id) = item.counterpart_id {
+        if !crate::plans::file_identity::is_live(&mut identities, ctx.plan_id, id).await? {
+            return Ok(Err("stale_match"));
+        }
         let Some(other) = live(&ctx.db, id).await? else {
             return Ok(Err("stale_match"));
         };
@@ -202,6 +209,21 @@ pub(super) async fn execute(ctx: ExecContext, plan: &Plan) -> Result<PlanResult,
             .await?;
             if target.is_some_and(|id| Some(id) != item.replaced_id || all_sources.contains(&id)) {
                 effective = ConflictPolicy::Rename;
+            }
+            if let Some(id) = target
+                && Some(id) == item.replaced_id
+            {
+                let mut identities = ctx.db.read().acquire().await?;
+                if !crate::plans::file_identity::is_live(&mut identities, ctx.plan_id, id).await? {
+                    result.skip_with_detail(
+                        Some(item.file_id),
+                        display,
+                        "stale_plan",
+                        "The planned replacement was deleted or replaced; build a fresh plan",
+                    );
+                    ctx.item_processed();
+                    continue;
+                }
             }
         }
         let request = MoveRequest {

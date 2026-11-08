@@ -36,52 +36,51 @@ fn predicate(qb: &mut QueryBuilder<Sqlite>, plan: PlanId, view: &GhostView, recu
         qb.push("m.dst_dir = ")
             .push_bind(view.dir.as_str().to_owned());
     }
+}
 
-    #[cfg(test)]
-    mod tests {
-        use super::*;
-        use sqlx::Execute;
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use sqlx::Execute;
 
-        #[tokio::test]
-        async fn name_page_and_exact_count_use_the_destination_index_without_a_temp_sort() {
-            let temp = Db::open_temp().await.unwrap();
-            let view = GhostView {
-                volume_id: 1,
-                dir: RelPath::new("out").unwrap(),
-                filter: Default::default(),
-                sort: SortKey::Name,
-                order: SortOrder::Asc,
-            };
-            let filter = filter(&view).unwrap();
-            for mut statement in [
-                count_statement(1, &view, &filter),
-                page_statement(1, &view, &filter, Window { skip: 0, take: 200 }),
-            ] {
-                let mut built = statement.build();
-                let arguments = built.take_arguments().unwrap().unwrap_or_default();
-                let sql = format!("EXPLAIN QUERY PLAN {}", built.sql().as_str());
-                let rows: Vec<(i64, i64, i64, String)> =
-                    sqlx::query_as_with(sqlx::AssertSqlSafe(sql), arguments)
-                        .fetch_all(temp.read())
-                        .await
-                        .unwrap();
-                let details: Vec<_> = rows.into_iter().map(|(_, _, _, detail)| detail).collect();
-                assert!(
-                    details.iter().any(|d| d.contains("move_items_destination")),
-                    "{details:?}"
-                );
-                assert!(
-                    !details.iter().any(|d| d.contains("TEMP B-TREE")),
-                    "{details:?}"
-                );
-            }
+    #[tokio::test]
+    async fn name_page_and_exact_count_use_the_destination_index_without_a_temp_sort() {
+        let temp = Db::open_temp().await.unwrap();
+        let view = GhostView {
+            volume_id: 1,
+            dir: RelPath::new("out").unwrap(),
+            filter: Default::default(),
+            sort: SortKey::Name,
+            order: SortOrder::Asc,
+        };
+        let filter = filter(&view).unwrap();
+        for mut statement in [
+            count_statement(1, &view, &filter),
+            page_statement(1, &view, &filter, Window { skip: 0, take: 200 }),
+        ] {
+            let mut built = statement.build();
+            let arguments = built.take_arguments().unwrap().unwrap_or_default();
+            let sql = format!("EXPLAIN QUERY PLAN {}", built.sql().as_str());
+            let rows: Vec<(i64, i64, i64, String)> =
+                sqlx::query_as_with(sqlx::AssertSqlSafe(sql), arguments)
+                    .fetch_all(temp.read())
+                    .await
+                    .unwrap();
+            let details: Vec<_> = rows.into_iter().map(|(_, _, _, detail)| detail).collect();
+            assert!(
+                details.iter().any(|d| d.contains("move_items_destination")),
+                "{details:?}"
+            );
+            assert!(
+                !details.iter().any(|d| d.contains("TEMP B-TREE")),
+                "{details:?}"
+            );
         }
     }
 }
-
 fn count_statement(plan: PlanId, view: &GhostView, filter: &FileQuery) -> QueryBuilder<Sqlite> {
     let mut qb = QueryBuilder::<Sqlite>::new(
-        "SELECT COUNT(*) FROM move_items m JOIN files f ON f.id = m.file_id WHERE ",
+        "SELECT COUNT(*) FROM move_items m JOIN files f ON f.id = m.file_id JOIN plan_file_tracking t ON t.plan_id = m.plan_id JOIN plan_file_identities i ON i.plan_id = t.plan_id AND i.file_id = m.file_id AND i.live = 1 WHERE ",
     );
     predicate(&mut qb, plan, view, false);
     qb.push(" AND ");
@@ -96,7 +95,7 @@ fn page_statement(
     window: Window,
 ) -> QueryBuilder<Sqlite> {
     let mut qb = QueryBuilder::<Sqlite>::new(format!(
-        "SELECT {}, m.dst_volume_id, m.dst_dir, m.dst_name FROM move_items m JOIN files f ON f.id = m.file_id {ITEM_JOINS} WHERE ",
+        "SELECT {}, m.dst_volume_id, m.dst_dir, m.dst_name FROM move_items m JOIN files f ON f.id = m.file_id JOIN plan_file_tracking t ON t.plan_id = m.plan_id JOIN plan_file_identities i ON i.plan_id = t.plan_id AND i.file_id = m.file_id AND i.live = 1 {ITEM_JOINS} WHERE ",
         item_columns("f")
     ));
     predicate(&mut qb, plan, view, false);
@@ -120,7 +119,7 @@ fn page_statement(
     if view.sort != SortKey::Name {
         qb.push(", m.dst_name_norm ASC");
     }
-    qb.push(", f.id ASC LIMIT ")
+    qb.push(", m.file_id ASC LIMIT ")
         .push_bind(window.take.max(0))
         .push(" OFFSET ")
         .push_bind(window.skip.max(0));
@@ -172,7 +171,7 @@ pub(super) async fn flags(
     for ids in ids.chunks(30_000) {
         let mut qb = QueryBuilder::<Sqlite>::new(match side {
             PlanSide::Source => {
-                "SELECT m.file_id, 1 AS matched, 0 AS will_delete FROM move_items m JOIN files f ON f.id = m.file_id WHERE m.status = 'move' AND m.plan_id = "
+                "SELECT m.file_id, 1 AS matched, 0 AS will_delete FROM move_items m JOIN files f ON f.id = m.file_id JOIN plan_file_tracking t ON t.plan_id = m.plan_id JOIN plan_file_identities i ON i.plan_id = t.plan_id AND i.file_id = m.file_id AND i.live = 1 WHERE m.status = 'move' AND m.plan_id = "
             }
             PlanSide::Comparison => {
                 "SELECT x.id, MAX(matched), MAX(will_delete) FROM (SELECT m.counterpart_id AS id, 1 AS matched, 0 AS will_delete FROM move_items m WHERE m.counterpart_id IS NOT NULL AND m.plan_id = "
@@ -180,7 +179,7 @@ pub(super) async fn flags(
         });
         qb.push_bind(plan);
         if side == PlanSide::Comparison {
-            qb.push(" UNION ALL SELECT m.replaced_id, 0, 1 FROM move_items m WHERE m.replaced_id IS NOT NULL AND m.status = 'move' AND m.plan_id = ").push_bind(plan).push(") x JOIN files f ON f.id = x.id WHERE x.id IN (");
+            qb.push(" UNION ALL SELECT m.replaced_id, 0, 1 FROM move_items m WHERE m.replaced_id IS NOT NULL AND m.status = 'move' AND m.plan_id = ").push_bind(plan).push(") x JOIN files f ON f.id = x.id JOIN plan_file_tracking t ON t.plan_id = ").push_bind(plan).push(" JOIN plan_file_identities i ON i.plan_id = t.plan_id AND i.file_id = x.id AND i.live = 1 WHERE x.id IN (");
         } else {
             qb.push(" AND m.file_id IN (");
         }
@@ -214,7 +213,7 @@ pub(super) async fn ids(db: &Db, plan: PlanId, side: PlanSide) -> Result<Vec<Fil
     if side == PlanSide::Comparison {
         return Ok(Vec::new());
     }
-    Ok(sqlx::query_scalar("SELECT m.file_id FROM move_items m JOIN files f ON f.id = m.file_id WHERE m.plan_id = ? AND m.status = 'move' ORDER BY m.file_id")
+    Ok(sqlx::query_scalar("SELECT m.file_id FROM move_items m JOIN files f ON f.id = m.file_id JOIN plan_file_tracking t ON t.plan_id = m.plan_id JOIN plan_file_identities i ON i.plan_id = t.plan_id AND i.file_id = m.file_id AND i.live = 1 WHERE m.plan_id = ? AND m.status = 'move' ORDER BY m.file_id")
         .bind(plan).fetch_all(db.read()).await?)
 }
 
@@ -233,7 +232,7 @@ pub(super) async fn folders(
         "WITH per_dir AS (SELECT m.dst_dir, COUNT(*) AS total, SUM(CASE WHEN ",
     );
     filter.push_where(&mut qb, "f");
-    qb.push(" THEN 1 ELSE 0 END) AS cnt FROM move_items m JOIN files f ON f.id = m.file_id WHERE ");
+    qb.push(" THEN 1 ELSE 0 END) AS cnt FROM move_items m JOIN files f ON f.id = m.file_id JOIN plan_file_tracking t ON t.plan_id = m.plan_id JOIN plan_file_identities i ON i.plan_id = t.plan_id AND i.file_id = m.file_id AND i.live = 1 WHERE ");
     predicate(&mut qb, plan, view, true);
     qb.push(" GROUP BY m.dst_dir) SELECT ");
     push_child_segment(&mut qb, "dst_dir", view.dir.as_str());

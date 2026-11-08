@@ -1090,6 +1090,73 @@ async fn cancellation_after_first_move_keeps_partial_result_and_finishes_exact_s
 }
 
 #[tokio::test]
+async fn reused_counterpart_and_replacement_ids_fail_closed_with_identical_index_facts() {
+    for kind in [MoveType::KeepDestination, MoveType::Flat] {
+        let app = TestApp::new().await;
+        let (v, tree) = app.add_volume("photos").await;
+        let name = if kind == MoveType::KeepDestination {
+            "counterpart.jpg"
+        } else {
+            "one.jpg"
+        };
+        tree.write("src/one.jpg", b"photo");
+        tree.write(&format!("out/{name}"), b"other");
+        let seed = Seed::new(&app.state.db);
+        seed.file(v, "src", "one.jpg")
+            .size(5)
+            .hash(sha1_bytes(b"photo"))
+            .insert()
+            .await;
+        let hash = sha1_bytes(if kind == MoveType::KeepDestination {
+            b"photo"
+        } else {
+            b"other"
+        });
+        let target = seed.file(v, "out", name).size(5).hash(hash).insert().await;
+        ready(&app).await;
+        let mut p = params(kind, v, v);
+        p.conflict_policy = Some(ConflictPolicy::Replace);
+        let plan = build(&app, &p).await;
+        sqlx::query("DELETE FROM files WHERE id = ?")
+            .bind(target)
+            .execute(app.state.db.write())
+            .await
+            .unwrap();
+        let new = seed.file(v, "out", name).size(5).hash(hash).insert().await;
+        assert_eq!(new, target);
+        ready(&app).await;
+        let flags = app
+            .state
+            .plans
+            .item_flags(
+                PlanRef {
+                    plan_id: plan.id,
+                    side: PlanSide::Comparison,
+                },
+                &[new],
+            )
+            .await
+            .unwrap();
+        assert!(flags.is_empty());
+        let (result, _) = run(&app, plan.id, None).await;
+        assert_eq!((result.done, result.skipped, result.failed), (0, 1, 0));
+        assert_eq!(
+            result.failures[0].code,
+            if kind == MoveType::KeepDestination {
+                "stale_match"
+            } else {
+                "stale_plan"
+            }
+        );
+        assert_eq!(std::fs::read(tree.path("src/one.jpg")).unwrap(), b"photo");
+        assert_eq!(
+            std::fs::read(tree.path(&format!("out/{name}"))).unwrap(),
+            b"other"
+        );
+    }
+}
+
+#[tokio::test]
 async fn deleted_source_incarnation_is_not_revived_by_identical_index_facts() {
     let app = TestApp::new().await;
     let (v, tree) = app.add_volume("photos").await;

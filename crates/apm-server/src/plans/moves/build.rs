@@ -145,6 +145,9 @@ pub(super) async fn build(ctx: &BuildContext, value: Value) -> Result<Built, Pla
         .conflict_policy
         .unwrap_or(ctx.settings.default_conflict_policy);
     let query = params::source_query(&p.source)?;
+    let mut registration = ctx.db.begin_write().await?;
+    crate::plans::file_identity::begin(&mut registration, ctx.plan_id).await?;
+    registration.commit().await?;
     let mut read = ctx.db.read().begin().await?;
     let mut ids_query = QueryBuilder::<Sqlite>::new("SELECT f.id FROM files f WHERE ");
     query.push_where(&mut ids_query, "f");
@@ -157,6 +160,11 @@ pub(super) async fn build(ctx: &BuildContext, value: Value) -> Result<Built, Pla
     let sources: HashSet<_> = ids.iter().copied().collect();
     let links = sidecars::links(&mut read, &ids).await?;
     let counterparts = counterparts(&mut read, ctx, &p).await?;
+    let mut identities = ctx.db.begin_write().await?;
+    crate::plans::file_identity::track(&mut identities, ctx.plan_id, &ids).await?;
+    let counterpart_ids: Vec<_> = counterparts.values().map(|c| c.id).collect();
+    crate::plans::file_identity::track(&mut identities, ctx.plan_id, &counterpart_ids).await?;
+    identities.commit().await?;
     sqlx::query("INSERT INTO move_plans (plan_id, conflict_policy, name_max_len) VALUES (?, ?, ?)")
         .bind(ctx.plan_id)
         .bind(
@@ -261,6 +269,7 @@ pub(super) async fn build(ctx: &BuildContext, value: Value) -> Result<Built, Pla
     let mut written_directories = HashSet::new();
     let mut new_folders = HashSet::new();
     let mut budget = HashBudget::new();
+    let mut replacement_ids = HashSet::new();
     let mut stats: BTreeMap<String, u64> = [
         "candidates",
         "to_move",
@@ -360,6 +369,9 @@ pub(super) async fn build(ctx: &BuildContext, value: Value) -> Result<Built, Pla
                 }
             };
         let key = if status == "move" { "to_move" } else { status };
+        if let Some(id) = replaced {
+            replacement_ids.insert(id);
+        }
         *stats.entry(key.into()).or_default() += 1;
         writer
             .push((
@@ -374,6 +386,14 @@ pub(super) async fn build(ctx: &BuildContext, value: Value) -> Result<Built, Pla
     }
     drop(rows);
     let items = writer.finish().await?;
+    let mut identities = ctx.db.begin_write().await?;
+    crate::plans::file_identity::track(
+        &mut identities,
+        ctx.plan_id,
+        &replacement_ids.into_iter().collect::<Vec<_>>(),
+    )
+    .await?;
+    identities.commit().await?;
     *stats.entry("new_folders".into()).or_default() = new_folders.len() as u64;
     *stats.entry("destination_folders".into()).or_default() = written_directories.len() as u64;
     warnings.insert("renames", stats["renamed"]);

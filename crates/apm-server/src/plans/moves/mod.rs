@@ -49,7 +49,12 @@ impl Planner for MovePlanner {
         PlanKind::Move
     }
     fn child_tables(&self) -> &'static [&'static str] {
-        &["move_items", "move_plans"]
+        &[
+            "plan_file_tracking",
+            "plan_file_identities",
+            "move_items",
+            "move_plans",
+        ]
     }
     fn build<'a>(
         &'a self,
