@@ -6,6 +6,7 @@
 //!
 //! Release scale (200k sources, n=3; all values min/median/max milliseconds):
 //! | Type | Build | Ghost page + total | Flags | Preview |
+//! | --- | --- | --- | --- | --- |
 //! | KeepSource | 3055.465/3151.374/3182.421 | 4.716/5.048/5.280 | .837/.927/1.215 | .224/.243/.811 |
 //! | KeepDestination | 5020.779/5042.105/5043.381 | 5.159/5.174/5.204 | .980/1.005/1.637 | .197/.198/.234 |
 //! | Flat | 2352.146/2372.602/2373.937 | 7.917/8.008/9.536 | .522/.604/.793 | .205/.242/.252 |
@@ -20,6 +21,8 @@
 //! phases before optimizing projection/track batches, preserving the matching and identity seams.
 //! Exact unfiltered counts use the covering move range minus distinct dead dependencies;
 //! build completion verifies identity membership. Pages and filtered counts retain live joins.
+//! Debug diagnostic build medians were 11257.868/14785.409/8605.799/13002.953 ms
+//! in the same type order; debug mode reports timings without enforcing release thresholds.
 
 mod build;
 mod conflicts;
