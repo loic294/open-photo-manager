@@ -42,6 +42,24 @@ export function indexSnapshot(app: AppInstance) {
   );
 }
 
+export async function captureReadOnly(app: AppInstance) {
+  return {
+    tree: await snapshotTree(app.volumesDir, { hash: true }),
+    index: ['files', 'dirs', 'cameras', 'tags', 'file_tags', 'file_sidecars'].map((table) =>
+      app.sql(`SELECT * FROM ${table}`),
+    ),
+  };
+}
+
+export async function assertReadOnly(
+  app: AppInstance,
+  before: Awaited<ReturnType<typeof captureReadOnly>>,
+) {
+  const after = await captureReadOnly(app);
+  expect(after.tree, 'sharedApp volume mutation').toEqual(before.tree);
+  expect(after.index, 'sharedApp index mutation').toEqual(before.index);
+}
+
 export const test = base.extend<Fixtures, Workers>({
   allowedErrors: [[], { option: true }],
   appOptions: [{}, { option: true }],
@@ -97,14 +115,9 @@ export const test = base.extend<Fixtures, Workers>({
   },
   readOnlyGuard: [
     async ({ sharedApp }, use) => {
-      const tree = await snapshotTree(sharedApp.volumesDir, { hash: true });
-      const index = indexSnapshot(sharedApp);
+      const before = await captureReadOnly(sharedApp);
       await use(undefined);
-      expect(
-        await snapshotTree(sharedApp.volumesDir, { hash: true }),
-        'sharedApp volume mutation',
-      ).toEqual(tree);
-      expect(indexSnapshot(sharedApp), 'sharedApp index mutation').toEqual(index);
+      await assertReadOnly(sharedApp, before);
     },
     { auto: true },
   ],

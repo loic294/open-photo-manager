@@ -35,3 +35,48 @@ test('folder navigation is independent and survives history and reload', async (
   await page.goForward();
   await expect(source.breadcrumbs()).toContainText('media');
 });
+
+test('folders precede files with right-aligned counts and filtered footer totals', async ({
+  page,
+  sharedApp,
+  source,
+  bottomBar,
+  filterBar,
+  manifest,
+}) => {
+  const file = fixture(manifest, 'sidecar.exact');
+  await page.goto(browseUrl(sharedApp.url, file.volume));
+  await expect.poll(() => source.folderNames()).not.toEqual([]);
+  const volume = (await sharedApp.api.volumes()).find((entry) => entry.name === file.volume);
+  if (!volume) throw new Error(`Missing fixture volume ${file.volume}`);
+  const request = {
+    volume_id: volume.id,
+    dir: '',
+    plan: null,
+    filter: { cameras: [], ratings: [], flags: [], tags: [], selection_id: null },
+  };
+  const folders = await sharedApp.api.folders(request);
+  expect(await source.foldersBeforeFiles()).toBe(true);
+  const folder = folders.folders.find((entry) => entry.path === file.dir);
+  if (!folder) throw new Error(`Missing scenario folder ${file.dir}`);
+  expect((await source.folderState(folder.name)).count).toBe(folder.count.toLocaleString('en-US'));
+  const geometry = await source.folderGeometry(folder.name);
+  expect(geometry.countLeft).toBeGreaterThanOrEqual(geometry.nameRight ?? 0);
+  await expect
+    .poll(() => bottomBar.counts('source'))
+    .toContain(`${folders.counts.in_folder.toLocaleString('en-US')} in folder`);
+  await expect
+    .poll(() => bottomBar.counts('source'))
+    .toContain(`${folders.counts.in_subfolders.toLocaleString('en-US')} in subfolders`);
+  await filterBar.camera(file.camera_expected ?? '');
+  const filtered = await sharedApp.api.folders({
+    ...request,
+    filter: { ...request.filter, cameras: [file.camera_expected ?? ''] },
+  });
+  expect(filtered.counts.in_subfolders).toBeLessThan(folders.counts.in_subfolders);
+  await expect
+    .poll(() => bottomBar.counts('source'))
+    .toContain(`${filtered.counts.in_subfolders.toLocaleString('en-US')} in subfolders`);
+});
+
+import { browseUrl, fixture } from '../src/scenarios';

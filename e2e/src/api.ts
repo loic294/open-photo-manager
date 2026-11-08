@@ -12,6 +12,17 @@ import type { VolumeDto } from '../../web/src/api/generated/VolumeDto';
 
 export const emptyFilter = { cameras: [], ratings: [], flags: [], tags: [], selection_id: null };
 
+export class ApiFailure extends Error {
+  constructor(
+    readonly status: number,
+    readonly responseBody: string,
+    method: string,
+    path: string,
+  ) {
+    super(`${method} ${path}: ${status} ${responseBody}`);
+  }
+}
+
 export class Api {
   constructor(private origin: () => string) {}
 
@@ -28,8 +39,7 @@ export class Api {
       body: body === undefined ? undefined : JSON.stringify(body),
       signal: AbortSignal.timeout(15_000),
     });
-    if (!response.ok)
-      throw new Error(`${method} ${path}: ${response.status} ${await response.text()}`);
+    if (!response.ok) throw new ApiFailure(response.status, await response.text(), method, path);
     if (response.status === 204) return undefined as T;
     return response.json() as Promise<T>;
   }

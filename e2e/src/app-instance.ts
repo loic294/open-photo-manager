@@ -92,8 +92,7 @@ export class AppInstance {
         await expect
           .poll(async () => {
             const status = await app.api.indexStatus();
-            if (!('watcher' in status)) throw new Error('Watcher status API has not landed');
-            return status.watcher;
+            return status.watcher?.state;
           })
           .toBe('watching');
       }

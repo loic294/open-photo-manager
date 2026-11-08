@@ -11,7 +11,7 @@ export class FileCard {
   ) {
     this.element = pane
       .getByRole('option')
-      .filter({ has: pane.page().locator('[data-name]').filter({ hasText: name }) });
+      .filter({ has: pane.page().getByText(name, { exact: true }) });
   }
   async click(modifiers: ('ControlOrMeta' | 'Shift')[] = []) {
     await this.element.click({ modifiers });
@@ -19,6 +19,17 @@ export class FileCard {
   async select() {
     await this.element.hover();
     await this.element.getByRole('checkbox', { name: `Select ${this.name}`, exact: true }).click();
+  }
+  async expectCheckboxTopRight() {
+    await this.element.hover();
+    const image = await this.element.locator('figure').boundingBox();
+    const checkbox = await this.element
+      .getByRole('checkbox', { name: `Select ${this.name}`, exact: true })
+      .boundingBox();
+    expect(image).not.toBeNull();
+    expect(checkbox).not.toBeNull();
+    expect(checkbox?.x ?? 0).toBeGreaterThan((image?.x ?? 0) + (image?.width ?? 0) * 0.75);
+    expect(checkbox?.y ?? Infinity).toBeLessThan((image?.y ?? 0) + (image?.height ?? 0) * 0.25);
   }
   async isSelected() {
     return (await this.element.getAttribute('aria-selected')) === 'true';
@@ -86,7 +97,7 @@ export class PanePage {
   }
   folder(name: string) {
     return this.folders().filter({
-      has: this.page.locator('span[title]').filter({ hasText: name }),
+      has: this.page.getByText(name, { exact: true }),
     });
   }
   async openFolder(name: string) {
@@ -102,9 +113,33 @@ export class PanePage {
   async folderState(name: string) {
     return this.folder(name).evaluate((row) => ({
       greyed: row.classList.contains('opacity-50'),
+      red: row.classList.contains('border-error'),
+      planned: row.classList.contains('border-dashed'),
+      count: row.querySelector('.badge[aria-hidden="true"]')?.textContent?.trim(),
+      matches: [...row.querySelectorAll('.badge')]
+        .find((badge) => /\bmatches?\b/.test(badge.textContent ?? ''))
+        ?.textContent?.trim(),
       classes: row.className,
       text: row.textContent,
     }));
+  }
+  async folderGeometry(name: string) {
+    return this.folder(name).evaluate((row) => {
+      const label = row.querySelector('span[title]')?.getBoundingClientRect();
+      const count = row.querySelector('.badge[aria-hidden="true"]')?.getBoundingClientRect();
+      return { nameRight: label?.right, countLeft: count?.left };
+    });
+  }
+  async foldersBeforeFiles() {
+    return this.body.evaluate((body) => {
+      const folders = body.querySelector('apm-folder-list');
+      const files = body.querySelector('apm-file-grid');
+      return (
+        folders !== null &&
+        files !== null &&
+        Boolean(folders.compareDocumentPosition(files) & Node.DOCUMENT_POSITION_FOLLOWING)
+      );
+    });
   }
   breadcrumbs() {
     return this.element.getByRole('navigation');

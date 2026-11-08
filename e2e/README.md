@@ -52,6 +52,7 @@ Paths, port, timezone and production web directory cannot be overridden through 
 | API/disk | `api` uses generated DTOs with matching Host/Origin and `x-apm-request: 1`; `sql(query)` is read-only SQLite; `applyFixtureMutations()` runs the shared script and parses TSV |
 | Fixture catalog | `Manifest.load(outDir)`, `filesOf(key)`, `file(volume,path)`, `scenario(key)`, `duplicateGroups(mode)`, `emptyDirs()` |
 | Disk helpers | `snapshotTree(dir,{hash?})`, `diffTrees`, `expectTree`, `trashEntries`, `writeFile`, `touch`, `removeFile`, `makeDir`, `makeSparseFile` (maximum 4 GiB) |
+| Read-only assertions | `captureReadOnly(app)`, `assertReadOnly(app,before)` compare hashed volume trees and complete files/dirs/cameras/tags/sidecar index tables |
 | Browser helpers | `expectStaysFalse(condition,{forMs})`, `expectNoSeriousA11yViolations(page,{include?,exclude?})`, `captureScreens` |
 | Test fixtures | `app` (test-scoped), `sharedApp` (worker-scoped, read-only), `manifest`, `mockImmich(options?)`, page objects, `allowedErrors`, `appOptions` |
 
@@ -64,6 +65,9 @@ server is fake. The connect acceptance case goes through the real Settings UI, t
 
 Import `test` and `expect` from `src/test.ts`, not a second fixture implementation. Use `sharedApp`
 only for read-only tests: its volume snapshot and logical file-index rows must stay unchanged.
+External mutation helpers reject paths outside private volumes and existing symlink ancestors.
+`waitForIndexed` tolerates only the expected `folder_not_found` response while a new directory is
+not indexed yet; other API failures remain errors.
 Use `app` for mutations and `test.use({ appOptions: ... })` for startup options.
 Choose media by manifest scenario key with `fixture(manifest,key)`; its recorded skip reason is
 used only when the generator could not build that scenario.

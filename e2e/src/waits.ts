@@ -2,6 +2,7 @@ import { stat } from 'node:fs/promises';
 import { basename, dirname } from 'node:path';
 import { setTimeout } from 'node:timers/promises';
 import { expect } from '@playwright/test';
+import { ApiFailure } from './api';
 import type { AppInstance } from './app-instance';
 
 export async function waitForTasksIdle(app: AppInstance, newTaskAfter?: number) {
@@ -47,11 +48,21 @@ export async function waitForIndexed(app: AppInstance, path: string) {
   const [volume, ...parts] = path.split('/');
   const relative = parts.join('/');
   await expect
-    .poll(async () =>
-      (
-        await app.api.listing(volume, dirname(relative) === '.' ? '' : dirname(relative))
-      ).items.some((item) => item.name === basename(relative)),
-    )
+    .poll(async () => {
+      try {
+        return (
+          await app.api.listing(volume, dirname(relative) === '.' ? '' : dirname(relative))
+        ).items.some((item) => item.name === basename(relative));
+      } catch (error) {
+        if (
+          error instanceof ApiFailure &&
+          error.status === 404 &&
+          error.responseBody.includes('folder_not_found')
+        )
+          return false;
+        throw error;
+      }
+    })
     .toBe(true);
 }
 

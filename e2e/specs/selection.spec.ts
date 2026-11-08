@@ -1,7 +1,9 @@
+import { browseUrl, fixture } from '../src/scenarios';
 import { expect, test } from '../src/test';
 
-test.beforeEach(async ({ page, sharedApp }) => {
-  await page.goto(`${sharedApp.url}/browse?src=photos/sidecars&cmp=photos/sidecars`);
+test.beforeEach(async ({ page, sharedApp, manifest }) => {
+  const file = fixture(manifest, 'sidecar.exact');
+  await page.goto(browseUrl(sharedApp.url, `${file.volume}/${file.dir}`));
 });
 
 test('checkbox, modifier click and shift range select in either pane @smoke', async ({
@@ -11,17 +13,20 @@ test('checkbox, modifier click and shift range select in either pane @smoke', as
 }) => {
   await expect.poll(() => source.names()).not.toEqual([]);
   const names = await source.names();
-  const first = source.card(names[0]);
-  await first.select();
-  await expect(first.element).toHaveAttribute('aria-selected', 'true');
-  await first.expectBorder('primary');
-  await source.card(names[1]).click(['ControlOrMeta']);
-  await source.card(names[3]).click(['Shift']);
-  for (const name of names.slice(0, 4))
-    await expect(source.card(name).element).toHaveAttribute('aria-selected', 'true');
-  expect(await comparison.card(names[0]).isSelected()).toBe(false);
-  await comparison.card(names[0]).select();
-  expect(await comparison.card(names[0]).isSelected()).toBe(true);
+  for (const pane of [source, comparison]) {
+    const first = pane.card(names[0]);
+    await first.expectCheckboxTopRight();
+    await first.select();
+    await expect(first.element).toHaveAttribute('aria-selected', 'true');
+    await first.expectBorder('primary');
+    await pane.card(names[1]).click(['ControlOrMeta']);
+    await pane.card(names[3]).click(['Shift']);
+    for (const name of names.slice(0, 4))
+      await expect(pane.card(name).element).toHaveAttribute('aria-selected', 'true');
+    await pane.card(names[1]).click(['ControlOrMeta']);
+    await expect(pane.card(names[1]).element).toHaveAttribute('aria-selected', 'false');
+    if (pane === source) expect(await comparison.card(names[0]).isSelected()).toBe(false);
+  }
   expect(await viewer.isOpen()).toBe(false);
 });
 
@@ -46,17 +51,24 @@ test('keyboard and bottom bar select all real folder IDs; navigation clears', as
   comparison,
   bottomBar,
   sharedApp,
+  manifest,
   page,
 }) => {
   await expect.poll(() => source.names()).not.toEqual([]);
   await source.card((await source.names())[0]).element.focus();
   await page.keyboard.press('ControlOrMeta+A');
-  const listing = await sharedApp.api.listing('photos', 'sidecars');
+  const file = fixture(manifest, 'sidecar.exact');
+  const listing = await sharedApp.api.listing(file.volume, file.dir);
   await expect.poll(() => bottomBar.counts('source')).toContain(`${listing.total} selected`);
+  await comparison.card((await comparison.names())[0]).element.focus();
+  await page.keyboard.press('ControlOrMeta+A');
+  await expect.poll(() => bottomBar.counts('comparison')).toContain(`${listing.total} selected`);
+  await comparison.clear();
   await bottomBar.selectAll('comparison');
   await expect.poll(() => bottomBar.counts('comparison')).toContain(`${listing.total} selected`);
   await source.element.getByRole('button', { name: 'Up one folder' }).click();
   await expect.poll(() => bottomBar.counts('source')).not.toContain('selected');
+  await expect.poll(() => bottomBar.counts('comparison')).toContain(`${listing.total} selected`);
   expect(await comparison.names()).not.toEqual([]);
 });
 

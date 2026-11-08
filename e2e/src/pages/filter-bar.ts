@@ -1,4 +1,4 @@
-import type { Page } from '@playwright/test';
+import { expect, type Page } from '@playwright/test';
 
 export class FilterBarPage {
   readonly element;
@@ -35,6 +35,9 @@ export class FilterBarPage {
   }
   async clear() {
     await this.element.getByRole('button', { name: /^Clear filters/ }).click();
+  }
+  async waitForCountedFacets() {
+    await expect(this.element.getByRole('button', { name: /^Unrated \(\d+\)$/ })).toBeVisible();
   }
   async hideUnmatched(value: boolean) {
     await this.element

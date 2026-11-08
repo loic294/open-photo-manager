@@ -10,7 +10,7 @@ import {
   utimes,
   writeFile as write,
 } from 'node:fs/promises';
-import { dirname, join } from 'node:path';
+import { dirname, join, relative } from 'node:path';
 import { expect } from '@playwright/test';
 import type { AppInstance } from './app-instance';
 
@@ -83,27 +83,47 @@ export async function expectTree(dir: string, expected: TreeEntry[]) {
 }
 export async function trashEntries(app: AppInstance) {
   return (await snapshotTree(app.volumesDir)).filter(
-    (entry) => entry.path.includes('/.apm-trash/') && entry.type !== 'directory',
+    (entry) =>
+      entry.path.split('/')[1] === '.apm-trash' &&
+      entry.path.split('/').length >= 4 &&
+      entry.type !== 'directory',
   );
 }
+
+async function mutationPath(app: AppInstance, volume: string, relPath: string) {
+  const path = app.volumePath(`${volume}/${relPath}`);
+  let current = app.volumesDir;
+  for (const segment of relative(app.volumesDir, path).split('/')) {
+    current = join(current, segment);
+    try {
+      if ((await lstat(current)).isSymbolicLink())
+        throw new Error(`Fixture mutation cannot follow symlink ${current}`);
+    } catch (error) {
+      if ((error as NodeJS.ErrnoException).code === 'ENOENT') break;
+      throw error;
+    }
+  }
+  return path;
+}
+
 export async function writeFile(
   app: AppInstance,
   volume: string,
   relPath: string,
   content: string | Uint8Array,
 ) {
-  const path = app.volumePath(`${volume}/${relPath}`);
+  const path = await mutationPath(app, volume, relPath);
   await mkdir(dirname(path), { recursive: true });
   await write(path, content);
 }
 export async function touch(app: AppInstance, volume: string, relPath: string, time = new Date()) {
-  await utimes(app.volumePath(`${volume}/${relPath}`), time, time);
+  await utimes(await mutationPath(app, volume, relPath), time, time);
 }
 export async function removeFile(app: AppInstance, volume: string, relPath: string) {
-  await rm(app.volumePath(`${volume}/${relPath}`));
+  await rm(await mutationPath(app, volume, relPath));
 }
 export async function makeDir(app: AppInstance, volume: string, relPath: string) {
-  await mkdir(app.volumePath(`${volume}/${relPath}`), { recursive: true });
+  await mkdir(await mutationPath(app, volume, relPath), { recursive: true });
 }
 export async function makeSparseFile(
   app: AppInstance,
@@ -114,7 +134,7 @@ export async function makeSparseFile(
   if (!Number.isSafeInteger(bytes) || bytes < 0 || bytes > 4 * 1024 ** 3)
     throw new Error('Sparse file must be between 0 and 4 GiB');
   await makeDir(app, volume, dirname(relPath));
-  const file = await open(app.volumePath(`${volume}/${relPath}`), 'w');
+  const file = await open(await mutationPath(app, volume, relPath), 'w');
   try {
     await file.truncate(bytes);
   } finally {

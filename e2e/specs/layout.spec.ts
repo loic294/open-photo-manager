@@ -12,13 +12,15 @@ for (const viewport of [
     source,
     comparison,
     bottomBar,
+    filterBar,
     shell,
     manifest,
   }) => {
     await page.setViewportSize(viewport);
-    const file = fixture(manifest, 'sidecar.exact');
+    const file = fixture(manifest, 'deep.grid_500');
     await page.goto(browseUrl(sharedApp.url, `${file.volume}/${file.dir}`));
     await expect(source.card(file.name).element).toBeVisible();
+    await filterBar.waitForCountedFacets();
     const a = await source.element.boundingBox();
     const b = await comparison.element.boundingBox();
     expect(a).not.toBeNull();
@@ -27,11 +29,15 @@ for (const viewport of [
     expect(a?.y).toBe(b?.y);
     expect(b?.x ?? 0).toBeGreaterThan(a?.x ?? 0);
     const top = await shell.topBar().boundingBox();
+    const filters = await filterBar.element.boundingBox();
     const bottom = await bottomBar.element.boundingBox();
+    const menu = await shell.menu().boundingBox();
+    expect((menu?.x ?? 0) + (menu?.width ?? 0)).toBeLessThanOrEqual(a?.x ?? 0);
     await source.scrollToEnd();
     expect(await source.scrollTop()).toBeGreaterThan(0);
     expect(await comparison.scrollTop()).toBe(0);
     expect(await shell.topBar().boundingBox()).toEqual(top);
+    expect(await filterBar.element.boundingBox()).toEqual(filters);
     expect(await bottomBar.element.boundingBox()).toEqual(bottom);
     for (const theme of ['light', 'dark'] as const) {
       await shell.theme(theme);
