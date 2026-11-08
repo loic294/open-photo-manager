@@ -41,6 +41,8 @@ export interface MockImmichOptions {
   tls?: boolean;
   /** Refresh external backing state before API reads that expose asset paths. */
   beforeAssetRead?: () => Promise<void>;
+  /** Refuse model mutations the external backing store does not yet support. */
+  readOnlyBacking?: () => boolean;
 }
 
 export interface MockImmich {
@@ -72,6 +74,7 @@ const OPTION_KEYS = [
   'latencyMs',
   'tls',
   'beforeAssetRead',
+  'readOnlyBacking',
 ];
 
 function checkOptions(options: MockImmichOptions): void {
@@ -85,6 +88,9 @@ function checkOptions(options: MockImmichOptions): void {
   c.boolean('tls');
   if (options.beforeAssetRead !== undefined && typeof options.beforeAssetRead !== 'function') {
     c.fail('beforeAssetRead', 'must be a function');
+  }
+  if (options.readOnlyBacking !== undefined && typeof options.readOnlyBacking !== 'function') {
+    c.fail('readOnlyBacking', 'must be a function');
   }
   if (c.errors.length > 0) {
     throw new Error(`invalid options:\n  - ${c.errors.join('\n  - ')}`);
@@ -144,6 +150,7 @@ export async function startMockImmich(options: MockImmichOptions = {}): Promise<
     scans: new Map(),
     stopSignal: abort.signal,
     beforeAssetRead: options.beforeAssetRead,
+    readOnlyBacking: options.readOnlyBacking,
   };
   seedData(ctx);
 

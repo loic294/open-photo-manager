@@ -32,4 +32,5 @@ export interface MockContext {
   /** Aborted by `stop()`: cuts the waits of scans. */
   stopSignal: AbortSignal;
   beforeAssetRead?: () => Promise<void>;
+  readOnlyBacking?: () => boolean;
 }

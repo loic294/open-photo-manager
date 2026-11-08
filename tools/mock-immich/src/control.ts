@@ -330,8 +330,14 @@ function reconcileAssetPaths(ctx: MockContext, rows: readonly BackingAssetPath[]
 }
 
 export function createControl(ctx: MockContext): MockControl {
+  const requireWritable = () => {
+    if (ctx.readOnlyBacking?.()) {
+      throw new Error('backing store does not support mock mutations');
+    }
+  };
   return {
     async scan(ref) {
+      requireWritable();
       const queued = librariesFor(ctx, ref).map((library) => queueScan(ctx, library.id, 0));
       await Promise.all(queued.map(({ done }) => done));
       return queued.map(({ job }) => structuredClone(job));
@@ -349,7 +355,10 @@ export function createControl(ctx: MockContext): MockControl {
       }
       return revoked;
     },
-    reset: () => resetState(ctx),
+    reset: () => {
+      requireWritable();
+      resetState(ctx);
+    },
     gate(match, options = {}) {
       const c = createChecker({ times: options.times });
       const times = c.integer('times', { min: 1 });
@@ -365,8 +374,14 @@ export function createControl(ctx: MockContext): MockControl {
       c.done();
       ctx.settings.latencyMs = value ?? 0;
     },
-    generate: (options) => runGenerate(ctx, options),
-    addAssets: (inputs) => runAddAssets(ctx, inputs),
+    generate: (options) => {
+      requireWritable();
+      return runGenerate(ctx, options);
+    },
+    addAssets: (inputs) => {
+      requireWritable();
+      return runAddAssets(ctx, inputs);
+    },
     reconcileAssetPaths: (rows) => reconcileAssetPaths(ctx, rows),
   };
 }

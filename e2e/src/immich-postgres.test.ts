@@ -10,14 +10,17 @@ test('real v3.3.3 SQL path updates are visible through the mock API', {
   const database = await ImmichPostgres.start();
   t.after(() => database.stop());
   let mock: MockImmich;
+  let seeded = false;
   mock = await startMockImmich({
     scenario: scenarioFiles.fixtures,
     serverVersion: '3.3.3',
     beforeAssetRead: () => database.refreshMock(mock),
+    readOnlyBacking: () => seeded,
   });
   t.after(() => mock.stop());
   mock.control.addAssets([{ path: '/mnt/photos/old.jpg', isFavorite: true }]);
   await database.seedMock(mock);
+  seeded = true;
   const asset = mock.state.assetByPath('/mnt/photos/old.jpg');
   assert.ok(asset);
   const id = String(asset.id);

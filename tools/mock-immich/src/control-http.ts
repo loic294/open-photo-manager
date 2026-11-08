@@ -72,10 +72,14 @@ export function createControlRouter(
         const c = createChecker(body);
         c.only(['assets']);
         c.done();
+        if (ctx.readOnlyBacking?.()) throw new ApiError(503, 'backing store is read-only');
         return ok(runAddAssets(ctx, c.obj.assets));
       },
 
-      'POST /__mock/generate': ({ body }) => ok(runGenerate(ctx, body)),
+      'POST /__mock/generate': ({ body }) => {
+        if (ctx.readOnlyBacking?.()) throw new ApiError(503, 'backing store is read-only');
+        return ok(runGenerate(ctx, body));
+      },
 
       'POST /__mock/latency': ({ body }) => {
         const c = createChecker(body);

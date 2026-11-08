@@ -83,6 +83,16 @@ export function createRequestHandler(
       }
 
       if (
+        ctx.readOnlyBacking?.() &&
+        ((method === 'PUT' && (path === '/api/assets' || path.startsWith('/api/libraries/'))) ||
+          (method === 'DELETE' && path === '/api/assets') ||
+          (method === 'POST' && /^\/api\/libraries\/[^/]+\/scan$/.test(path)) ||
+          (method === 'PUT' && /^\/api\/albums\/[^/]+\/assets$/.test(path)) ||
+          (method === 'PUT' && path === '/api/tags/assets'))
+      ) {
+        throw new ApiError(503, 'backing store does not support mock mutations');
+      }
+      if (
         ctx.beforeAssetRead &&
         ((method === 'GET' &&
           (path.startsWith('/api/assets/') || path.startsWith('/api/libraries'))) ||

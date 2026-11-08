@@ -86,6 +86,7 @@ test('backing refresh runs before asset reads and failures cannot return stale r
       mock.control.reconcileAssetPaths(rows);
     },
   });
+
   const { key } = await connect(mock);
   mock.control.addAssets([{ path: '/mnt/photo/old.jpg' }]);
   rows = mock.state.assets().map((asset) => ({
@@ -105,4 +106,25 @@ test('backing refresh runs before asset reads and failures cannot return stale r
   fail = true;
   const rejected = await call(mock, 'GET', `/api/assets/${id}`, { key });
   assert.equal(rejected.status, 500);
+});
+
+test('unsupported writes are refused rather than diverging from the backing database', async (t) => {
+  let active = false;
+  const mock = await startMock(t, { readOnlyBacking: () => active });
+  const { key } = await connect(mock);
+  const added = mock.control.addAssets([{ path: '/mnt/photo/old.jpg' }]);
+  active = true;
+  const before = mock.state.assets();
+  for (const [method, path, body] of [
+    ['DELETE', '/api/assets', { ids: [added.items[0]?.id], force: true }],
+    ['PUT', '/api/assets', { ids: [added.items[0]?.id], isFavorite: true }],
+    ['POST', `/api/libraries/${before[0]?.libraryId}/scan`, {}],
+  ] as const) {
+    const response = await call(mock, method, path, { key, body });
+    assert.equal(response.status, 503);
+  }
+  await assert.rejects(() => mock.control.scan(), /does not support mock mutations/);
+  assert.throws(() => mock.control.addAssets([{ path: '/mnt/photo/new.jpg' }]), /backing store/);
+  assert.deepEqual(mock.state.assets(), before);
+  assert.deepEqual(mock.state.violations(), []);
 });
