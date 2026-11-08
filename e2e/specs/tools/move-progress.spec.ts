@@ -156,7 +156,7 @@ test('cross-volume move reports progress, queues later work, and preserves a can
     await app.rescan();
     const task = await startMove(app, page, source, movePage, confirmDialog);
     await waitForCopyProgress(app, shell, task.id);
-    await waitForSustainedProgress(app, task.id, performance.now());
+    const copyStartedAt = performance.now();
 
     const queuedTask = await startMove(app, page, source, movePage, confirmDialog, {
       fileName: queuedName,
@@ -166,6 +166,7 @@ test('cross-volume move reports progress, queues later work, and preserves a can
     await expect
       .poll(async () => (await app.api.tasks()).find((entry) => entry.id === queuedTask.id)?.state)
       .toBe('queued');
+    await waitForSustainedProgress(app, task.id, copyStartedAt);
     const row = await waitForCopyProgress(app, shell, task.id);
     const cancel = row.getByRole('button', { name: /^Cancel / });
     await cancel.click();
