@@ -86,7 +86,15 @@ impl AppState {
             fsops.clone(),
             shutdown.clone(),
         );
-        let plans = plans::PlanService::new();
+        let plans = plans::PlanService::new(plans::PlanDeps {
+            db: db.clone(),
+            fsops: fsops.clone(),
+            settings: settings.clone(),
+            shutdown: shutdown.clone(),
+            tasks: tasks.clone(),
+            volumes: volumes.clone(),
+        })
+        .await?;
 
         let immich = immich::ImmichService::new(db.clone(), config.data_dir.clone());
 
@@ -125,6 +133,7 @@ impl AppState {
     /// database line.
     pub async fn shutdown(&self) {
         self.tasks.shutdown().await;
+        self.plans.shutdown().await;
         // Keep last: every other service may still write while it stops.
         self.db.close().await;
     }

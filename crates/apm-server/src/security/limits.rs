@@ -41,6 +41,7 @@ use http_body_util::{BodyExt, LengthLimitError, Limited};
 
 use super::SecurityOptions;
 use crate::error::AppError;
+use crate::plans::BUILD_TIMEOUT;
 
 /// Request body limit when no policy says otherwise: 1 MiB.
 pub const DEFAULT_MAX_BODY_BYTES: usize = 1024 * 1024;
@@ -50,6 +51,9 @@ pub const DEFAULT_REQUEST_TIMEOUT: Duration = Duration::from_secs(30);
 
 /// Body limit of the routes that receive large id sets.
 const LARGE_BODY_BYTES: usize = 16 * 1024 * 1024;
+
+/// How much longer than a plan build the request that waits for it may take.
+const PLAN_REQUEST_MARGIN: Duration = Duration::from_secs(15);
 
 /// How a policy changes the timeout of its routes.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -144,6 +148,11 @@ pub fn default_policies() -> Vec<RoutePolicy> {
         RoutePolicy::new("/api/files/{id}/content").without_timeout(),
         // "Select all" in a large library posts every id.
         RoutePolicy::new("/api/selections").with_max_body(LARGE_BODY_BYTES),
+        // A plan is built while the request waits. The engine times a build out by itself (503
+        // `plan_build_timeout`), so this limit only has to be a little longer.
+        RoutePolicy::new("/api/plans").with_timeout(BUILD_TIMEOUT + PLAN_REQUEST_MARGIN),
+        // The explicit selection of a pane, handed over with the plan, can hold every id.
+        RoutePolicy::new("/api/plans/{id}/selection").with_max_body(LARGE_BODY_BYTES),
     ]
 }
 
@@ -334,6 +343,42 @@ mod tests {
             options().limits_for("/api/selections/7").max_body_bytes,
             DEFAULT_MAX_BODY_BYTES
         );
+    }
+
+    #[test]
+    fn a_plan_may_be_built_while_the_request_waits() {
+        let limits = options().limits_for("/api/plans");
+        assert_eq!(limits.timeout, Some(BUILD_TIMEOUT + PLAN_REQUEST_MARGIN));
+        assert!(
+            limits.timeout > Some(BUILD_TIMEOUT),
+            "the build gives up first"
+        );
+        assert_eq!(limits.max_body_bytes, DEFAULT_MAX_BODY_BYTES);
+        for path in [
+            "/api/plans/7",
+            "/api/plans/7/execute",
+            "/api/plans/7/selection",
+        ] {
+            assert_eq!(
+                options().limits_for(path).timeout,
+                Some(DEFAULT_REQUEST_TIMEOUT),
+                "{path}"
+            );
+        }
+    }
+
+    #[test]
+    fn a_plan_may_hand_over_a_large_id_set_as_a_selection() {
+        let limits = options().limits_for("/api/plans/7/selection");
+        assert_eq!(limits.max_body_bytes, LARGE_BODY_BYTES);
+        assert_eq!(limits.timeout, Some(DEFAULT_REQUEST_TIMEOUT));
+        for path in ["/api/plans", "/api/plans/7", "/api/plans/7/execute"] {
+            assert_eq!(
+                options().limits_for(path).max_body_bytes,
+                DEFAULT_MAX_BODY_BYTES,
+                "{path}"
+            );
+        }
     }
 
     #[test]

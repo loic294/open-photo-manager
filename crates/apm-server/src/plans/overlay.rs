@@ -3,9 +3,9 @@
 //! adds to a listing.
 //!
 //! The interface in this file ([`PlanOverlay`] and its data types) is defined by todo
-//! `building-browse-api`. Computing a real overlay belongs to todo `building-plan-engine`, which
-//! keeps the trait and the types exactly as they are and replaces the implementation for
-//! [`PlanService`] at the bottom of this file (today every plan is [`plan_not_found`]).
+//! `building-browse-api`. Computing a real overlay belongs to todo `building-plan-engine`: the
+//! trait and the types stay exactly as they are, and `impl PlanOverlay for PlanService` at the
+//! bottom of this file hands each question to the `Planner` of the plan's kind.
 //!
 //! # What the browse API asks
 //!
@@ -161,77 +161,82 @@ pub fn plan_not_found(plan_id: PlanId) -> AppError {
     AppError::not_found("plan_not_found", format!("plan {plan_id} not found"))
 }
 
-/// The "no plans exist yet" provider: every plan is unknown. `building-plan-engine` replaces it.
+/// The overlay of the plan engine: each call finds the plan and hands the question to the
+/// [`Planner`](super::Planner) of its kind (see `PlanService::overlay_target`).
+///
+/// An unknown, expired or still-building plan is [`plan_not_found`]. A plan that was already
+/// executed has nothing left to show: its overlays are empty, and the planners are only asked
+/// about plans that are `ready` or `executing`.
 impl PlanOverlay for PlanService {
     fn item_flags<'a>(
         &'a self,
         plan: PlanRef,
-        _ids: &'a [FileId],
+        ids: &'a [FileId],
     ) -> BoxFuture<'a, AppResult<HashMap<FileId, Overlay>>> {
-        unknown_plan(plan)
+        Box::pin(async move {
+            let Some(target) = self.overlay_target(plan.plan_id).await? else {
+                return Ok(HashMap::new());
+            };
+            Ok(target
+                .planner
+                .item_flags(&target.plan, plan.side, ids)
+                .await?)
+        })
     }
 
     fn ghost_items<'a>(
         &'a self,
         plan: PlanRef,
-        _view: &'a GhostView,
-        _window: Window,
+        view: &'a GhostView,
+        window: Window,
     ) -> BoxFuture<'a, AppResult<GhostPage>> {
-        unknown_plan(plan)
+        Box::pin(async move {
+            let Some(target) = self.overlay_target(plan.plan_id).await? else {
+                return Ok(GhostPage::default());
+            };
+            Ok(target
+                .planner
+                .ghost_items(&target.plan, plan.side, view, window)
+                .await?)
+        })
     }
 
     fn folder_overlay<'a>(
         &'a self,
         plan: PlanRef,
-        _view: &'a GhostView,
-        _real_children: &'a [String],
+        view: &'a GhostView,
+        real_children: &'a [String],
     ) -> BoxFuture<'a, AppResult<FolderOverlay>> {
-        unknown_plan(plan)
+        Box::pin(async move {
+            let Some(target) = self.overlay_target(plan.plan_id).await? else {
+                return Ok(FolderOverlay::default());
+            };
+            Ok(target
+                .planner
+                .folder_overlay(&target.plan, plan.side, view, real_children)
+                .await?)
+        })
     }
-}
-
-fn unknown_plan<'a, T: Send + 'a>(plan: PlanRef) -> BoxFuture<'a, AppResult<T>> {
-    Box::pin(std::future::ready(Err(plan_not_found(plan.plan_id))))
 }
 
 #[cfg(test)]
 mod tests {
-    use apm_core::dto::PlanSide;
-    use axum::http::StatusCode;
-
     use super::*;
 
-    fn view() -> GhostView {
-        GhostView {
-            volume_id: 1,
-            dir: RelPath::root(),
-            filter: Filter::default(),
-            sort: SortKey::Name,
-            order: SortOrder::Asc,
-        }
+    #[test]
+    fn ghost_pages_and_folder_overlays_default_to_nothing() {
+        assert_eq!(GhostPage::default().total, 0);
+        assert!(GhostPage::default().items.is_empty());
+        let overlay = FolderOverlay::default();
+        assert!(overlay.per_child.is_empty() && overlay.ghost_folders.is_empty());
+        assert!(!overlay.dir_planned);
     }
 
-    #[tokio::test]
-    async fn the_default_provider_knows_no_plan() {
-        let service = PlanService::new();
-        let provider: &dyn PlanOverlay = &service;
-        let plan = PlanRef {
-            plan_id: 7,
-            side: PlanSide::Comparison,
-        };
-        let view = view();
-        let window = Window { skip: 0, take: 10 };
-
-        let errors = [
-            provider.item_flags(plan, &[1, 2]).await.err(),
-            provider.ghost_items(plan, &view, window).await.err(),
-            provider.folder_overlay(plan, &view, &[]).await.err(),
-        ];
-        for error in errors {
-            let error = error.expect("every call fails");
-            assert_eq!(error.status(), StatusCode::NOT_FOUND);
-            assert_eq!(error.code(), "plan_not_found");
-            assert_eq!(error.message(), "plan 7 not found");
-        }
+    #[test]
+    fn an_unknown_plan_is_a_404() {
+        let err = plan_not_found(7);
+        assert_eq!(err.status(), axum::http::StatusCode::NOT_FOUND);
+        assert_eq!(err.code(), "plan_not_found");
+        assert_eq!(err.message(), "plan 7 not found");
     }
 }
