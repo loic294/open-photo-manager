@@ -53,7 +53,7 @@ test('@smoke Settings connects without persisting the password or API key in pla
     server_version: 'v3.3.3',
   });
   for (const value of [testUsers.admin.password, secret]) {
-    expect(await page.locator('body').innerText()).not.toContain(value);
+    expect(await page.locator('body').textContent()).not.toContain(value);
     expect(app.logs()).not.toContain(value);
     expect(JSON.stringify(mock.state.requests())).not.toContain(value);
   }
