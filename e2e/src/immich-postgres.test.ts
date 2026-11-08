@@ -102,7 +102,10 @@ test('real v3.3.3 SQL path updates are visible through the mock API', {
   );
   const checksum = createHash('sha1').update('path:/mnt/photos/new.jpg').digest('hex');
   await database.sql(`UPDATE public.asset SET "originalPath" = '/mnt/photos/new.jpg',
-    "originalFileName" = 'new.jpg', checksum = decode('${checksum}', 'hex')
+    "originalFileName" = 'new.jpg', checksum = decode('${checksum}', 'hex'),
+    "fileCreatedAt" = '2024-01-02T03:04:05Z'::timestamptz,
+    "fileModifiedAt" = '2024-02-02T03:04:05Z'::timestamptz,
+    "localDateTime" = '2024-01-02T04:04:05Z'::timestamptz
     WHERE id = '${id}'::uuid`);
   const response = await fetch(`${mock.url}/api/assets/${id}`, {
     headers: { 'x-api-key': key.secret },
@@ -112,6 +115,9 @@ test('real v3.3.3 SQL path updates are visible through the mock API', {
     id: string;
     originalPath: string;
     checksum: string;
+    fileCreatedAt: string;
+    fileModifiedAt: string;
+    localDateTime: string;
     isFavorite: boolean;
     tags: Array<{ id: string }>;
     exifInfo: { rating: number; description: string };
@@ -119,6 +125,9 @@ test('real v3.3.3 SQL path updates are visible through the mock API', {
   assert.equal(result.id, id);
   assert.equal(result.originalPath, '/mnt/photos/new.jpg');
   assert.equal(result.checksum, Buffer.from(checksum, 'hex').toString('base64'));
+  assert.equal(result.fileCreatedAt, '2024-01-02T03:04:05.000Z');
+  assert.equal(result.fileModifiedAt, '2024-02-02T03:04:05.000Z');
+  assert.equal(result.localDateTime, '2024-01-02T04:04:05.000Z');
   assert.equal(result.isFavorite, true);
   assert.equal(result.exifInfo.rating, 5);
   assert.equal(result.exifInfo.description, 'backed fixture');
