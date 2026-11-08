@@ -20,6 +20,7 @@ mod immich;
 mod index;
 mod media;
 mod plans;
+mod rename;
 mod selections;
 mod settings;
 mod tasks;
@@ -38,6 +39,7 @@ pub fn router() -> Router<AppState> {
         .merge(index::routes())
         .merge(media::routes())
         .merge(plans::routes())
+        .merge(rename::routes())
         .merge(selections::routes())
         .merge(settings::routes())
         .merge(tasks::routes())

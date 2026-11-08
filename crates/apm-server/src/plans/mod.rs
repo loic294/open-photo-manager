@@ -16,7 +16,7 @@
 //! | [`overlay`] | `PlanOverlay`, the seam toward the browse API, implemented by [`PlanService`] |
 //! | [`bulk`] | chunked bulk inserts and deletes for the tables of a planner |
 //! | [`result`] | [`ResultBuilder`]: the one accounting of an execution (counts, 200 failure details) |
-//! | [`cleanup`], [`duplicates`], [`moves`] | the planners |
+//! | [`cleanup`], [`duplicates`], [`moves`], [`rename`] | the planners |
 //!
 //! # Lifecycle
 //!
@@ -42,7 +42,7 @@
 //!
 //! 1. Write `impl Planner for YourPlanner` in your own submodule (the module is declared below
 //!    already) and your tables in your migration block (`0210`-`0219` duplicates, `0220`-`0229`
-//!    move, `0230`-`0239` cleanup).
+//!    move, `0230`-`0239` cleanup, `0240`-`0249` batch rename).
 //! 2. Add ONE line to `fn planners` below, in alphabetical order: `Arc::new(cleanup::CleanupPlanner::new(deps)),`.
 //! 3. The engine does everything else: the endpoints, the build slot and timeout, the expiry, the
 //!    removal of your rows (list your tables in [`Planner::child_tables`]), the task and the result.
@@ -55,6 +55,7 @@ pub(crate) mod file_identity;
 pub mod moves;
 pub mod overlay;
 pub mod planner;
+pub(crate) mod rename;
 pub mod result;
 pub mod selections;
 pub mod store;
@@ -188,5 +189,6 @@ fn planners(deps: &PlanDeps) -> Vec<Arc<dyn Planner>> {
         Arc::new(cleanup::CleanupPlanner::new(deps)),
         Arc::new(duplicates::DuplicatesPlanner::new(deps)),
         Arc::new(moves::MovePlanner::new(deps)),
+        Arc::new(rename::RenamePlanner::new(deps)),
     ]
 }

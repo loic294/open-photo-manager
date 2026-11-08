@@ -441,3 +441,41 @@ Crate-visible exports: `Source`, `COLUMNS`, `Wanted`, `source_query`, `reserved`
 `Revalidate`, `run`. Submodules, move rules, destination rendering and carrier selection stay private.
 Use the shared identity registration before the build snapshot and track every snapshot dependency.
 Hooks preserve coded skips and propagate infrastructure errors; they add no filesystem/Immich preflight.
+
+## Rename plans
+
+Batch rename is a restricted move plan. Migration `0240` adds the `rename` plan kind while
+discarding short-lived plan rows and preserving the non-reused plan id sequence; `0241` adds
+nullable `move_items.seq` for a plan-time, folder-local `{count}`. Rename destinations remain in
+the source folder and keep the original extension. `plans/rename/names.rs` owns the single
+`Names::folder`/`Names::one` naming path, used by build, preview and execution revalidation; never
+duplicate matching, clean, rewrite, counting, token rendering or name safety.
+
+The planner delegates move flags, ghosts, ids, conflicts, sidecars and execution to `MovePlanner`,
+`Directory::resolve` and `moves::run`. `folder_overlay` always returns the default because rename
+does not change directory membership: ghost cards appear after real items, while folder rows and
+footer counts stay real-only, deliberately relaxing the `Counts agree` contract.
+
+Statuses are the shared move statuses `move`, `already_in_place`, `identical_at_destination`,
+`skipped_by_policy`, `metadata_pending`, `pattern_failed` and `reserved_destination`.
+Stats: `candidates`, `matched`, `to_rename`, `already_in_place`,
+`identical_at_destination`, `skipped_by_policy`, `metadata_pending`, `pattern_failed`,
+`reserved_destination`, `renamed_by_policy`. Warnings: `metadata_pending`,
+`date_from_file_time`, `pattern_failed`, `reserved_destination`, `skipped_by_policy`,
+`hash_unknown`. Execution uses the shared `file_gone`, `stale_plan`, `stale_match`,
+`metadata_pending`, `already_in_place`, `identical_at_destination`, `skipped_by_policy`,
+`sidecar_conflict` and `immich_move_refused` skips; `source_changed` and other filesystem
+operation errors remain failures.
+
+`POST /api/rename/preview` returns validation issues and a bounded sample from the first matching
+folder; `GET /api/rename/tokens` exposes the rename-only catalogue. A plan size limit counts every
+in-scope non-sidecar file, including unmatched files. `{count}` requires metadata, restarts in each
+folder and is frozen in `move_items.seq`; it is never recomputed at execution.
+
+Maintainer limits: preview reports only the first matching folder and caps exact counter input at
+20,000 matches; truncated counter values may differ from a full plan. The comparison pane shows
+real files plus ghosts. `{ext}` can split RAW/JPEG counter sets; pending metadata is not renamed;
+regex uses Rust syntax and rewrites affect stems only; the simple `-N` clean can remove a
+date-like tail, `_N` is not cleaned, and names freed by the same batch are not reused. Replace is
+unavailable; an explicit Replace policy is rejected and a default Replace setting falls back to
+Smart.

@@ -41,6 +41,9 @@
 //!   `FolderOverlay::ghosts.in_folder`, and `ghosts.in_subfolders` counts the ghost files strictly
 //!   below the directory. The browse API relies on it so that the footer count equals the `total`
 //!   of the items endpoint.
+//!   A planner that never changes what a folder holds (batch rename) deliberately returns the
+//!   default folder overlay instead: folder rows and footer counts remain real-only, while the
+//!   items endpoint still appends the rename ghost cards to the real files.
 //! * **Ghosts are not real.** A ghost never appears in an id list, a selection or a count of real
 //!   files. Its `id` is the id of the real source file (thumbnails work) while `volume_id`, `dir`
 //!   and `name` are the planned location, and `overlay.planned` is `true`.
