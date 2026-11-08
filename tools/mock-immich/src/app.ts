@@ -9,7 +9,7 @@ import type { AddressInfo } from 'node:net';
 import { createControl, createState, type MockControl, type MockState } from './control.ts';
 import { createControlRouter } from './control-http.ts';
 import { createFaults } from './faults.ts';
-import type { BackingDeleteAsset, MockContext, Settings } from './mock.ts';
+import type { BackingDeleteAsset, BackingScan, MockContext, Settings } from './mock.ts';
 import { normaliseMounts } from './mounts.ts';
 import { createRequestHandler } from './pipeline.ts';
 import { createRequestLog } from './requestlog.ts';
@@ -49,6 +49,8 @@ export interface MockImmichOptions {
     force: boolean,
     now: number,
   ) => Promise<void>;
+  /** Persist a complete library scan before making it visible in the model. */
+  beforeScanCommit?: (scan: BackingScan) => Promise<void>;
 }
 
 export interface MockImmich {
@@ -82,6 +84,7 @@ const OPTION_KEYS = [
   'beforeAssetRead',
   'readOnlyBacking',
   'beforeAssetDelete',
+  'beforeScanCommit',
 ];
 
 function checkOptions(options: MockImmichOptions): void {
@@ -101,6 +104,9 @@ function checkOptions(options: MockImmichOptions): void {
   }
   if (options.beforeAssetDelete !== undefined && typeof options.beforeAssetDelete !== 'function') {
     c.fail('beforeAssetDelete', 'must be a function');
+  }
+  if (options.beforeScanCommit !== undefined && typeof options.beforeScanCommit !== 'function') {
+    c.fail('beforeScanCommit', 'must be a function');
   }
   if (c.errors.length > 0) {
     throw new Error(`invalid options:\n  - ${c.errors.join('\n  - ')}`);
@@ -162,6 +168,8 @@ export async function startMockImmich(options: MockImmichOptions = {}): Promise<
     beforeAssetRead: options.beforeAssetRead,
     readOnlyBacking: options.readOnlyBacking,
     beforeAssetDelete: options.beforeAssetDelete,
+    beforeScanCommit: options.beforeScanCommit,
+    pendingBacking: Promise.resolve(),
   };
   seedData(ctx);
 
@@ -203,6 +211,8 @@ export async function startMockImmich(options: MockImmichOptions = {}): Promise<
         server.close(() => resolve());
         server.closeAllConnections();
       });
+      await Promise.all(ctx.scans.values());
+      await ctx.pendingBacking;
       certificate?.cleanup();
     })();
     return stopping;

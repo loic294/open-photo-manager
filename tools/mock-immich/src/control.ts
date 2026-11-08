@@ -337,7 +337,7 @@ export function createControl(ctx: MockContext): MockControl {
   };
   return {
     async scan(ref) {
-      requireWritable();
+      if (ctx.readOnlyBacking?.() && !ctx.beforeScanCommit) requireWritable();
       const queued = librariesFor(ctx, ref).map((library) => queueScan(ctx, library.id, 0));
       await Promise.all(queued.map(({ done }) => done));
       return queued.map(({ job }) => structuredClone(job));

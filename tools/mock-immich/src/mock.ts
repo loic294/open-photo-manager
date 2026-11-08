@@ -7,6 +7,21 @@ export type BackingDeleteAsset = Readonly<
   Pick<Asset, 'id' | 'ownerId' | 'libraryId' | 'originalPath'>
 >;
 
+export interface BackingScan {
+  libraryId: string;
+  before: readonly Readonly<Asset>[];
+  after: readonly Readonly<Asset>[];
+}
+
+export function withBackingLock<T>(ctx: MockContext, run: () => Promise<T>): Promise<T> {
+  const operation = ctx.pendingBacking.then(run);
+  ctx.pendingBacking = operation.then(
+    () => undefined,
+    () => undefined,
+  );
+  return operation;
+}
+
 /** What a scenario's `options` or the programmatic options turn into; some change at runtime. */
 export interface Settings {
   /** How long a library scan waits before it looks at the disk. */
@@ -42,4 +57,6 @@ export interface MockContext {
     force: boolean,
     now: number,
   ) => Promise<void>;
+  beforeScanCommit?: (scan: BackingScan) => Promise<void>;
+  pendingBacking: Promise<void>;
 }

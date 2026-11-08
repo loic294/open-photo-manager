@@ -37,6 +37,38 @@ async function command(program: string, args: string[], env: NodeJS.ProcessEnv):
   }
 }
 
+async function commandWithInput(
+  program: string,
+  args: string[],
+  input: string,
+  env: NodeJS.ProcessEnv,
+): Promise<string> {
+  return new Promise((resolve, reject) => {
+    const child = execFile(
+      program,
+      args,
+      { cwd: root, env, timeout: 180_000, maxBuffer: 32 * 1024 * 1024 },
+      (error, stdout) => {
+        if (error) {
+          reject(
+            new Error(`${program} failed while running ${args.slice(0, 3).join(' ')}`, {
+              cause: error,
+            }),
+          );
+        } else {
+          resolve(stdout.trim());
+        }
+      },
+    );
+    if (!child.stdin) {
+      reject(new Error(`${program} did not provide standard input`));
+      return;
+    }
+    child.stdin.on('error', reject);
+    child.stdin.end(input);
+  });
+}
+
 /**
  * One private Compose project per test. It uses the direct-writer gate's pinned
  * images and actual Immich migrations, never a hand-written substitute schema.
@@ -325,6 +357,91 @@ export class ImmichPostgres {
              WHERE id IN (SELECT id FROM expected_delete)`
       }
     `);
+  }
+
+  /** Persist an entire proposed library scan as one guarded SQL transaction. */
+  async commitScan(scan: Parameters<NonNullable<MockImmichOptions['beforeScanCommit']>>[0]) {
+    const guard = `DO $$ BEGIN IF current_database() <> '${DATABASE}' OR
+      (SELECT shobj_description(oid, 'pg_database') FROM pg_database
+       WHERE datname = current_database()) IS DISTINCT FROM '${MARKER}'
+      THEN RAISE EXCEPTION 'disposable database marker missing'; END IF; END $$;`;
+    const record = `id text, "ownerId" text, "libraryId" text, "originalPath" text,
+      "originalFileName" text, type text, checksum text, "fileCreatedAt" double precision,
+      "fileModifiedAt" double precision, "updatedAt" double precision,
+      "deletedAt" double precision, "isOffline" boolean`;
+    const library = sqlJson(scan.libraryId);
+    const script = `
+      BEGIN;
+      ${guard}
+      LOCK TABLE public.asset IN SHARE ROW EXCLUSIVE MODE;
+      CREATE TEMP TABLE expected_scan ON COMMIT DROP AS
+        SELECT * FROM jsonb_to_recordset(${sqlJson(scan.before)}) AS x(${record});
+      CREATE TEMP TABLE proposed_scan ON COMMIT DROP AS
+        SELECT * FROM jsonb_to_recordset(${sqlJson(scan.after)}) AS x(${record});
+      ALTER TABLE expected_scan ADD PRIMARY KEY (id);
+      ALTER TABLE proposed_scan ADD PRIMARY KEY (id);
+      DO $$ DECLARE library_id uuid := (${library} #>> '{}')::uuid; BEGIN
+        IF (SELECT count(*) FROM public.asset WHERE "libraryId" = library_id) <>
+           (SELECT count(*) FROM expected_scan) OR EXISTS (
+          SELECT 1 FROM expected_scan e LEFT JOIN public.asset a ON a.id = e.id::uuid
+          WHERE a.id IS NULL OR a."libraryId" <> library_id
+            OR a."ownerId" <> e."ownerId"::uuid OR a."originalPath" <> e."originalPath"
+            OR a.checksum <> decode(e.checksum, 'base64')
+            OR a."isOffline" IS DISTINCT FROM e."isOffline"
+            OR a."deletedAt" IS DISTINCT FROM to_timestamp(e."deletedAt" / 1000.0)
+        ) OR EXISTS (
+          SELECT 1 FROM expected_scan e LEFT JOIN proposed_scan p ON p.id = e.id
+          WHERE p.id IS NULL OR p."ownerId" <> e."ownerId" OR p."libraryId" <> e."libraryId"
+            OR p."originalPath" <> e."originalPath"
+        ) OR EXISTS (
+          SELECT 1 FROM proposed_scan p LEFT JOIN expected_scan e ON e.id = p.id
+          JOIN public.asset a ON a.id = p.id::uuid WHERE e.id IS NULL
+        ) OR EXISTS (
+          SELECT 1 FROM proposed_scan WHERE "libraryId"::uuid <> library_id
+        ) THEN RAISE EXCEPTION 'mock scan differs from database'; END IF;
+      END $$;
+      INSERT INTO public.asset
+        (id, "ownerId", "libraryId", "isExternal", "isOffline", "deletedAt", type,
+         "originalPath", "originalFileName", checksum, "checksumAlgorithm",
+         "fileCreatedAt", "fileModifiedAt", "localDateTime", "updatedAt")
+      SELECT id::uuid, "ownerId"::uuid, "libraryId"::uuid, true, "isOffline",
+        to_timestamp("deletedAt" / 1000.0),
+        (jsonb_populate_record(NULL::public.asset, jsonb_build_object('type', type))).type,
+        "originalPath", "originalFileName", decode(checksum, 'base64'), 'sha1-path',
+        to_timestamp("fileCreatedAt" / 1000.0), to_timestamp("fileModifiedAt" / 1000.0),
+        to_timestamp("fileCreatedAt" / 1000.0)::timestamp, to_timestamp("updatedAt" / 1000.0)
+      FROM proposed_scan
+      ON CONFLICT (id) DO UPDATE SET
+        "isOffline" = EXCLUDED."isOffline", "deletedAt" = EXCLUDED."deletedAt",
+        "fileCreatedAt" = EXCLUDED."fileCreatedAt",
+        "fileModifiedAt" = EXCLUDED."fileModifiedAt", "localDateTime" = EXCLUDED."localDateTime",
+        "updatedAt" = EXCLUDED."updatedAt";
+      COMMIT;
+    `;
+    await commandWithInput(
+      'docker',
+      [
+        'compose',
+        '-p',
+        this.project,
+        '-f',
+        this.composeFile,
+        'exec',
+        '-T',
+        'database',
+        'psql',
+        '-X',
+        '-qAt',
+        '-v',
+        'ON_ERROR_STOP=1',
+        '-U',
+        'postgres',
+        '-d',
+        DATABASE,
+      ],
+      script,
+      this.env,
+    );
   }
 
   async stop() {

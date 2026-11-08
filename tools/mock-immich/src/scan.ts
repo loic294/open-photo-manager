@@ -4,7 +4,7 @@ import { readdir, stat } from 'node:fs/promises';
 import { join } from 'node:path';
 import { addAsset, isMediaFile, setCaptureDate } from './assets.ts';
 import { compileExclusions, isExcluded } from './glob.ts';
-import type { MockContext } from './mock.ts';
+import { type MockContext, withBackingLock } from './mock.ts';
 import { toRealPath } from './mounts.ts';
 import type { Job, Library, ScanSummary } from './types.ts';
 import { isUnder, sleep, trimSlash } from './util.ts';
@@ -194,7 +194,30 @@ async function scanLibrary(ctx: MockContext, libraryId: string, generation: numb
   if (ctx.data.generation !== generation) {
     return null;
   }
-  return apply(ctx, library, found);
+  if (!ctx.readOnlyBacking?.()) return apply(ctx, library, found);
+  return withBackingLock(ctx, async () => {
+    if (ctx.data.generation !== generation || ctx.stopSignal.aborted) return null;
+    if (!ctx.beforeScanCommit) throw new Error('backing store does not support mock mutations');
+    await ctx.beforeAssetRead?.();
+    const data = structuredClone(ctx.data);
+    const draft: MockContext = { ...ctx, data };
+    const draftLibrary = data.libraries.get(libraryId);
+    if (!draftLibrary) throw new Error(`library ${libraryId} is gone`);
+    const before = [...ctx.data.assets.values()]
+      .filter((asset) => asset.libraryId === libraryId)
+      .map((asset) => ({ ...asset }));
+    const summary = apply(draft, draftLibrary, found);
+    const after = [...data.assets.values()]
+      .filter((asset) => asset.libraryId === libraryId)
+      .map((asset) => ({ ...asset }));
+    await ctx.beforeScanCommit({ libraryId, before, after });
+    ctx.data.assets = data.assets;
+    ctx.data.assetsByPath = data.assetsByPath;
+    ctx.data.nextSeq = data.nextSeq;
+    ctx.data.order = data.order;
+    library.refreshedAt = draftLibrary.refreshedAt;
+    return summary;
+  });
 }
 
 /**

@@ -1,7 +1,7 @@
 import type { IncomingMessage, ServerResponse } from 'node:http';
 import type { ControlRouter } from './control-http.ts';
 import { ApiError, parseJson, readBody, sendError, sendJson } from './http.ts';
-import type { MockContext } from './mock.ts';
+import { type MockContext, withBackingLock } from './mock.ts';
 import { summariseBody } from './requestlog.ts';
 import type { Router } from './router.ts';
 import { sleep } from './util.ts';
@@ -31,7 +31,6 @@ export function createRequestHandler(
   router: Router,
   control: ControlRouter,
 ): RequestHandler {
-  let pendingBacking = Promise.resolve();
   return async (req, res) => {
     const method = req.method ?? 'GET';
     const url = new URL(req.url ?? '/', 'http://mock-immich.invalid');
@@ -99,7 +98,9 @@ export function createRequestHandler(
         ctx.readOnlyBacking?.() &&
         ((method === 'PUT' &&
           (apiPath === '/api/assets' || apiPath.startsWith('/api/libraries/'))) ||
-          (method === 'POST' && /^\/api\/libraries\/[^/]+\/scan$/.test(apiPath)) ||
+          (method === 'POST' &&
+            /^\/api\/libraries\/[^/]+\/scan$/.test(apiPath) &&
+            !ctx.beforeScanCommit) ||
           (method === 'PUT' && /^\/api\/albums\/[^/]+\/assets$/.test(apiPath)) ||
           (method === 'PUT' && apiPath === '/api/tags/assets'))
       ) {
@@ -107,12 +108,7 @@ export function createRequestHandler(
       }
       let reply: Awaited<ReturnType<typeof dispatch>>;
       if (readBacking || deleteBacking) {
-        const operation = pendingBacking.then(dispatch);
-        pendingBacking = operation.then(
-          () => undefined,
-          () => undefined,
-        );
-        reply = await operation;
+        reply = await withBackingLock(ctx, dispatch);
       } else {
         reply = await dispatch();
       }

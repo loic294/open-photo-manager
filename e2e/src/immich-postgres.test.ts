@@ -1,5 +1,7 @@
 import assert from 'node:assert/strict';
 import { createHash } from 'node:crypto';
+import { mkdir, unlink, writeFile } from 'node:fs/promises';
+import { join } from 'node:path';
 import { test } from 'node:test';
 import { type MockImmich, scenarioFiles, startMockImmich } from '../../tools/mock-immich/index.ts';
 import { ImmichPostgres } from './immich-postgres.ts';
@@ -9,14 +11,18 @@ test('real v3.3.3 SQL path updates are visible through the mock API', {
 }, async (t) => {
   const database = await ImmichPostgres.start();
   t.after(() => database.stop());
+  const photos = join(database.directory, 'photos');
+  await mkdir(photos);
   let mock: MockImmich;
   let seeded = false;
   mock = await startMockImmich({
     scenario: scenarioFiles.fixtures,
     serverVersion: '3.3.3',
+    mounts: { '/mnt/photos': photos },
     beforeAssetRead: () => database.refreshMock(mock),
     readOnlyBacking: () => seeded,
     beforeAssetDelete: (assets, force, now) => database.deleteAssets(assets, force, now),
+    beforeScanCommit: (scan) => database.commitScan(scan),
   });
   t.after(() => mock.stop());
   mock.control.addAssets([
@@ -73,6 +79,25 @@ test('real v3.3.3 SQL path updates are visible through the mock API', {
   assert.equal(result.originalPath, '/mnt/photos/new.jpg');
   assert.equal(result.checksum, Buffer.from(checksum, 'hex').toString('base64'));
   assert.deepEqual(mock.state.violations(), []);
+  await writeFile(join(photos, 'scanned.jpg'), 'fixture');
+  const firstScan = await mock.control.scan('Photos');
+  assert.equal(firstScan[0]?.status, 'completed', firstScan[0]?.error ?? undefined);
+  const scanned = mock.state.assetByPath('/mnt/photos/scanned.jpg');
+  assert.ok(scanned);
+  const scannedId = String(scanned.id);
+  assert.equal(
+    await database.sql(`SELECT "originalPath" FROM public.asset WHERE id = '${scannedId}'`),
+    '/mnt/photos/scanned.jpg',
+  );
+  await unlink(join(photos, 'scanned.jpg'));
+  const secondScan = await mock.control.scan('Photos');
+  assert.equal(secondScan[0]?.status, 'completed', secondScan[0]?.error ?? undefined);
+  assert.equal(mock.state.assetByPath('/mnt/photos/scanned.jpg')?.isOffline, true);
+  assert.equal(
+    await database.sql(`SELECT ("isOffline" AND "deletedAt" IS NOT NULL)::text
+      FROM public.asset WHERE id = '${scannedId}'`),
+    'true',
+  );
   const deletion = await fetch(`${mock.url}/api/assets`, {
     method: 'DELETE',
     headers: { 'x-api-key': key.secret, 'content-type': 'application/json' },

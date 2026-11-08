@@ -1,7 +1,7 @@
 import assert from 'node:assert/strict';
 import { test } from 'node:test';
 import type { BackingAssetPath, MockImmich } from '../index.ts';
-import { call, connect, startMock } from './helpers.ts';
+import { call, connect, scratchDir, startMock, writeTree } from './helpers.ts';
 
 test('a complete backing snapshot updates API paths without changing asset identities', async (t) => {
   const mock = await startMock(t);
@@ -169,4 +169,34 @@ test('backed deletion is serialized with reads and failed writes leave the mock 
   assert.equal((await deleting).status, 204);
   assert.equal((await reading).status, 400);
   assert.deepEqual(mock.state.violations(), []);
+});
+
+test('a backed scan publishes its changes only after the backing commit succeeds', async (t) => {
+  const photos = scratchDir(t, 'backed-scan');
+  writeTree(photos, { 'new.jpg': 'new' });
+  let active = false;
+  let fail = true;
+  let proposed: string[] = [];
+  const mock = await startMock(t, {
+    mounts: { '/mnt/photo': photos },
+    readOnlyBacking: () => active,
+    beforeAssetRead: async () => {},
+    beforeScanCommit: async ({ after }) => {
+      proposed = after.map((asset) => asset.originalPath);
+      if (fail) throw new Error('test backing unavailable');
+    },
+  });
+  mock.control.addAssets([{ path: '/mnt/photo/missing.jpg', trashed: false }]);
+  active = true;
+  const failed = await mock.control.scan('Photos');
+  assert.equal(failed[0]?.status, 'failed');
+  assert.match(failed[0]?.error ?? '', /test backing unavailable/);
+  assert.deepEqual(proposed.sort(), ['/mnt/photo/missing.jpg', '/mnt/photo/new.jpg']);
+  assert.equal(mock.state.assetByPath('/mnt/photo/missing.jpg')?.isOffline, false);
+  assert.equal(mock.state.assetByPath('/mnt/photo/new.jpg'), undefined);
+  fail = false;
+  const succeeded = await mock.control.scan('Photos');
+  assert.equal(succeeded[0]?.status, 'completed');
+  assert.equal(mock.state.assetByPath('/mnt/photo/missing.jpg')?.isOffline, true);
+  assert.ok(mock.state.assetByPath('/mnt/photo/new.jpg'));
 });
