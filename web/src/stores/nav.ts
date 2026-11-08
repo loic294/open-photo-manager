@@ -53,7 +53,7 @@ export function formatLocation(location: PaneLocation): string | null {
   return location.dir ? `${location.volume}/${location.dir}` : location.volume;
 }
 
-function sameLocation(a: PaneLocation, b: PaneLocation): boolean {
+export function sameLocation(a: PaneLocation, b: PaneLocation): boolean {
   return a.volume === b.volume && a.dir === b.dir;
 }
 
@@ -87,9 +87,10 @@ function readable(search: string): string {
   return search.replaceAll('%2F', '/');
 }
 
-function withPaneParams(url: URL): string {
+function withPaneParams(url: URL, override?: { pane: PaneId; location: PaneLocation }): string {
   for (const pane of PANES) {
-    const text = formatLocation(locations[pane].value);
+    const location = override?.pane === pane ? override.location : locations[pane].value;
+    const text = formatLocation(location);
     if (text === null) url.searchParams.delete(PANE_QUERY_KEYS[pane]);
     else url.searchParams.set(PANE_QUERY_KEYS[pane], text);
   }
@@ -123,6 +124,17 @@ export function setLocation(
  */
 export function linkTo(path: string): string {
   return withPaneParams(new URL(path, window.location.origin));
+}
+
+/**
+ * The href of the CURRENT page with `pane` moved to `location` and the other pane where it is: the
+ * real link behind a folder row or a breadcrumb, so middle-click and "open in a new tab" work. It
+ * is the address `setLocation(pane, location)` would put in the address bar. Reads the signals, so
+ * call it inside `render()` and the link stays current.
+ */
+export function linkToLocation(pane: PaneId, location: PaneLocation): string {
+  const url = new URL(currentPath.value, window.location.origin);
+  return withPaneParams(url, { pane, location: parseLocation(formatLocation(location)) });
 }
 
 /**

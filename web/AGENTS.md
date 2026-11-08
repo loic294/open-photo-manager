@@ -260,6 +260,8 @@ One shared `events` client; the shell starts it, so never call `events.start()` 
   pages that do not exist yet.
 - `apm-chip-input`: a labelled list of short texts edited as removable chips, with validation (see
   Settings below).
+- `apm-select`: the ONE drop-down of the app. Nobody writes a raw `<select>` (see Pane and folder list
+  below).
 - New component checklist: file `apm-x.ts` with tag `apm-x` and class `ApmX`; extends `ApmElement`;
   side-effect imports of every component it renders (`apm-icon` included); `customElements.define` and the
   `HTMLElementTagNameMap` entry; complete Tailwind class names; an accessible name on every control; a
@@ -321,8 +323,8 @@ selected item ids survives scrolling, sorting and refetching.
 - `interpret(activation, { active })` (`@/util/selection-rules`) is the pure click table: Shift = range,
   Cmd/Ctrl = toggle, a plain click toggles while `active` and opens otherwise, Enter always opens.
 - `SelectionController` (`@/controllers/selection-controller`) turns the grid's bubbling `card-activate`
-  into a selection change, or into a bubbling `item-open { id, index }` event from the host (the pane
-  listens for it and calls `openViewer`, see Viewer). It marks its pane active on `pointerdown` and
+  into a selection change, or into a bubbling `item-open { id, index }` event from the host (the tool
+  view listens for it and calls `openViewer`, see Viewer). It marks its pane active on `pointerdown` and
   `focusin`.
 - `installSelectionShortcuts()` (`@/controllers/selection-shortcuts`): Cmd/Ctrl+A selects everything in
   the active pane, Escape clears the active pane, then the other. Both stand aside in text fields and
@@ -441,7 +443,8 @@ html`<apm-file-grid .request=${request} sort=${sort} order=${order} size=${size}
   width in px, clamped to `GRID_SIZE` of `@/stores/prefs`: 96 to 320, step 16, default 160),
   `.selectedIds`, `selection-active`, `empty-text`, `label`. A new `request`, `sort` or `order` starts
   a new listing (an equal `request` in a new object does not). Also `columns` (read-only, cards per
-  row), `focusItem(index)` and `focus()`.
+  row), `itemAt(index)` (the loaded item or `undefined`: the viewer's `startItem`), `focusItem(index)`
+  and `focus()`.
 - Events, both bubbling: `card-activate` from the cards (`{ id, index, via: 'checkbox' | 'card' |
   'space' | 'enter', shift, toggle }`) and `grid-state` (`{ total, loading, error }`, when one of them
   changes; `total` is `null` until the first page and counts ghosts). The grid keeps no selection and
@@ -664,3 +667,80 @@ html`<apm-filter-bar .filter=${filterFor(tool)} .contexts=${contexts} .scope=${s
 - Tests: `mount('apm-filter-bar', props)`, stub `api.post` for `/api/facets` and switch to
   `vi.useFakeTimers()` AFTER mounting; `vi.advanceTimersByTimeAsync(250)` passes the debounce. Call
   `events.stop()` in `afterEach`: the first connection after a `stop()` also runs the resync handlers.
+
+## Pane and folder list (`apm-pane`, `apm-folder-list`, `FoldersController`, `apm-select`)
+`<apm-pane>` is the file-system pane that every tool view shows TWICE (`pane="source"` and
+`"comparison"`): a header (Up, breadcrumbs, heading, sort), the subfolders as a list, then the files as an
+`apm-file-grid`. It reads the per-pane stores itself (`nav.locations`, `prefs.sort`, `prefs.gridSize`,
+`selection`) and fetches its own data, so a tool view passes only what its tool adds. Its host is
+`block h-full min-h-0 min-w-0`: give it a parent with a definite height, and keep it at least `gridSize + 16`
+px wide (a listing of more than 200 files is virtualised and renders no card in a narrower pane). ONLY
+`[data-pane-body]` scrolls.
+```ts
+html`<apm-pane pane="comparison" heading="Comparison" .filter=${filter} .plan=${plan}
+  ?hide-unmatched=${hideUnmatchedFolders.value} show-matches
+  @pane-counts=${(e: PaneCountsEvent) => (footers[e.detail.pane] = e.detail.counts)}
+  @plan-stale=${(e: PlanStaleEvent) => rebuildPlan(e.detail)}
+  @item-open=${(e: ItemOpenEvent) => openIn(e)}></apm-pane>`;
+```
+- Properties: `pane`, `heading` (the header badge and the name of the region), `.filter` (`Filter`;
+  `EMPTY_FILTER` from `@/util/filter` by default, pass `filterFor(tool)` only to a pane the filter applies
+  to), `.plan` (`PlanRef | null`: the overlay of the folders and the grid),
+  `hide-unmatched`, `show-matches`, `disabled` with `disabled-reason` (inert: the heading and the reason,
+  no request, no counts). The base folder row: `base-mode` (`'none'` default; `'current'`: a badge, the
+  browsed folder IS the base; `'pinned'`: a chip with Use this folder, Go to base and Reset), `.base` (the
+  EFFECTIVE base, `PaneLocation | null`) and `.baseDefault` (`{ label, active } | null`, `pinned` only:
+  `active` says `.base` is the tool's default). The pane never decides the base: it emits `base-change`.
+- Events, all bubbling: `pane-counts { pane, counts: FooterCounts | null }` (only when they change, `null`
+  while loading or disabled: hand it to `PaneFooter`), `plan-stale { pane, plan }` (ONCE per plan: the
+  server forgot it, so build a new one and set `.plan`; until then the rows stay and the grid shows
+  placeholders), `base-change { pane, base: PaneLocation | null }` (`null` = back to the default) and
+  `item-open { id, index }` (from the selection controller).
+- **The pane never opens the viewer**: the tool view does, on `item-open`, with `event.target.closest(
+  'apm-pane')` and its read-only `browseRequest` (`null` while the volumes are unknown or the pane is
+  disabled; built by `requestFor(location, filter, plan)` in `@/api/browse`: nobody builds a
+  `BrowseRequest` by hand), `sortSpec` and `itemAt(index)` (the loaded item: the viewer's `startItem`).
+- The pane owns: navigation (a folder row, a crumb and Up call `setLocation(pane, ...)`, one history entry
+  each, the other pane untouched; each is a real `<a href>` from `linkToLocation(pane, location)` in
+  `@/stores/nav`, and `isPlainClick(event)` in `@/util/plain-click` tells a click the app handles from one
+  the browser keeps: middle click, modifier, new tab), the selection wiring (context key, an ids provider
+  with the real files in the CURRENT sort, `reconcile()` after an `fs_change` of its folder), one scroll
+  position (reset to the top when the folder, sort, order or filter changes), the walk-up from a folder that
+  disappeared (`folder_not_found`: `setLocation(..., { replace: true })` to the nearest ancestor that exists
+  and ONE toast per chain), the loading, error and offline-volume states, and putting the keyboard focus
+  back after a keyboard-opened folder. The volumes root (`volume: null`) lists the volumes as folders:
+  there is no grid and no file there, and its ids provider answers `[]`.
+- Hide or grey: `folderState(entry, hideUnmatched)` (`@/util/folder-state`). A folder is UNMATCHED when
+  `count === 0` or `matches === 0` (`matches` is `null` outside a plan). Unmatched is `hide` when the
+  preference says so (`prefs.hideUnmatchedFolders`), else `grey` (`opacity-50`, still a link); anything
+  else is `show`. A folder the plan creates (`overlay.planned`) or deletes (`overlay.will_delete`) is part
+  of the plan: never hidden, greyed at most, and told in text ("new", "will be deleted"), not by colour
+  alone. `emptyTextFor(...)` words the grid's empty state from what the folder list shows: a folder that
+  only holds subfolders is not empty, and the filters are blamed only while they are on.
+- `<apm-folder-list>` is presentational: `.folders`, `.hrefFor`, `hide-unmatched`, `show-matches`, `pane`,
+  `loading` (skeletons for the first load only); event `folder-open { entry }` for a plain click. Rows use
+  `content-visibility: auto` with the REAL row height (35px) as the intrinsic size, no virtualiser: a wrong
+  intrinsic size makes the scroll height drift while scrolling. `crumbsFor(location)`,
+  `parentLocation(location)` and `ROOT_CRUMB_LABEL` ("Volumes") are in `@/util/breadcrumbs`; segments are
+  shown verbatim, never normalised.
+- `FoldersController` (`@/controllers/folders-controller`, one per pane): call `setRequest(BrowseRequest |
+  null)` in `willUpdate`, read `folders`, `counts`, `status` (`idle | loading | ready | error`), `error`,
+  `refreshing`, `missing` (`folder_not_found`) and `planMissing` (`plan_not_found`, the data stays);
+  `retry()` and `invalidate()`. A request for another listing starts over, a plan-only change refetches over
+  the rows, a refetch never clears them. It refetches itself (debounced like `PagedItems`) after an
+  `fs_change` below the folder, at once on a resync and when an `immich_sync` task ends.
+- `<apm-select>`: the ONE drop-down of the app, a light-DOM wrapper over the DaisyUI `select`; **never write
+  a raw `<select>`**. Properties: `.options` (`{ value, label, title?, disabled? }[]`), `value`, `label`
+  (the accessible name: always set it), `show-label` (also shows it inside the control), `size` (`xs | sm
+  | md`, default `sm`), `disabled`. Event: bubbling `select-change { value }` (the native `change` is
+  stopped). It is CONTROLLED: it keeps no value, so a host that does not accept a change leaves `value`
+  as it was and the control snaps back. It is as wide as its longest option (`w-auto`).
+- Tests: `stubBrowseServer()` (`@/test/browse-server`) stubs `fetch` for `GET /api/volumes` and `POST
+  /api/browse/{folders,items,ids}`: change `server.state` between requests (`folders`, `total`, `ids`,
+  `volumes`), read `server.calls`, freeze an endpoint with `server.hold('folders')` and `release`.
+  `folderEntry({ ... })` (`@/test/folder-entry`) builds a `FolderEntry`. Remove the mounted panes BEFORE
+  `vi.unstubAllGlobals()` (your `afterEach` runs before the `mount` cleanup): a pane that re-renders after
+  the stub is gone talks to the real network ("socket hang up"). The volumes store is a singleton that
+  never goes back to `idle`, so a test of its first load needs its own file (`apm-pane.volumes.test.ts`).
+  A removed pane can still have an update queued: the pane stops touching the shared stores once it is
+  disconnected. Keep that.

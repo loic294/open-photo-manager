@@ -640,6 +640,32 @@ describe('keyboard', () => {
   });
 });
 
+describe('itemAt', () => {
+  it('gives the loaded item at an index, and nothing for a page that is not in', async () => {
+    const { grid } = await listing(5);
+
+    expect(grid.itemAt(0)?.name).toBe('IMG_0.jpg');
+    expect(grid.itemAt(4)?.id).toBe(5);
+    expect(grid.itemAt(5)).toBeUndefined();
+    expect(grid.itemAt(-1)).toBeUndefined();
+  });
+
+  it('has nothing before the first page, and nothing once the grid left the page', async () => {
+    const server = stubServer({ total: 3 });
+    server.hold();
+    const grid = await mount('apm-file-grid', { request });
+    expect(grid.itemAt(0)).toBeUndefined();
+
+    server.release();
+    await settle(grid);
+    expect(grid.itemAt(0)?.name).toBe('IMG_0.jpg');
+
+    grid.remove();
+    expect(grid.itemAt(0)).toBeUndefined();
+    expect(document.createElement('apm-file-grid').itemAt(0)).toBeUndefined();
+  });
+});
+
 describe('focusItem', () => {
   it('clamps the index to the listing', async () => {
     const { grid } = await listing(5);

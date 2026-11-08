@@ -6,6 +6,7 @@ import { repeat } from 'lit/directives/repeat.js';
 import { type StyleInfo, styleMap } from 'lit/directives/style-map.js';
 import { ITEMS_PAGE_SIZE } from '@/api/files';
 import type { BrowseRequest } from '@/api/generated/BrowseRequest';
+import type { FileItem } from '@/api/generated/FileItem';
 import type { SortKey } from '@/api/generated/SortKey';
 import type { SortOrder } from '@/api/generated/SortOrder';
 import { ApmElement } from '@/base/apm-element';
@@ -157,7 +158,8 @@ function viewOf(element: Element): View {
  * The grid keeps no selection: it only draws `selectedIds` and the cards report clicks.
  *
  * Events, both bubbling: `card-activate` (from the cards, with the item's `id` and `index`) and
- * `grid-state` (`GridState`: `total`, `loading`, `error`, whenever one of them changes).
+ * `grid-state` (`GridState`: `total`, `loading`, `error`, whenever one of them changes). Read-only:
+ * `columns` and `itemAt(index)` (the loaded item, for the viewer's `startItem`).
  *
  * The grid is not a scroller: it grows to the height of the whole listing and the page scrolls
  * it, so put it inside the pane body (`overflow-y-auto`), below anything else that scrolls with it.
@@ -227,6 +229,14 @@ export class ApmFileGrid extends ApmElement {
   /** Cards per row, as laid out now (1 until the grid has a width). Read-only. */
   get columns(): number {
     return this.columnCount;
+  }
+
+  /**
+   * The item at `index` of the listing, `undefined` while its page has not arrived: what the
+   * viewer takes as its `startItem`, so it shows the file at once.
+   */
+  itemAt(index: number): FileItem | undefined {
+    return this.store?.get(index);
   }
 
   /** The listing's store: made when first needed, dropped when the grid leaves the page. */

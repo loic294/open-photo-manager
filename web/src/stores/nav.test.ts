@@ -5,6 +5,7 @@ import {
   currentTool,
   formatLocation,
   linkTo,
+  linkToLocation,
   locations,
   navigate,
   normalisePath,
@@ -247,6 +248,51 @@ describe('linkTo', () => {
     setLocation('comparison', { volume: 'backup', dir: 'old' });
 
     expect(linkTo('/move')).toBe('/move?cmp=backup/old');
+  });
+});
+
+describe('linkToLocation', () => {
+  it('moves one pane on the current page and leaves the other where it is', () => {
+    goToUrl('/browse?src=photo/2024&cmp=backup');
+
+    expect(linkToLocation('source', { volume: 'photo', dir: '2024/trip' })).toBe(
+      '/browse?src=photo/2024/trip&cmp=backup',
+    );
+    expect(linkToLocation('comparison', { volume: 'cards', dir: '' })).toBe(
+      '/browse?src=photo/2024&cmp=cards',
+    );
+  });
+
+  it('is the address setLocation writes', () => {
+    goToUrl('/duplicates?src=photo&cmp=backup/old');
+    const link = linkToLocation('comparison', { volume: 'backup', dir: 'old/2023' });
+
+    setLocation('comparison', { volume: 'backup', dir: 'old/2023' });
+
+    expect(`${window.location.pathname}${window.location.search}`).toBe(link);
+  });
+
+  it('drops the key of a pane sent to the volumes root', () => {
+    goToUrl('/browse?src=photo/2024&cmp=backup');
+
+    expect(linkToLocation('source', { volume: null, dir: '' })).toBe('/browse?cmp=backup');
+  });
+
+  it('keeps names as they are on disk', () => {
+    goToUrl('/browse');
+
+    expect(linkToLocation('source', { volume: 'photo', dir: 'Été/ré sumé #1' })).toBe(
+      '/browse?src=photo/%C3%89t%C3%A9/r%C3%A9+sum%C3%A9+%231',
+    );
+  });
+
+  it('does not move the panes itself', () => {
+    goToUrl('/browse?src=photo');
+
+    linkToLocation('source', { volume: 'cards', dir: '' });
+
+    expect(locations.source.value).toEqual({ volume: 'photo', dir: '' });
+    expect(window.location.search).toBe('?src=photo');
   });
 });
 
