@@ -14,7 +14,9 @@
 //! * A directory row is written when it is new or its modification time changed.
 //! * A row is only deleted when its `seen_gen` is older than the scan's generation: a row written
 //!   during the scan (by this scan, or by a file operation that ran meanwhile and stamped the
-//!   volume's current generation) is never removed by it.
+//!   volume's current generation) is never removed by it. The delete names the scanned volume
+//!   too: generations are counted per volume, so a row that a file operation moved to another
+//!   volume after the scan read it carries a generation that means nothing to this scan.
 
 use std::collections::{BTreeMap, BTreeSet, HashMap, HashSet};
 
@@ -514,18 +516,23 @@ pub(crate) struct Removed {
     pub dirs: BTreeSet<String>,
 }
 
-/// Deletes the file rows `ids` that were not written during this scan, after putting the owners of
-/// the sidecars among them back in the extraction queue.
+/// Deletes the file rows `ids` of the volume that were not written during this scan, after putting
+/// the owners of the sidecars among them back in the extraction queue. A row that a file operation
+/// moved to another volume since the scan read it is left alone: its generation is that volume's.
 pub(crate) async fn delete_files(
     conn: &mut SqliteConnection,
+    volume_id: VolumeId,
     generation: i64,
     ids: &[FileId],
 ) -> Result<Removed, sqlx::Error> {
     links::reextract_owners_of(conn, ids).await?;
     let mut removed = Removed::default();
     for chunk in ids.chunks(IN_CHUNK * 10) {
-        let mut qb = QueryBuilder::<Sqlite>::new("DELETE FROM files WHERE seen_gen < ");
-        qb.push_bind(generation).push(" AND id IN (");
+        let mut qb = QueryBuilder::<Sqlite>::new("DELETE FROM files WHERE volume_id = ");
+        qb.push_bind(volume_id)
+            .push(" AND seen_gen < ")
+            .push_bind(generation)
+            .push(" AND id IN (");
         let mut list = qb.separated(", ");
         for id in chunk {
             list.push_bind(*id);
@@ -981,7 +988,9 @@ mod tests {
             .unwrap();
 
         let mut tx = db.begin_write().await.unwrap();
-        let removed = delete_files(&mut tx, 5, &[old, fresh]).await.unwrap();
+        let removed = delete_files(&mut tx, volume, 5, &[old, fresh])
+            .await
+            .unwrap();
         tx.commit().await.unwrap();
 
         assert_eq!(removed.rows, 1);
@@ -991,6 +1000,37 @@ mod tests {
             .await
             .unwrap();
         assert_eq!(left, ["fresh.jpg"]);
+    }
+
+    #[tokio::test]
+    async fn deleting_spares_a_row_that_moved_to_another_volume_meanwhile() {
+        let db = Db::open_temp().await.unwrap();
+        let (scanned, other) = (
+            insert_volume(&db, "photos").await,
+            insert_volume(&db, "backup").await,
+        );
+        let gone = insert_file(&db, scanned, "", "gone.jpg").await;
+        let moved = insert_file(&db, scanned, "", "moved.jpg").await;
+        // A file operation moved the row to the other volume, whose generation is older.
+        sqlx::query("UPDATE files SET volume_id = ?, seen_gen = 2 WHERE id = ?")
+            .bind(other)
+            .bind(moved)
+            .execute(db.write())
+            .await
+            .unwrap();
+
+        let mut tx = db.begin_write().await.unwrap();
+        let removed = delete_files(&mut tx, scanned, 5, &[gone, moved])
+            .await
+            .unwrap();
+        tx.commit().await.unwrap();
+
+        assert_eq!(removed.rows, 1);
+        let left: Vec<String> = sqlx::query_scalar("SELECT name FROM files")
+            .fetch_all(db.read())
+            .await
+            .unwrap();
+        assert_eq!(left, ["moved.jpg"]);
     }
 
     #[tokio::test]

@@ -722,7 +722,8 @@ impl VolumeScan<'_> {
         for chunk in removed_files.chunks(DELETE_CHUNK) {
             self.check_cancelled()?;
             let mut tx = self.db.begin_write().await?;
-            let removed = store::delete_files(&mut tx, self.generation, chunk).await?;
+            let removed =
+                store::delete_files(&mut tx, self.volume_id, self.generation, chunk).await?;
             tx.commit().await?;
             self.summary.removed += removed.rows;
             self.report(rel_paths(&removed.dirs, false));

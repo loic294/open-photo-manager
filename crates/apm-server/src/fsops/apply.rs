@@ -1303,3 +1303,173 @@ impl FsOps {
         Ok(())
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn rel(path: &str) -> RelPath {
+        RelPath::new(path).unwrap()
+    }
+
+    fn loc(volume_id: VolumeId, path: &str) -> Loc {
+        Loc::new(volume_id, rel(path))
+    }
+
+    fn stat(size: u64, mtime: i64) -> FileStat {
+        FileStat {
+            size,
+            mtime,
+            mtime_nanos: 7,
+            mode: 0o100_644,
+            dev: 1,
+            ino: 2,
+            btime: None,
+        }
+    }
+
+    fn snap() -> Snap {
+        Snap {
+            kind: "image".to_owned(),
+            size: 1234,
+            mtime: 1_700_000_000,
+            btime: Some(1_699_999_999),
+            capture_ts: Some(1_600_000_000),
+            capture_offset_min: Some(120),
+            capture_src: Some("exif".to_owned()),
+            camera: Some("Canon EOS R5".to_owned()),
+            rating: 4,
+            flag: 1,
+            width: Some(8192),
+            height: Some(5464),
+            duration_ms: None,
+            mime: Some("image/jpeg".to_owned()),
+            hash: Some(hash::to_hex(&hash::sha1_bytes(b"content"))),
+            meta_state: 1,
+            hash_state: 1,
+            thumb_state: 1,
+            tags: vec!["trip".to_owned(), "family/kids".to_owned()],
+        }
+    }
+
+    #[test]
+    fn a_folder_chain_starts_at_the_top_and_ends_at_the_folder() {
+        assert!(dir_chain(&RelPath::root()).is_empty());
+        assert_eq!(dir_chain(&rel("a")), vec![rel("a")]);
+        assert_eq!(
+            dir_chain(&rel("a/b/c")),
+            vec![rel("a"), rel("a/b"), rel("a/b/c")]
+        );
+    }
+
+    #[test]
+    fn touched_folders_are_the_two_ends_and_what_was_created_on_the_way() {
+        let from = loc(1, "in/x.jpg");
+        let to = loc(2, "out/new/x.jpg");
+        let touched: BTreeSet<_> = touched_dirs(Some(&from), Some(&to), &[rel("out/new")])
+            .into_iter()
+            .collect();
+        let expected: BTreeSet<_> = [(1, rel("in")), (2, rel("out/new")), (2, rel("out"))]
+            .into_iter()
+            .collect();
+        assert_eq!(touched, expected);
+    }
+
+    #[test]
+    fn a_top_level_file_touches_the_volume_root() {
+        let from = loc(3, "x.jpg");
+        assert_eq!(
+            touched_dirs(Some(&from), None, &[]),
+            vec![(3, RelPath::root())]
+        );
+    }
+
+    #[test]
+    fn nothing_is_touched_without_a_source_or_a_destination() {
+        assert!(touched_dirs(None, None, &[rel("created")]).is_empty());
+    }
+
+    #[test]
+    fn sizes_saturate_instead_of_wrapping() {
+        assert_eq!(to_i64(5), 5);
+        assert_eq!(to_i64(u64::MAX), i64::MAX);
+    }
+
+    #[test]
+    fn a_snapshot_matches_a_file_of_the_same_size_and_second() {
+        let snap = snap();
+        assert!(snap.content_matches(&stat(1234, 1_700_000_000)));
+        assert!(!snap.content_matches(&stat(1235, 1_700_000_000)));
+        assert!(!snap.content_matches(&stat(1234, 1_700_000_001)));
+    }
+
+    #[test]
+    fn a_snapshot_reads_its_digest_back() {
+        let mut snap = snap();
+        assert_eq!(snap.digest(), Some(hash::sha1_bytes(b"content")));
+        snap.hash = Some("not hex".to_owned());
+        assert_eq!(snap.digest(), None);
+        snap.hash = None;
+        assert_eq!(snap.digest(), None);
+    }
+
+    #[test]
+    fn a_file_snapshot_survives_its_trip_through_the_trash_item() {
+        let json = TrashMeta::File(Box::new(snap())).json().unwrap();
+        assert_eq!(TrashMeta::file_snapshot(Some(&json)), Some(snap()));
+    }
+
+    #[test]
+    fn a_folder_item_carries_totals_and_no_file_snapshot() {
+        let json = TrashMeta::Dir {
+            files: 3,
+            bytes: 42,
+        }
+        .json()
+        .unwrap();
+        assert_eq!(json, r#"{"item":"dir","files":3,"bytes":42}"#);
+        assert_eq!(TrashMeta::file_snapshot(Some(&json)), None);
+        assert_eq!(
+            TrashMeta::parse(Some(&json)),
+            Some(TrashMeta::Dir {
+                files: 3,
+                bytes: 42
+            })
+        );
+    }
+
+    #[test]
+    fn metadata_that_cannot_be_read_is_no_snapshot() {
+        for json in [None, Some(""), Some("not json"), Some("{}"), Some("[]")] {
+            assert_eq!(TrashMeta::file_snapshot(json), None, "{json:?}");
+        }
+    }
+
+    // A trash item can wait for years and be restored by a newer version: the stored form must
+    // stay readable. Optional fields may be absent and unknown ones are ignored.
+    #[test]
+    fn a_stored_snapshot_from_an_older_or_newer_version_still_reads() {
+        let stored = r#"{"item":"file","kind":"video","size":10,"mtime":20,"rating":3,"flag":0,
+            "meta_state":2,"hash_state":2,"thumb_state":2,"tags":["a"],"added_later":true}"#;
+        let snap = TrashMeta::file_snapshot(Some(stored)).unwrap();
+        assert_eq!(
+            (snap.kind.as_str(), snap.size, snap.mtime),
+            ("video", 10, 20)
+        );
+        assert_eq!((snap.rating, snap.tags), (3, vec!["a".to_owned()]));
+        assert_eq!((snap.btime, snap.camera, snap.hash), (None, None, None));
+    }
+
+    #[test]
+    fn a_sidecar_has_no_pipeline_work_and_a_photo_has_some() {
+        assert_eq!(initial_state(FileKind::Sidecar), NOT_APPLICABLE);
+        for kind in [
+            FileKind::Image,
+            FileKind::Video,
+            FileKind::Audio,
+            FileKind::Other,
+        ] {
+            assert_eq!(initial_state(kind), PENDING, "{kind:?}");
+        }
+    }
+}

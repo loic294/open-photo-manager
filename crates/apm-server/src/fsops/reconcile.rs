@@ -1118,3 +1118,450 @@ fn retire_source(
         Retired::Changed => Retirement::Unclear("the source changed during recovery"),
     })
 }
+
+#[cfg(test)]
+mod tests {
+    use std::os::unix::fs::symlink;
+    use std::time::{Duration, UNIX_EPOCH};
+
+    use apm_core::hash::sha1_bytes;
+
+    use super::*;
+    use crate::fsops::backend::SystemMover;
+    use crate::fsops::test_support::scratch;
+
+    const PART: &str = "out/.apm-0000000000000abc.apm-part";
+
+    fn rel(path: &str) -> RelPath {
+        RelPath::new(path).unwrap()
+    }
+
+    /// One volume in a scratch folder; every path below is relative to it.
+    struct Disk {
+        dir: tempfile::TempDir,
+        root: Arc<VolumeRoot>,
+    }
+
+    impl Disk {
+        fn new(label: &str) -> Self {
+            let dir = scratch(label);
+            let root = Arc::new(VolumeRoot::new(1, dir.path()).unwrap());
+            Self { dir, root }
+        }
+
+        fn full(&self, path: &str) -> std::path::PathBuf {
+            self.dir.path().join(path)
+        }
+
+        fn write(&self, path: &str, content: &[u8]) {
+            let full = self.full(path);
+            fs::create_dir_all(full.parent().unwrap()).unwrap();
+            fs::write(full, content).unwrap();
+        }
+
+        fn folder(&self, path: &str) {
+            fs::create_dir_all(self.full(path)).unwrap();
+        }
+
+        fn link(&self, existing: &str, name: &str) {
+            let full = self.full(name);
+            fs::create_dir_all(full.parent().unwrap()).unwrap();
+            fs::hard_link(self.full(existing), full).unwrap();
+        }
+
+        fn read(&self, path: &str) -> Option<Vec<u8>> {
+            fs::read(self.full(path)).ok()
+        }
+
+        fn exists(&self, path: &str) -> bool {
+            fs::symlink_metadata(self.full(path)).is_ok()
+        }
+
+        fn ends(&self, src: &str, dst: &str) -> Ends {
+            Ends {
+                src: Loc::new(1, rel(src)),
+                dst: Loc::new(1, rel(dst)),
+                src_root: self.root.clone(),
+                dst_root: self.root.clone(),
+            }
+        }
+
+        fn classify(&self, src: &str, dst: &str, size: Option<u64>, restore: bool) -> RenameState {
+            classify_rename(&self.ends(src, dst), size, restore).unwrap()
+        }
+    }
+
+    fn unclear(state: RenameState) -> bool {
+        matches!(state, RenameState::Unclear(_))
+    }
+
+    // --- the single rename ---------------------------------------------------------------
+
+    #[test]
+    fn a_file_still_at_its_source_never_moved() {
+        let disk = Disk::new("rename-never");
+        disk.write("in/a.jpg", b"photo");
+        let state = disk.classify("in/a.jpg", "out/a.jpg", Some(5), false);
+        assert_eq!(state, RenameState::NeverStarted);
+    }
+
+    #[test]
+    fn a_file_at_the_destination_is_placed_when_its_size_agrees() {
+        let disk = Disk::new("rename-placed");
+        disk.write("out/a.jpg", b"photo");
+        for recorded in [None, Some(5)] {
+            let state = disk.classify("in/a.jpg", "out/a.jpg", recorded, false);
+            assert!(
+                matches!(state, RenameState::Placed(stat) if stat.size == 5),
+                "{recorded:?}: {state:?}"
+            );
+        }
+        assert!(unclear(disk.classify(
+            "in/a.jpg",
+            "out/a.jpg",
+            Some(6),
+            false
+        )));
+        assert_eq!(disk.read("out/a.jpg").unwrap(), b"photo");
+    }
+
+    #[test]
+    fn a_folder_is_a_state_of_a_restore_only() {
+        let disk = Disk::new("rename-folder-source");
+        disk.folder("in/album");
+        assert_eq!(
+            disk.classify("in/album", "out/album", None, true),
+            RenameState::NeverStarted
+        );
+        assert!(unclear(disk.classify("in/album", "out/album", None, false)));
+
+        let disk = Disk::new("rename-folder-placed");
+        disk.folder("out/album");
+        assert_eq!(
+            disk.classify("in/album", "out/album", None, true),
+            RenameState::PlacedFolder
+        );
+        assert!(unclear(disk.classify("in/album", "out/album", None, false)));
+    }
+
+    #[test]
+    fn nothing_at_either_end_is_unclear() {
+        let disk = Disk::new("rename-nothing");
+        assert!(unclear(disk.classify(
+            "in/a.jpg",
+            "out/a.jpg",
+            Some(5),
+            false
+        )));
+        assert!(unclear(disk.classify("in/a.jpg", "out/a.jpg", None, true)));
+    }
+
+    #[test]
+    fn two_different_files_are_never_touched() {
+        let disk = Disk::new("rename-different");
+        disk.write("in/a.jpg", b"one");
+        disk.write("out/a.jpg", b"two");
+        assert!(unclear(disk.classify(
+            "in/a.jpg",
+            "out/a.jpg",
+            Some(3),
+            false
+        )));
+        assert_eq!(disk.read("in/a.jpg").unwrap(), b"one");
+        assert_eq!(disk.read("out/a.jpg").unwrap(), b"two");
+    }
+
+    #[test]
+    fn two_names_of_one_inode_lose_the_source_name_only() {
+        for (src, dst) in [("in/a.jpg", "out/a.jpg"), ("in/a.jpg", "in/b.jpg")] {
+            let disk = Disk::new("rename-links");
+            disk.write(src, b"photo");
+            disk.link(src, dst);
+            let state = disk.classify(src, dst, Some(5), false);
+            assert!(
+                matches!(state, RenameState::Placed(_)),
+                "{src} {dst}: {state:?}"
+            );
+            assert!(!disk.exists(src), "{src} {dst}");
+            assert_eq!(disk.read(dst).unwrap(), b"photo", "{src} {dst}");
+        }
+    }
+
+    #[test]
+    fn something_that_is_not_a_file_where_a_file_should_be_is_unclear() {
+        let disk = Disk::new("rename-folder-in-the-way");
+        disk.write("in/a.jpg", b"photo");
+        disk.folder("out/a.jpg");
+        assert!(unclear(disk.classify("in/a.jpg", "out/a.jpg", None, false)));
+        assert!(unclear(disk.classify("in/a.jpg", "out/a.jpg", None, true)));
+
+        let disk = Disk::new("rename-link-in-the-way");
+        disk.write("out/real.jpg", b"photo");
+        symlink("real.jpg", disk.full("out/a.jpg")).unwrap();
+        assert!(unclear(disk.classify("in/a.jpg", "out/a.jpg", None, false)));
+        assert_eq!(disk.read("out/real.jpg").unwrap(), b"photo");
+    }
+
+    // --- the copy ------------------------------------------------------------------------
+
+    fn job(disk: &Disk, mode: Mode, content: &[u8]) -> CopyRecovery {
+        CopyRecovery {
+            ends: disk.ends("in/a.jpg", "out/a.jpg"),
+            mode,
+            journal_id: 7,
+            created_at: 1_700_000_000,
+            recorded: Some(sha1_bytes(content)),
+            size: Some(u64::try_from(content.len()).unwrap()),
+            part: rel(PART),
+            keep_source: false,
+            mover: Arc::new(SystemMover),
+            cancel: CancellationToken::new(),
+        }
+    }
+
+    fn landed(outcome: CopyOutcome) -> Landing {
+        match outcome {
+            CopyOutcome::Land(landing) => landing,
+            CopyOutcome::Stop(recovered) => panic!("the copy should land: {recovered:?}"),
+        }
+    }
+
+    fn stopped(outcome: CopyOutcome) -> Recovered {
+        match outcome {
+            CopyOutcome::Stop(recovered) => recovered,
+            CopyOutcome::Land(_) => panic!("the copy should not land"),
+        }
+    }
+
+    fn out_dir() -> ScanTarget {
+        ScanTarget::dir(1, rel("out"))
+    }
+
+    #[test]
+    fn a_verified_copy_retires_the_source_of_a_move() {
+        let disk = Disk::new("copy-move");
+        disk.write("in/a.jpg", b"photo");
+        disk.write("out/a.jpg", b"photo");
+        let landing = landed(settle_copy(&job(&disk, Mode::Move, b"photo")).unwrap());
+        assert!(landing.kept.is_none());
+        assert_eq!(landing.parts_removed, 0);
+        assert_eq!(landing.digest, sha1_bytes(b"photo"));
+        assert_eq!(landing.dst_stat.size, 5);
+        assert!(!disk.exists("in/a.jpg"));
+        assert_eq!(disk.read("out/a.jpg").unwrap(), b"photo");
+    }
+
+    #[test]
+    fn a_verified_copy_leaves_the_source_of_a_copy_alone() {
+        let disk = Disk::new("copy-copy");
+        disk.write("in/a.jpg", b"photo");
+        disk.write("out/a.jpg", b"photo");
+        let landing = landed(settle_copy(&job(&disk, Mode::Copy, b"photo")).unwrap());
+        assert!(landing.kept.is_none());
+        assert_eq!(disk.read("in/a.jpg").unwrap(), b"photo");
+    }
+
+    #[test]
+    fn a_move_that_keeps_its_source_puts_it_in_the_trash_batch_of_its_row() {
+        let disk = Disk::new("copy-keep");
+        disk.write("in/a.jpg", b"photo");
+        disk.write("out/a.jpg", b"photo");
+        let mut job = job(&disk, Mode::Move, b"photo");
+        job.keep_source = true;
+        let landing = landed(settle_copy(&job).unwrap());
+        let kept = landing.kept.unwrap();
+        assert_eq!(kept.batch, TrashBatch::for_journal(1_700_000_000, 7));
+        assert!(kept.batch.name().ends_with("-x7"));
+        assert_eq!(
+            kept.trash_path,
+            trash_rel(&kept.batch, &rel("in/a.jpg")).unwrap()
+        );
+        assert!(!disk.exists("in/a.jpg"));
+        assert_eq!(disk.read(kept.trash_path.as_str()).unwrap(), b"photo");
+
+        // A repeated pass finds the same kept file again and does not move it twice.
+        let again = landed(settle_copy(&job).unwrap());
+        assert_eq!(again.kept.unwrap().trash_path, kept.trash_path);
+        assert_eq!(disk.read(kept.trash_path.as_str()).unwrap(), b"photo");
+    }
+
+    #[test]
+    fn a_source_that_is_already_gone_is_retired() {
+        let disk = Disk::new("copy-gone");
+        disk.write("out/a.jpg", b"photo");
+        let landing = landed(settle_copy(&job(&disk, Mode::Move, b"photo")).unwrap());
+        assert!(landing.kept.is_none());
+    }
+
+    #[test]
+    fn a_source_that_differs_from_the_copy_is_never_deleted() {
+        let disk = Disk::new("copy-differs");
+        disk.write("in/a.jpg", b"phptp");
+        disk.write("out/a.jpg", b"photo");
+        let recovered = stopped(settle_copy(&job(&disk, Mode::Move, b"photo")).unwrap());
+        assert!(matches!(recovered.verdict, Verdict::Unclear(_)));
+        assert!(recovered.rescan.contains(&out_dir()));
+        assert_eq!(disk.read("in/a.jpg").unwrap(), b"phptp");
+        assert_eq!(disk.read("out/a.jpg").unwrap(), b"photo");
+    }
+
+    #[test]
+    fn something_that_is_not_a_file_at_the_source_is_never_deleted() {
+        let disk = Disk::new("copy-source-folder");
+        disk.folder("in/a.jpg");
+        disk.write("out/a.jpg", b"photo");
+        let recovered = stopped(settle_copy(&job(&disk, Mode::Move, b"photo")).unwrap());
+        assert!(matches!(recovered.verdict, Verdict::Unclear(_)));
+        assert!(disk.full("in/a.jpg").is_dir());
+        assert_eq!(disk.read("out/a.jpg").unwrap(), b"photo");
+    }
+
+    #[test]
+    fn a_copy_nobody_verified_is_not_ours_to_finish() {
+        let disk = Disk::new("copy-unverified");
+        disk.write("in/a.jpg", b"photo");
+        disk.write("out/a.jpg", b"photo");
+        let mut job = job(&disk, Mode::Move, b"photo");
+        job.recorded = None;
+        let recovered = stopped(settle_copy(&job).unwrap());
+        assert!(matches!(recovered.verdict, Verdict::Abandoned(_)));
+        assert!(recovered.rescan.contains(&out_dir()));
+        assert_eq!(disk.read("in/a.jpg").unwrap(), b"photo");
+        assert_eq!(disk.read("out/a.jpg").unwrap(), b"photo");
+    }
+
+    #[test]
+    fn a_copy_that_never_arrived_leaves_the_source_alone() {
+        let disk = Disk::new("copy-missing");
+        disk.write("in/a.jpg", b"photo");
+        let recovered = stopped(settle_copy(&job(&disk, Mode::Move, b"photo")).unwrap());
+        assert!(matches!(recovered.verdict, Verdict::Abandoned(_)));
+        assert_eq!(disk.read("in/a.jpg").unwrap(), b"photo");
+    }
+
+    #[test]
+    fn a_leftover_part_is_deleted_whatever_else_is_found() {
+        let disk = Disk::new("copy-part");
+        disk.write("in/a.jpg", b"photo");
+        disk.write(PART, b"pho");
+        let recovered = stopped(settle_copy(&job(&disk, Mode::Move, b"photo")).unwrap());
+        assert_eq!(recovered.parts_removed, 1);
+        assert!(matches!(recovered.verdict, Verdict::Abandoned(_)));
+        assert!(!disk.exists(PART));
+        assert_eq!(disk.read("in/a.jpg").unwrap(), b"photo");
+    }
+
+    #[test]
+    fn a_foreign_file_at_the_destination_is_not_blamed_on_the_copy() {
+        // The part was still there, so the final rename never happened: whatever is at the
+        // destination is somebody else's file and stays.
+        let disk = Disk::new("copy-foreign-with-part");
+        disk.write("in/a.jpg", b"photo");
+        disk.write("out/a.jpg", b"theirs");
+        disk.write(PART, b"photo");
+        let recovered = stopped(settle_copy(&job(&disk, Mode::Move, b"photo")).unwrap());
+        assert_eq!(recovered.parts_removed, 1);
+        assert!(matches!(recovered.verdict, Verdict::Abandoned(_)));
+        assert_eq!(disk.read("out/a.jpg").unwrap(), b"theirs");
+        assert_eq!(disk.read("in/a.jpg").unwrap(), b"photo");
+
+        // Without a part nobody can say how it got there: unclear, and nothing is touched.
+        let disk = Disk::new("copy-foreign");
+        disk.write("in/a.jpg", b"photo");
+        disk.write("out/a.jpg", b"theirs");
+        let recovered = stopped(settle_copy(&job(&disk, Mode::Move, b"photo")).unwrap());
+        assert_eq!(recovered.parts_removed, 0);
+        assert!(matches!(recovered.verdict, Verdict::Unclear(_)));
+        assert_eq!(disk.read("out/a.jpg").unwrap(), b"theirs");
+        assert_eq!(disk.read("in/a.jpg").unwrap(), b"photo");
+    }
+
+    #[test]
+    fn a_destination_of_the_right_size_but_another_digest_is_unclear() {
+        let disk = Disk::new("copy-digest");
+        disk.write("in/a.jpg", b"photo");
+        disk.write("out/a.jpg", b"phptp");
+        let recovered = stopped(settle_copy(&job(&disk, Mode::Move, b"photo")).unwrap());
+        assert!(matches!(recovered.verdict, Verdict::Unclear(_)));
+        assert_eq!(disk.read("in/a.jpg").unwrap(), b"photo");
+        assert_eq!(disk.read("out/a.jpg").unwrap(), b"phptp");
+    }
+
+    #[test]
+    fn something_that_is_not_a_file_at_the_destination_is_unclear() {
+        let disk = Disk::new("copy-destination-folder");
+        disk.write("in/a.jpg", b"photo");
+        disk.folder("out/a.jpg");
+        let recovered = stopped(settle_copy(&job(&disk, Mode::Move, b"photo")).unwrap());
+        assert!(matches!(recovered.verdict, Verdict::Unclear(_)));
+        assert!(recovered.rescan.contains(&out_dir()));
+        assert_eq!(disk.read("in/a.jpg").unwrap(), b"photo");
+    }
+
+    // --- the sweep of stray part files ------------------------------------------------------
+
+    fn age(disk: &Disk, path: &str, epoch_secs: u64) {
+        let file = fs::OpenOptions::new()
+            .write(true)
+            .open(disk.full(path))
+            .unwrap();
+        file.set_modified(UNIX_EPOCH + Duration::from_secs(epoch_secs))
+            .unwrap();
+    }
+
+    #[test]
+    fn the_sweep_deletes_old_part_files_that_no_row_owns_and_nothing_else() {
+        let disk = Disk::new("sweep");
+        let old = "d/.apm-0000000000000001.apm-part";
+        let owned = "d/.apm-0000000000000002.apm-part";
+        let young = "d/.apm-0000000000000003.apm-part";
+        let not_a_part_name = "d/.apm-000000000000000z.apm-part";
+        let old_photo = "d/photo.jpg";
+        let linked = "d/.apm-0000000000000004.apm-part";
+        let folder = "d/.apm-0000000000000005.apm-part";
+        for path in [old, owned, young, not_a_part_name, old_photo] {
+            disk.write(path, b"x");
+        }
+        disk.write("elsewhere.bin", b"x");
+        symlink("../elsewhere.bin", disk.full(linked)).unwrap();
+        disk.folder(folder);
+        let now = u64::try_from(now_secs()).unwrap();
+        for path in [old, owned, not_a_part_name, old_photo, "elsewhere.bin"] {
+            age(&disk, path, 1000);
+        }
+        let owned_rows = HashSet::from([(1, rel(owned))]);
+        let cutoff = i64::try_from(now - 3600).unwrap();
+
+        let swept = sweep_folder(&disk.root, 1, &rel("d"), &owned_rows, cutoff);
+
+        assert_eq!(swept, 1);
+        assert!(!disk.exists(old));
+        for kept in [owned, young, not_a_part_name, old_photo, linked, folder] {
+            assert!(disk.exists(kept), "{kept}");
+        }
+        assert_eq!(disk.read("elsewhere.bin").unwrap(), b"x");
+        assert_eq!(
+            sweep_folder(&disk.root, 1, &rel("d"), &owned_rows, cutoff),
+            0
+        );
+        assert_eq!(
+            sweep_folder(&disk.root, 1, &rel("missing"), &owned_rows, cutoff),
+            0
+        );
+    }
+
+    #[test]
+    fn the_sweep_looks_at_one_volume_only() {
+        let disk = Disk::new("sweep-volume");
+        let part = "d/.apm-0000000000000001.apm-part";
+        disk.write(part, b"x");
+        age(&disk, part, 1000);
+        // A row of ANOTHER volume with the same path does not protect this file.
+        let other_volume = HashSet::from([(2, rel(part))]);
+        assert_eq!(
+            sweep_folder(&disk.root, 1, &rel("d"), &other_volume, i64::MAX),
+            1
+        );
+        assert!(!disk.exists(part));
+    }
+}
