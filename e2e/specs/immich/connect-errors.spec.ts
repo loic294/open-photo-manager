@@ -1,6 +1,6 @@
 import { testUsers } from '../../../tools/mock-immich/index.ts';
 import type { ImmichStatusDto } from '../../../web/src/api/generated/ImmichStatusDto';
-import { expect, test } from '../../src/test';
+import { expect, test } from '../../src/immich-readonly-test';
 
 test.use({
   appOptions: { env: { APM_IMMICH_QUIET_SECS: '1' } },

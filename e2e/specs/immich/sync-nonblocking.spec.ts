@@ -1,6 +1,6 @@
 import type { TaskDto } from '../../../web/src/api/generated/TaskDto';
 import { connectThroughUi, mapAndSync, waitForTask } from '../../src/immich';
-import { expect, test } from '../../src/test';
+import { expect, test } from '../../src/immich-readonly-test';
 
 test('a gated Immich sync leaves browsing, filters and selection usable', async ({
   app,

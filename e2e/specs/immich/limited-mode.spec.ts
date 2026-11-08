@@ -1,6 +1,6 @@
 import { testUsers } from '../../../tools/mock-immich/index.ts';
 import type { ImmichStatusDto } from '../../../web/src/api/generated/ImmichStatusDto';
-import { expect, test } from '../../src/test';
+import { expect, test } from '../../src/immich-readonly-test';
 
 test('a regular account connects in limited mode with manual mappings', async ({
   app,
