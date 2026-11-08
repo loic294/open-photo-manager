@@ -17,7 +17,8 @@ use apm_core::paths::{FileId, RelPath};
 use tokio_util::sync::CancellationToken;
 
 use super::apply::{
-    Crossing, Mode, TrashApply, TrashItem, TrashMeta, load_trash_item, touched_dirs,
+    Crossing, Mode, TrashApply, TrashItem, TrashMeta, known_before_trash, load_trash_item,
+    touched_dirs,
 };
 use super::backend::Mover;
 use super::context::{OpContext, TrashBatch};
@@ -422,6 +423,12 @@ impl FsOps {
             Item::File(stat) => (false, stat.size),
             Item::Dir => (true, 0),
         };
+        // Read before anything changes: a scan can drop the rows between the rename and the
+        // index transaction, and a restore still needs what they held.
+        let known = {
+            let mut conn = self.db.read().acquire().await?;
+            known_before_trash(&mut conn, loc, is_dir).await?
+        };
 
         let first = Loc::new(loc.volume_id, target.clone());
         let guard = self
@@ -459,6 +466,7 @@ impl FsOps {
                 is_dir,
                 size,
                 reason: Some(reason),
+                known: known.as_ref(),
             })
             .await?;
         self.announce(cx, &touched_dirs(Some(loc), None, &[]));

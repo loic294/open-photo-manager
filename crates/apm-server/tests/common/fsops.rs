@@ -10,6 +10,7 @@ use std::path::{Path, PathBuf};
 use std::sync::{Arc, Mutex};
 
 use apm_core::dto::common::ConflictPolicy;
+use apm_core::hash::sha1_bytes;
 use apm_core::paths::{RelPath, VolumeId};
 use apm_server::fsops::{
     FailAction, Failpoints, FreeSpace, FsOpError, FsOps, Loc, MoveRequest, Mover, ReconcileReport,
@@ -266,6 +267,99 @@ impl Fx {
             .unwrap()
     }
 
+    /// What the index remembers about a row besides where it is.
+    pub async fn memory_of(&self, id: i64) -> Memory {
+        type Columns = (
+            i64,
+            i64,
+            Option<i64>,
+            Option<i64>,
+            Option<String>,
+            Option<String>,
+            Option<i64>,
+            Option<i64>,
+            Option<i64>,
+            Option<String>,
+            Option<Vec<u8>>,
+            i64,
+            i64,
+        );
+        let columns: Columns = sqlx::query_as(
+            "SELECT f.rating, f.flag, f.capture_ts, f.capture_offset_min, f.capture_src, c.name, \
+             f.width, f.height, f.duration_ms, f.mime, f.hash, f.meta_state, f.hash_state \
+             FROM files f LEFT JOIN cameras c ON c.id = f.camera_id WHERE f.id = ?",
+        )
+        .bind(id)
+        .fetch_one(self.app.state.db.read())
+        .await
+        .unwrap();
+        let tags = sqlx::query_scalar(
+            "SELECT t.name FROM file_tags ft JOIN tags t ON t.id = ft.tag_id \
+             WHERE ft.file_id = ? ORDER BY t.name",
+        )
+        .bind(id)
+        .fetch_all(self.app.state.db.read())
+        .await
+        .unwrap();
+        Memory {
+            rating: columns.0,
+            flag: columns.1,
+            capture_ts: columns.2,
+            capture_offset_min: columns.3,
+            capture_src: columns.4,
+            camera: columns.5,
+            width: columns.6,
+            height: columns.7,
+            duration_ms: columns.8,
+            mime: columns.9,
+            hash: columns.10,
+            meta_state: columns.11,
+            hash_state: columns.12,
+            tags,
+        }
+    }
+
+    /// Gives a row what the pipeline and the user would have given it: capture data, a camera,
+    /// the size of the picture, the hash of `content`, a rating, a flag, two tags, all pipeline
+    /// stages done.
+    pub async fn decorate(&self, id: i64, content: &[u8]) -> Memory {
+        let db = self.app.state.db.write();
+        sqlx::query("INSERT OR IGNORE INTO cameras (name) VALUES ('Fuji X-T5')")
+            .execute(db)
+            .await
+            .unwrap();
+        sqlx::query(
+            "UPDATE files SET rating = 4, flag = 1, capture_ts = 1500000000, \
+             capture_offset_min = 120, capture_src = 'exif', \
+             camera_id = (SELECT id FROM cameras WHERE name = 'Fuji X-T5'), \
+             width = 6000, height = 4000, duration_ms = 1200, mime = 'image/jpeg', hash = ?, \
+             meta_state = 1, hash_state = 1, thumb_state = 1 WHERE id = ?",
+        )
+        .bind(sha1_bytes(content).to_vec())
+        .bind(id)
+        .execute(db)
+        .await
+        .unwrap();
+        for tag in ["family", "holiday"] {
+            sqlx::query("INSERT OR IGNORE INTO tags (name) VALUES (?)")
+                .bind(tag)
+                .execute(db)
+                .await
+                .unwrap();
+            sqlx::query(
+                "INSERT INTO file_tags (file_id, tag_id) SELECT ?, id FROM tags WHERE name = ?",
+            )
+            .bind(id)
+            .bind(tag)
+            .execute(db)
+            .await
+            .unwrap();
+        }
+        let memory = self.memory_of(id).await;
+        assert_ne!(memory, Memory::default(), "the row was not decorated");
+        memory
+    }
+
     /// Every trash item, oldest first.
     pub async fn trash_items(&self) -> Vec<TrashRow> {
         type Row = (
@@ -380,6 +474,27 @@ impl Fx {
         settings.keep_cross_volume_source_in_trash = true;
         self.app.state.settings.update(settings).await.unwrap();
     }
+}
+
+/// What the index remembers about a file besides where it is: what the pipeline found and what
+/// the user chose. The thumbnail state is left out: thumbnails are cached per row id, so a new
+/// row redoes them.
+#[derive(Debug, Clone, Default, PartialEq, Eq)]
+pub struct Memory {
+    pub rating: i64,
+    pub flag: i64,
+    pub capture_ts: Option<i64>,
+    pub capture_offset_min: Option<i64>,
+    pub capture_src: Option<String>,
+    pub camera: Option<String>,
+    pub width: Option<i64>,
+    pub height: Option<i64>,
+    pub duration_ms: Option<i64>,
+    pub mime: Option<String>,
+    pub hash: Option<Vec<u8>>,
+    pub meta_state: i64,
+    pub hash_state: i64,
+    pub tags: Vec<String>,
 }
 
 /// One row of `trash_items`.

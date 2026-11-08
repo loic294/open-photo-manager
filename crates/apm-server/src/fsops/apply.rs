@@ -219,6 +219,11 @@ pub(crate) struct TrashApply<'a> {
     /// The size of a file; ignored for a folder (the index knows its total).
     pub size: u64,
     pub reason: Option<&'a str>,
+    /// What the index said about the item just before it was renamed into the trash. A scan can
+    /// remove the rows between the rename and the transaction; this is what the item's
+    /// `meta_json` and size are made of then. `None` when nothing was captured (a recovery) or
+    /// the index did not know the item.
+    pub known: Option<&'a TrashMeta>,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -872,6 +877,23 @@ async fn delete_subtree(
     Ok(removed)
 }
 
+/// What the index knows about a file or folder that is about to be trashed: a file's snapshot
+/// (none when it has no row), a folder's totals. Read before the rename; see
+/// [`TrashApply::known`].
+pub(crate) async fn known_before_trash(
+    conn: &mut SqliteConnection,
+    loc: &Loc,
+    is_dir: bool,
+) -> Result<Option<TrashMeta>, sqlx::Error> {
+    if is_dir {
+        let (files, bytes) = subtree_totals(conn, loc.volume_id, &loc.rel).await?;
+        return Ok(Some(TrashMeta::Dir { files, bytes }));
+    }
+    Ok(load_snap(conn, loc)
+        .await?
+        .map(|(_, snap)| TrashMeta::File(Box::new(snap))))
+}
+
 /// `(files, bytes)` of the indexed files at and below a folder.
 async fn subtree_totals(
     conn: &mut SqliteConnection,
@@ -1055,6 +1077,15 @@ impl FsOps {
         let (ids, meta, size) = if t.is_dir {
             let (files, bytes) = subtree_totals(&mut *conn, t.volume_id, t.orig).await?;
             let ids = subtree_ids(&mut *conn, t.volume_id, t.orig).await?;
+            // The rows a scan removed since the rename still counted when the folder was looked
+            // at before it, so the larger figure is the better one.
+            let (files, bytes) = match t.known {
+                Some(TrashMeta::Dir {
+                    files: known_files,
+                    bytes: known_bytes,
+                }) => (files.max(*known_files), bytes.max(*known_bytes)),
+                _ => (files, bytes),
+            };
             (ids, Some(TrashMeta::Dir { files, bytes }), bytes)
         } else {
             let here = Loc::new(t.volume_id, t.orig.clone());
@@ -1063,9 +1094,16 @@ impl FsOps {
                     let snap = snapshot_of(&mut *conn, &row).await?;
                     (vec![row.id], Some(TrashMeta::File(Box::new(snap))), t.size)
                 }
-                // Never indexed (a junk file, a file the scanner has not seen yet): nothing to
-                // restore into the index.
-                None => (Vec::new(), None, t.size),
+                // No row now: never indexed (a junk file, a file the scanner has not seen yet),
+                // or a scan removed it after the rename. What the index knew before is all there
+                // is to restore; the row is gone, so the hooks are not told about it.
+                None => (
+                    Vec::new(),
+                    t.known
+                        .filter(|meta| matches!(meta, TrashMeta::File(_)))
+                        .cloned(),
+                    t.size,
+                ),
             }
         };
         let trash_item_id = insert_trash_item(

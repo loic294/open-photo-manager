@@ -18,7 +18,6 @@ use std::sync::{Arc, Mutex};
 use std::time::Duration;
 
 use apm_core::dto::common::ConflictPolicy;
-use apm_core::hash::sha1_bytes;
 use apm_core::paths::RelPath;
 use apm_server::fsops::{
     AppliedOp, Expect, FailAction, Failpoints, FsOpError, Loc, OpContext, OpHook, PurgeOutcome,
@@ -26,7 +25,9 @@ use apm_server::fsops::{
 };
 use apm_server::indexer::RecordingChanges;
 use common::BASE_MTIME;
-use common::fsops::{Fx, TrashRow, disk_dirs, disk_files, loc, permissions_are_enforced, rel};
+use common::fsops::{
+    Fx, Memory, TrashRow, disk_dirs, disk_files, loc, permissions_are_enforced, rel,
+};
 use futures_util::future::BoxFuture;
 use sqlx::SqliteConnection;
 use tokio_util::sync::CancellationToken;
@@ -93,116 +94,6 @@ fn in_trash(fx: &Fx, volume: i64) -> Vec<String> {
         .collect()
 }
 
-/// What the index remembers about a file besides where it is: what the pipeline found and what
-/// the user chose.
-#[derive(Debug, Default, PartialEq, Eq)]
-struct Memory {
-    rating: i64,
-    flag: i64,
-    capture_ts: Option<i64>,
-    capture_offset_min: Option<i64>,
-    capture_src: Option<String>,
-    camera: Option<String>,
-    width: Option<i64>,
-    height: Option<i64>,
-    duration_ms: Option<i64>,
-    mime: Option<String>,
-    hash: Option<Vec<u8>>,
-    meta_state: i64,
-    hash_state: i64,
-    tags: Vec<String>,
-}
-
-async fn memory_of(fx: &Fx, id: i64) -> Memory {
-    type Columns = (
-        i64,
-        i64,
-        Option<i64>,
-        Option<i64>,
-        Option<String>,
-        Option<String>,
-        Option<i64>,
-        Option<i64>,
-        Option<i64>,
-        Option<String>,
-        Option<Vec<u8>>,
-        i64,
-        i64,
-    );
-    let columns: Columns = sqlx::query_as(
-        "SELECT f.rating, f.flag, f.capture_ts, f.capture_offset_min, f.capture_src, c.name, \
-         f.width, f.height, f.duration_ms, f.mime, f.hash, f.meta_state, f.hash_state \
-         FROM files f LEFT JOIN cameras c ON c.id = f.camera_id WHERE f.id = ?",
-    )
-    .bind(id)
-    .fetch_one(fx.app.state.db.read())
-    .await
-    .unwrap();
-    let tags = sqlx::query_scalar(
-        "SELECT t.name FROM file_tags ft JOIN tags t ON t.id = ft.tag_id \
-         WHERE ft.file_id = ? ORDER BY t.name",
-    )
-    .bind(id)
-    .fetch_all(fx.app.state.db.read())
-    .await
-    .unwrap();
-    Memory {
-        rating: columns.0,
-        flag: columns.1,
-        capture_ts: columns.2,
-        capture_offset_min: columns.3,
-        capture_src: columns.4,
-        camera: columns.5,
-        width: columns.6,
-        height: columns.7,
-        duration_ms: columns.8,
-        mime: columns.9,
-        hash: columns.10,
-        meta_state: columns.11,
-        hash_state: columns.12,
-        tags,
-    }
-}
-
-/// Gives a row what the pipeline and the user would have given it: capture data, a camera, the
-/// size of the picture, a hash, a rating, a flag, two tags, all pipeline stages done.
-async fn decorate(fx: &Fx, id: i64) -> Memory {
-    let db = fx.app.state.db.write();
-    sqlx::query("INSERT OR IGNORE INTO cameras (name) VALUES ('Fuji X-T5')")
-        .execute(db)
-        .await
-        .unwrap();
-    sqlx::query(
-        "UPDATE files SET rating = 4, flag = 1, capture_ts = 1500000000, capture_offset_min = 120, \
-         capture_src = 'exif', camera_id = (SELECT id FROM cameras WHERE name = 'Fuji X-T5'), \
-         width = 6000, height = 4000, duration_ms = 1200, mime = 'image/jpeg', hash = ?, \
-         meta_state = 1, hash_state = 1, thumb_state = 1 WHERE id = ?",
-    )
-    .bind(sha1_bytes(PAYLOAD).to_vec())
-    .bind(id)
-    .execute(db)
-    .await
-    .unwrap();
-    for tag in ["family", "holiday"] {
-        sqlx::query("INSERT OR IGNORE INTO tags (name) VALUES (?)")
-            .bind(tag)
-            .execute(db)
-            .await
-            .unwrap();
-        sqlx::query(
-            "INSERT INTO file_tags (file_id, tag_id) SELECT ?, id FROM tags WHERE name = ?",
-        )
-        .bind(id)
-        .bind(tag)
-        .execute(db)
-        .await
-        .unwrap();
-    }
-    let memory = memory_of(fx, id).await;
-    assert_ne!(memory, Memory::default(), "the row was not decorated");
-    memory
-}
-
 async fn thumb_state(fx: &Fx, id: i64) -> i64 {
     fx.scalar(&format!("SELECT thumb_state FROM files WHERE id = {id}"))
         .await
@@ -228,7 +119,7 @@ async fn a_file_goes_to_the_trash_and_comes_back_with_what_the_index_knew() {
     fx.ta.write("x/IMG_1.jpg", PAYLOAD);
     fx.scan().await;
     let id = fx.row_id(fx.a, "x/IMG_1.jpg").await;
-    let known = decorate(&fx, id).await;
+    let known = fx.decorate(id, PAYLOAD).await;
     let batch = TrashBatch::new(7);
 
     let outcome = trash_in(&fx, "x/IMG_1.jpg", &batch).await;
@@ -269,7 +160,7 @@ async fn a_file_goes_to_the_trash_and_comes_back_with_what_the_index_knew() {
     );
     let new_id = new_id.expect("a restored file has a new row");
     assert_eq!(fx.row_id(fx.a, "x/IMG_1.jpg").await, new_id);
-    assert_eq!(memory_of(&fx, new_id).await, known);
+    assert_eq!(fx.memory_of(new_id).await, known);
     assert_eq!(thumb_state(&fx, new_id).await, 0, "thumbnails are redone");
     assert!(fx.trash_items().await.is_empty());
     assert_eq!(in_trash(&fx, fx.a), Vec::<String>::new());
@@ -324,14 +215,14 @@ async fn a_file_changed_in_the_trash_keeps_only_the_users_marks() {
     fx.ta.write("x/IMG_1.jpg", PAYLOAD);
     fx.scan().await;
     let id = fx.row_id(fx.a, "x/IMG_1.jpg").await;
-    decorate(&fx, id).await;
+    fx.decorate(id, PAYLOAD).await;
     let item = trash(&fx, "x/IMG_1.jpg").await;
     fs::write(fx.ta.path(item.trash_path.as_str()), OTHER).unwrap();
 
     let (_, _, new_id, _) = restored(restore(&fx, item.trash_item_id, ConflictPolicy::Smart).await);
 
     let new_id = new_id.unwrap();
-    let memory = memory_of(&fx, new_id).await;
+    let memory = fx.memory_of(new_id).await;
     assert_eq!(
         memory,
         Memory {
@@ -363,7 +254,7 @@ async fn a_file_the_index_never_saw_can_be_trashed_and_restored() {
     assert_eq!(rows.len(), 1);
     assert!(!rows[0].has_meta, "there was nothing to remember");
     let (_, _, new_id, _) = restored(restore(&fx, item.trash_item_id, ConflictPolicy::Smart).await);
-    assert_eq!(memory_of(&fx, new_id.unwrap()).await, Memory::default());
+    assert_eq!(fx.memory_of(new_id.unwrap()).await, Memory::default());
     fx.present(fx.a, "x/IMG_1.jpg", PAYLOAD, "restored").await;
     fx.assert_in_sync().await;
 }

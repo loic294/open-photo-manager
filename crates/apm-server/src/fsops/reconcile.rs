@@ -499,6 +499,7 @@ impl FsOps {
             is_dir,
             size,
             reason: None,
+            known: None,
         })
         .await?;
         self.announce(&OpContext::detached(), &[(orig.volume_id, orig.dir())]);

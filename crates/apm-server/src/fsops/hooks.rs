@@ -34,7 +34,9 @@ pub enum AppliedOp {
         to: Loc,
     },
     /// A file or folder went into the trash. `file_ids` lists the `files` rows that are about to
-    /// be deleted (every file below a folder); they still exist while the hook runs.
+    /// be deleted (every file below a folder); they still exist while the hook runs. A row a scan
+    /// already dropped between the rename and this transaction is not listed: `file_ids` can then
+    /// be empty (or short) for a file that was indexed.
     Trashed {
         file_ids: Vec<FileId>,
         from: Loc,
