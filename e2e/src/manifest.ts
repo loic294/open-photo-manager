@@ -32,7 +32,12 @@ interface Scenario {
 interface DuplicateGroup {
   id: string;
   source: FixturePath | null;
-  members: (FixturePath & { role: string; modes: number[]; match: boolean })[];
+  members: (FixturePath & {
+    role: string;
+    modes: number[];
+    match: boolean;
+    match_plain_prefix?: boolean;
+  })[];
 }
 interface ManifestData {
   schema_version: number;

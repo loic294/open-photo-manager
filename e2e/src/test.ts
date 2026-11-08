@@ -5,8 +5,12 @@ import { snapshotTree } from './disk';
 import { Manifest } from './manifest';
 import { PageGuard } from './page-guard';
 import { BottomBarPage } from './pages/bottom-bar';
+import { CleanupPage } from './pages/cleanup-page';
 import { ConfirmDialogPage } from './pages/confirm-dialog';
+import { DuplicatesPage } from './pages/duplicates-page';
 import { FilterBarPage } from './pages/filter-bar';
+import { FormatPage } from './pages/format-page';
+import { MovePage } from './pages/move-page';
 import { PanePage } from './pages/pane';
 import { SettingsPage } from './pages/settings';
 import { ShellPage } from './pages/shell';
@@ -20,11 +24,15 @@ interface Fixtures {
   appOptions: AppOptions;
   app: AppInstance;
   bottomBar: BottomBarPage;
+  cleanupPage: CleanupPage;
   comparison: PanePage;
   confirmDialog: ConfirmDialogPage;
+  duplicatesPage: DuplicatesPage;
   filterBar: FilterBarPage;
+  formatPage: FormatPage;
   manifest: Manifest;
   mockImmich: (options?: MockOptions) => Promise<Mock>;
+  movePage: MovePage;
   readOnlyGuard: undefined;
   settingsPage: SettingsPage;
   shell: ShellPage;
@@ -76,14 +84,23 @@ export const test = base.extend<Fixtures, Workers>({
   bottomBar: async ({ page }, use) => {
     await use(new BottomBarPage(page));
   },
+  cleanupPage: async ({ page }, use) => {
+    await use(new CleanupPage(page));
+  },
   comparison: async ({ page }, use) => {
     await use(new PanePage(page, 'comparison'));
   },
   confirmDialog: async ({ page }, use) => {
     await use(new ConfirmDialogPage(page));
   },
+  duplicatesPage: async ({ page }, use) => {
+    await use(new DuplicatesPage(page));
+  },
   filterBar: async ({ page }, use) => {
     await use(new FilterBarPage(page));
+  },
+  formatPage: async ({ page }, use) => {
+    await use(new FormatPage(page));
   },
   manifest: async ({ sharedApp }, use) => {
     await use(await Manifest.load(sharedApp.outDir));
@@ -107,6 +124,9 @@ export const test = base.extend<Fixtures, Workers>({
       await mock.stop();
       expect(mock.state.violations()).toEqual([]);
     }
+  },
+  movePage: async ({ page }, use) => {
+    await use(new MovePage(page));
   },
   page: async ({ page, allowedErrors }, use) => {
     const guard = new PageGuard(page, allowedErrors);
