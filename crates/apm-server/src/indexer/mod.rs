@@ -325,7 +325,14 @@ impl Indexer {
         let scan = self.scan(req, ctx).await?; // 1. scanner.rs
         summary.absorb_scan(&scan);
         // 2. extract.rs (todo `extracting-metadata`)
-        // 3. hash.rs (todo `hashing-files`)
+        let hashed = self
+            .hash_pending(req, ctx, hash::HashLimits::default())
+            .await?; // 3. hash.rs
+        summary.hashed += hashed.hashed;
+        summary.failed += hashed.failed;
+        if ctx.cancel.is_cancelled() {
+            return Err(IndexError::Cancelled);
+        }
         // 4. thumbnails (a later todo)
 
         Ok(summary)
