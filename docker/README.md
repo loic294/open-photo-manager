@@ -13,12 +13,39 @@ filesystem and has a built-in health check. It is meant for a Synology NAS but r
 | `entrypoint.sh` | Runs under `tini`; checks that `/data` is writable and prepares the scratch folder, then starts the server |
 | `healthcheck.sh` | Docker `HEALTHCHECK`: `GET /api/health` on the port the server listens on |
 | `compose.yml` | Example for Synology Container Manager (copy it to the NAS and edit the `CHANGE ME` lines) |
+| `check_compose.py` | Checks the root README's embedded Compose example; `make check-compose` also validates Compose |
 | `docker.mk` | `make docker-build`, `make docker-run`, `make docker-smoke` (included by the root `Makefile`) |
 | `smoke.sh` | End-to-end check of a freshly built image |
 | `../scripts/build-image.sh` | Builds for one or several architectures; loads, pushes or exports the image |
 | `../.dockerignore` | Allowlist of what is sent to the builder (sources only, no `target/`, `node_modules/` or secrets) |
 
-## Quick start
+## Private GHCR publishing
+
+The normal installation path is [the root README](../README.md), using the private image
+`ghcr.io/loic294/advanced-photo-manager:edge`. Pulls require a classic PAT with `read:packages` and package
+read access; enter it yourself at `docker login ghcr.io`, never give it to an agent.
+
+[`.github/workflows/publish-image.yml`](../.github/workflows/publish-image.yml) publishes `edge` on `main`
+pushes affecting image inputs (not docs-only changes), or on manual dispatch from `main`. Approved exact
+`vX.Y.Z` tags publish `X.Y.Z`, `X.Y` and `latest`; no tag or release is created by CI. GitHub ignores path
+filters for tag pushes. Manual dispatch from other branches is rejected.
+
+The workflow requires a private repository/package, uses only `GITHUB_TOKEN` with job-scoped package
+permissions, and labels images with the private repository source URL. GHCR creates the first package private;
+keep its visibility private and its linked repository's Actions access enabled. Existing non-private packages
+fail the workflow. No provenance, SBOM or other attestations are enabled on this private plan.
+
+Each architecture builds natively on `ubuntu-24.04` (amd64) or `ubuntu-24.04-arm` (arm64), pushes an untagged
+digest, pulls it and runs `docker/smoke.sh`. Only after both pass are tags assembled and inspected for exactly
+those two Linux digests. Failed runs can leave untagged digests, but do not promote them. All actions are pinned
+to full commit SHAs with version comments. Native ARM runner availability/billing must be enabled for the
+private repository's plan; do not silently substitute emulation if a runner is unavailable.
+
+The coordinator alone manages `origin` and pushes `main` or explicitly approved release tags. Development
+publishing is enabled immediately; `latest` is reserved for releases after final application verification.
+`make check` includes `make check-compose` (Python 3 and Docker Compose required).
+
+## Offline quick start
 
 1. Build the image on your computer for the NAS architecture and export it as a file (see [Build](#build)):
    ```sh
@@ -33,7 +60,8 @@ filesystem and has a built-in health check. It is meant for a Synology NAS but r
    sudo mkdir -p /volume1/docker/apm/data
    sudo chown -R 1026:100 /volume1/docker/apm/data
    ```
-4. Edit `compose.yml` (user, photo folders, `TZ`, `APM_ALLOWED_HOSTS`) and start it:
+4. Edit `compose.yml`: replace the GHCR `image:` with `advanced-photo-manager:latest` (the tag loaded above),
+   and set user, photo folders, `TZ`, `APM_ALLOWED_HOSTS`. Start it:
    `docker compose up -d`, or Container Manager > Project > Create and pick the folder holding the file.
 5. Open `http://<nas-name-or-ip>:8080`.
 
@@ -50,7 +78,7 @@ scripts/build-image.sh --help
 | Option | Meaning |
 |---|---|
 | `--platform LIST` | Comma separated platforms, e.g. `linux/amd64,linux/arm64`. Default: the platform of your Docker engine, so the build is native and fast. |
-| `--tag NAME:TAG` | Image name, repeatable. Default `advanced-photo-manager:dev`. `compose.yml` expects `advanced-photo-manager:latest`. |
+| `--tag NAME:TAG` | Image name, repeatable. Default `advanced-photo-manager:dev`. For offline use, set Compose's `image:` to the tag you imported. |
 | `--load` | Load the image into the local Docker engine (default, one platform). |
 | `--push` | Push a multi-platform manifest to the registry named in `--tag`. |
 | `--tar DIR` | Write one tarball per platform into `DIR`, named `<name>-<tag>-linux-<arch>.tar`. For a NAS that cannot reach your registry. |

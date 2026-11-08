@@ -8,6 +8,14 @@ APM_RUN_VOLUMES ?= $(if $(wildcard fixtures/out/volumes),fixtures/out/volumes,ta
 APM_RUN_DATA ?= target/docker-run/data
 
 .PHONY: docker-build docker-run docker-smoke
+.PHONY: check-compose
+
+check: check-compose
+
+check-compose:
+	PYTHONDONTWRITEBYTECODE=1 python3 -m unittest discover -s docker -p 'test_check_compose.py'
+	python3 docker/check_compose.py
+	docker compose -f docker/compose.yml config -q
 
 # Builds the image for this machine's architecture and loads it into the local Docker engine.
 docker-build:

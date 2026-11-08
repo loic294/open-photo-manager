@@ -185,7 +185,8 @@ The design plan (source of truth for behaviour) is
 1. **Work only in your assigned worktree** (given in your brief: `<worktrees-dir>/{todo-id}`,
    branch `feat/{todo-id}`). Every file you read, write or build must be under it. Never edit, build or run
    git commands in the main checkout `<main-checkout>`. Never delete/reset other
-   worktrees, other branches or `main`. Never `git push` (there is no remote).
+   worktrees, other branches or `main`. Only the coordinator manages `origin`, creates the private GitHub
+   repository, and pushes branches or release tags. Agents commit and land locally; never `git push`.
 2. **Stay inside your ownership boundary** (ownership map above + your brief). Shared wiring files
    (`Cargo.toml`, `crates/*/src/lib.rs`, other owners' `mod.rs`, `state.rs`, `app.rs`, `api/mod.rs`,
    `tests/common/mod.rs`, `Makefile`, `AGENTS.md`) may only receive minimal, line-oriented additions: one item
