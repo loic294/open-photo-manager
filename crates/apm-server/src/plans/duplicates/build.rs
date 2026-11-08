@@ -249,6 +249,9 @@ pub(super) async fn build(
     let params: DuplicateParams =
         serde_json::from_value(value).map_err(|err| PlanError::invalid(err.to_string()))?;
     ctx.check_cancelled()?;
+    let mut registration = ctx.db.begin_write().await?;
+    crate::plans::file_identity::begin(&mut registration, ctx.plan_id).await?;
+    registration.commit().await?;
     let mut read = ctx.db.read().begin().await?;
     let (source_count, source_missing) =
         counts(&mut read, &params.source, params.mode, "source").await?;
@@ -307,6 +310,12 @@ pub(super) async fn build(
                 bytes += size;
                 members.push((id, volume, dir));
             }
+        }
+        for chunk in ids.chunks(bulk::CHUNK_ROWS) {
+            ctx.check_cancelled()?;
+            let mut write = ctx.db.begin_write().await?;
+            crate::plans::file_identity::track(&mut write, id, chunk).await?;
+            write.commit().await?;
         }
         bulk::insert_all(
             &ctx.db,

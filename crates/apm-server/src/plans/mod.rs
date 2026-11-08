@@ -51,6 +51,7 @@ pub mod bulk;
 pub mod cleanup;
 pub mod duplicates;
 pub mod engine;
+pub(crate) mod file_identity;
 pub mod moves;
 pub mod overlay;
 pub mod planner;

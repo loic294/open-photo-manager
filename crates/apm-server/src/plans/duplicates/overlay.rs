@@ -19,7 +19,7 @@ pub(super) async fn flags(
     let mut flags = HashMap::new();
     for chunk in ids.chunks(30_000) {
         let mut qb = QueryBuilder::<Sqlite>::new(
-            "SELECT m.file_id FROM duplicate_matches m JOIN files f ON f.id = m.file_id WHERE m.plan_id = ",
+            "SELECT m.file_id FROM duplicate_matches m JOIN files f ON f.id = m.file_id JOIN plan_file_tracking t ON t.plan_id = m.plan_id JOIN plan_file_identities i ON i.plan_id = m.plan_id AND i.file_id = m.file_id AND i.live = 1 WHERE m.live = 1 AND m.plan_id = ",
         );
         qb.push_bind(plan)
             .push(" AND m.side = ")
@@ -48,7 +48,7 @@ pub(super) async fn flags(
 }
 
 pub(super) async fn ids(db: &Db, plan: PlanId, side: PlanSide) -> Result<Vec<FileId>, PlanError> {
-    Ok(sqlx::query_scalar("SELECT m.file_id FROM duplicate_matches m JOIN files f ON f.id = m.file_id WHERE m.plan_id = ? AND m.side = ? ORDER BY m.file_id")
+    Ok(sqlx::query_scalar("SELECT m.file_id FROM duplicate_matches m JOIN files f ON f.id = m.file_id JOIN plan_file_tracking t ON t.plan_id = m.plan_id JOIN plan_file_identities i ON i.plan_id = m.plan_id AND i.file_id = m.file_id AND i.live = 1 WHERE m.live = 1 AND m.plan_id = ? AND m.side = ? ORDER BY m.file_id")
         .bind(plan).bind(side_name(side)).fetch_all(db.read()).await?)
 }
 
@@ -73,7 +73,9 @@ pub(super) async fn folders(
         .push_bind(view.dir.as_str().to_owned())
         .push(" GROUP BY m.dir_path) SELECT ");
     push_child_segment(&mut qb, "dir_path", view.dir.as_str());
-    qb.push(" AS child, SUM(cnt) FROM per_dir GROUP BY child");
+    qb.push(" AS child, SUM(cnt) FROM per_dir WHERE EXISTS(SELECT 1 FROM plan_file_tracking WHERE plan_id = ")
+        .push_bind(plan)
+        .push(") GROUP BY child");
     let counts: HashMap<String, i64> = qb
         .build_query_as::<(String, i64)>()
         .fetch_all(db.read())

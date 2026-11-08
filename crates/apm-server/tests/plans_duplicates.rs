@@ -993,3 +993,69 @@ async fn overflow_and_abandoned_builds_remove_all_child_rows() {
     }
     app.state.begin_shutdown();
 }
+
+#[tokio::test]
+async fn reused_ids_never_resurrect_targets_or_survivors_in_old_plans() {
+    for replace_source in [false, true] {
+        let app = TestApp::new().await;
+        let (volume, s, c, tree, plan) = disk_pair(&app, MatchMode::Hash).await;
+        let id = if replace_source { s } else { c };
+        sqlx::query("DELETE FROM files WHERE id = ?")
+            .bind(id)
+            .execute(app.state.db.write())
+            .await
+            .unwrap();
+        // Even a new row with identical facts and path is not the snapshot's original identity.
+        sqlx::query("INSERT INTO files (id, volume_id, dir_path, name, name_norm, stem_norm, kind, size, mtime, hash, capture_ts) VALUES (?, ?, ?, 'one.jpg', 'one.jpg', 'one', 'image', 4, ?, ?, 1)")
+            .bind(id).bind(volume).bind(if replace_source { "a" } else { "b" }).bind(common::BASE_MTIME).bind(sha1_bytes(b"same").as_slice())
+            .execute(app.state.db.write()).await.unwrap();
+        let tombstone: i64 = sqlx::query_scalar(
+            "SELECT live FROM duplicate_matches WHERE plan_id = ? AND file_id = ?",
+        )
+        .bind(plan.id)
+        .bind(id)
+        .fetch_one(app.state.db.read())
+        .await
+        .unwrap();
+        assert_eq!(tombstone, 0);
+        let flags = app
+            .state
+            .plans
+            .item_flags(
+                PlanRef {
+                    plan_id: plan.id,
+                    side: if replace_source {
+                        PlanSide::Source
+                    } else {
+                        PlanSide::Comparison
+                    },
+                },
+                &[id],
+            )
+            .await
+            .unwrap();
+        assert!(flags.is_empty());
+        let (result, _) = run(&app, plan.id, DuplicateAction::DeleteComparison, None).await;
+        assert_eq!((result.done, result.skipped, result.failed), (0, 1, 0));
+        assert_eq!(
+            result.failures[0].code,
+            if replace_source {
+                "stale_match"
+            } else {
+                "file_gone"
+            }
+        );
+        assert!(tree.path("a/one.jpg").exists());
+        assert!(tree.path("b/one.jpg").exists());
+        let fresh = build(
+            &app,
+            &params(MatchMode::Hash, side(volume, "a"), side(volume, "b")),
+        )
+        .await;
+        assert_eq!(
+            fresh.stats["pairs"], 1,
+            "new rows can participate only in a fresh plan"
+        );
+        app.state.begin_shutdown();
+    }
+}

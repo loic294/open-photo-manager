@@ -207,7 +207,22 @@ async fn scanner_and_fsops_finalizing_transactions_keep_cache_in_step() {
         .restore(trashed.trash_item_id, ConflictPolicy::Smart, &context)
         .await
         .unwrap();
-    parity(&app, plan.id, b).await;
+    let flags = app
+        .state
+        .plans
+        .item_flags(
+            PlanRef {
+                plan_id: plan.id,
+                side: PlanSide::Comparison,
+            },
+            &[c],
+        )
+        .await
+        .unwrap();
+    assert!(
+        flags.is_empty(),
+        "a reused restore id cannot resurrect an old snapshot membership"
+    );
     tb.mkdir("empty");
     app.state
         .fsops
@@ -218,7 +233,8 @@ async fn scanner_and_fsops_finalizing_transactions_keep_cache_in_step() {
         )
         .await
         .unwrap();
-    parity(&app, plan.id, b).await;
+    let live: i64 = sqlx::query_scalar("SELECT COUNT(*) FROM duplicate_matches WHERE plan_id = ? AND side = 'comparison' AND live = 1").bind(plan.id).fetch_one(app.state.db.read()).await.unwrap();
+    assert_eq!(live, 0);
     app.state.begin_shutdown();
 }
 
@@ -240,4 +256,38 @@ fn production_never_replaces_files_rows() {
         }
     }
     check(&std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("src"));
+}
+
+#[tokio::test]
+async fn deletion_before_membership_bulk_write_is_also_tombstoned() {
+    let app = TestApp::new().await;
+    let seed = Seed::new(&app.state.db);
+    let v = seed.volume("v").await;
+    let file = seed.file(v, "p0", "one.jpg").insert().await;
+    let plan: i64 = sqlx::query_scalar("INSERT INTO plans(kind,state,params_json,created_at,expires_at) VALUES ('duplicates','building','{}',0,9999999999) RETURNING id")
+        .fetch_one(app.state.db.write()).await.unwrap();
+    sqlx::query("INSERT INTO plan_file_tracking(plan_id) VALUES (?)")
+        .bind(plan)
+        .execute(app.state.db.write())
+        .await
+        .unwrap();
+    sqlx::query("DELETE FROM files WHERE id = ?")
+        .bind(file)
+        .execute(app.state.db.write())
+        .await
+        .unwrap();
+    sqlx::query("INSERT INTO files(id,volume_id,dir_path,name,name_norm,stem_norm,kind,size,mtime) VALUES (?,?,'p0','one.jpg','one.jpg','one','image',1000,1700000000)")
+        .bind(file).bind(v).execute(app.state.db.write()).await.unwrap();
+    sqlx::query("INSERT INTO duplicate_matches(plan_id,side,file_id,volume_id,dir_path) VALUES (?,'comparison',?,?,'p0')")
+        .bind(plan).bind(file).bind(v).execute(app.state.db.write()).await.unwrap();
+    let live: i64 = sqlx::query_scalar("SELECT live FROM duplicate_matches WHERE plan_id = ?")
+        .bind(plan)
+        .fetch_one(app.state.db.read())
+        .await
+        .unwrap();
+    assert_eq!(
+        live, 0,
+        "bulk insertion cannot revive an id deleted while the plan was building"
+    );
+    app.state.begin_shutdown();
 }

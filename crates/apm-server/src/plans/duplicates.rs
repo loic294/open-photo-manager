@@ -12,6 +12,8 @@
 //! file_gone execution details. Folder overlays scan this covering live cache (not every files row);
 //! flags and hand-off ids still join files. This keeps 200-child overlays over 520k pairs below
 //! 50 ms even with unoptimized SQLite on the development machine.
+//! Tombstones never revive on file-id reuse, including restore. Deletes during a build are also
+//! recorded per plan so later bulk insertion cannot resurrect an obsolete snapshot identity.
 
 mod build;
 mod execute;
@@ -73,7 +75,12 @@ impl Planner for DuplicatesPlanner {
         PlanKind::Duplicates
     }
     fn child_tables(&self) -> &'static [&'static str] {
-        &["duplicate_pairs", "duplicate_matches"]
+        &[
+            super::file_identity::CHILD_TABLES[0],
+            super::file_identity::CHILD_TABLES[1],
+            "duplicate_pairs",
+            "duplicate_matches",
+        ]
     }
     fn build<'a>(
         &'a self,

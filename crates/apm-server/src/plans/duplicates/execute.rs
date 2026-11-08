@@ -71,6 +71,20 @@ async fn live(db: &Db, id: FileId) -> Result<Option<Live>, PlanError> {
         .bind(id).fetch_optional(db.read()).await?)
 }
 
+async fn original_member(
+    db: &Db,
+    plan: i64,
+    side: PlanSide,
+    id: FileId,
+) -> Result<bool, PlanError> {
+    let mut conn = db.read().acquire().await?;
+    if !crate::plans::file_identity::is_live(&mut conn, plan, id).await? {
+        return Ok(false);
+    }
+    Ok(sqlx::query_scalar("SELECT EXISTS(SELECT 1 FROM duplicate_matches WHERE plan_id = ? AND side = ? AND file_id = ? AND live = 1)")
+        .bind(plan).bind(side_name(side)).bind(id).fetch_one(&mut *conn).await?)
+}
+
 async fn counterparts(
     db: &Db,
     plan: i64,
@@ -198,6 +212,15 @@ async fn process(
     deletion: &HashSet<FileId>,
     result: &mut ResultBuilder,
 ) -> Result<(), PlanError> {
+    if !original_member(&ctx.db, plan.id, side, id).await? {
+        result.skip_with_detail(
+            Some(id),
+            format!("file {id}"),
+            "file_gone",
+            "The original indexed file vanished; a reused id requires a new plan",
+        );
+        return Ok(());
+    }
     let Some(row) = live(&ctx.db, id).await? else {
         result.skip_with_detail(
             Some(id),
@@ -248,6 +271,9 @@ async fn process(
         if ctx.cancelled() {
             result.mark_cancelled();
             return Ok(());
+        }
+        if !original_member(&ctx.db, plan.id, side.opposite(), candidate).await? {
+            continue;
         }
         let Some(other) = live(&ctx.db, candidate).await? else {
             continue;

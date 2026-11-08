@@ -288,10 +288,25 @@ binary, browser checks, end-to-end and load tests. Never write a throwaway Immic
   have no file FK. Distinct membership has a transactionally maintained location/live cache
   (insert, relocation, deletion triggers); snapshot ids survive deletion for `file_gone` details.
   Folder counts read that covering live cache; item flags and hand-offs join live files.
+- Tombstoned identities never revive when SQLite reuses a file id (restore included).
+  Shared `plans::file_identity` tracking closes the build snapshot/bulk-write window. Only a fresh plan may
+  involve the replacement row; executors check original membership on targets AND survivors.
+- Identity-aware planners commit `file_identity::begin` before opening their read snapshot,
+  register members with `track`, and check `is_live` (or join registered live identities).
+  List `file_identity::CHILD_TABLES` first, registration before identities, for bounded cleanup.
+- Hot-path benchmark (`plans_duplicates_hot_paths`, ignored): warm-up and seven alternating
+  pairs on 200k rows, disabling only added triggers, gave empty upsert 7.37 s versus 7.09 s
+  baseline (+3.99%, ranges 6.37-9.47/6.17-7.92 s) and delete 6.37/6.28 s (+1.51%).
+  EXPLAIN verifies the scanner upsert executes none of these trigger programs. Host load during
+  measurement was 44/59/55, ending 32/48/51. Populated upsert/delete took 7.95/9.35 s;
+  deleting a 50k matched folder took 2.27 s, first 200-item flags page 52.28 ms.
 - Scale gate: `CARGO_BUILD_JOBS=2 cargo test -p apm-server --test plans_duplicates_perf --
   --ignored --nocapture` (release is preferable for production measurements). At 200k files per
   side / 520k pairs / 200 children, unoptimized builds took 18.2/18.6/24.2/16.4 seconds for
   hash/name+time/different-time/prefix; warm folder medians were 46.9/48.4/47.6/48.2 ms.
+- Final shared-identity release scale: the same four builds took 20.47/18.84/23.96/13.69 s;
+  warm folders were 24.5/22.8/27.2/28.9 ms. The <100 ms gate is unchanged; a debug run under
+  heavy host contention exceeded it (name+time median 116 ms, individual samples 51-124 ms).
 
 ## Trash (`trash/`, `api/trash.rs`; reference: the module docs of `trash`)
 
