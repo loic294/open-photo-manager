@@ -245,6 +245,63 @@ async fn execute_uses_the_build_time_default_conflict_policy() {
 }
 
 #[tokio::test]
+async fn overflow_removes_move_rows_and_shared_identity_registration() {
+    use apm_server::plans::{PlanDeps, PlanOptions, PlanService};
+    use std::sync::Arc;
+
+    let mut app = TestApp::new().await;
+    let (v, _) = app.add_volume("photos").await;
+    let seed = Seed::new(&app.state.db);
+    for name in ["a.jpg", "b.jpg", "c.jpg"] {
+        seed.file(v, "src", name).insert().await;
+    }
+    ready(&app).await;
+    let deps = PlanDeps {
+        db: app.state.db.clone(),
+        fsops: app.state.fsops.clone(),
+        settings: app.state.settings.clone(),
+        shutdown: app.state.shutdown.clone(),
+        tasks: app.state.tasks.clone(),
+        volumes: app.state.volumes.clone(),
+    };
+    let planner = Arc::new(apm_server::plans::moves::MovePlanner::new(&deps));
+    app.state.plans = PlanService::with_options(
+        deps,
+        vec![planner],
+        PlanOptions {
+            max_items: 2,
+            ..Default::default()
+        },
+    )
+    .await
+    .unwrap();
+    let error = app
+        .state
+        .plans
+        .create(CreatePlanRequest {
+            kind: PlanKind::Move,
+            params: json!(params(MoveType::Flat, v, v)),
+            replaces: None,
+        })
+        .await
+        .unwrap_err();
+    assert_eq!(error.code(), "plan_too_large");
+    app.state.plans.settle().await;
+    for sql in [
+        "SELECT COUNT(*) FROM move_items",
+        "SELECT COUNT(*) FROM move_plans",
+        "SELECT COUNT(*) FROM plan_file_tracking",
+        "SELECT COUNT(*) FROM plan_file_identities",
+    ] {
+        let count: i64 = sqlx::query_scalar(sql)
+            .fetch_one(app.state.db.read())
+            .await
+            .unwrap();
+        assert_eq!(count, 0, "{sql}");
+    }
+}
+
+#[tokio::test]
 async fn build_types_kinds_pending_and_cross_volume_stats() {
     let app = TestApp::new().await;
     let (src, _) = app.add_volume("source").await;
