@@ -86,6 +86,74 @@ async fn run(app: &TestApp, id: i64, only: Option<i64>) -> (PlanResult, TaskDto)
 }
 
 #[tokio::test]
+async fn failed_shared_sidecar_copy_is_attention_with_the_actual_metadata_path() {
+    use apm_server::fsops::{Mover, SystemMover};
+    use apm_server::plans::{PlanDeps, PlanService};
+    use std::sync::Arc;
+    use std::sync::atomic::{AtomicBool, Ordering};
+
+    struct DenyFirstMetadata(AtomicBool);
+    impl Mover for DenyFirstMetadata {
+        fn rename_no_replace(
+            &self,
+            from: &std::path::Path,
+            to: &std::path::Path,
+        ) -> std::io::Result<()> {
+            if to.file_name().is_some_and(|name| name == "one.xmp")
+                && !self.0.swap(true, Ordering::SeqCst)
+            {
+                return Err(std::io::ErrorKind::PermissionDenied.into());
+            }
+            SystemMover.rename_no_replace(from, to)
+        }
+    }
+    let mut app = TestApp::new().await;
+    let fsops = app
+        .state
+        .fsops
+        .clone()
+        .with_mover(Arc::new(DenyFirstMetadata(AtomicBool::new(false))));
+    app.state.plans = PlanService::new(PlanDeps {
+        db: app.state.db.clone(),
+        fsops,
+        settings: app.state.settings.clone(),
+        shutdown: app.state.shutdown.clone(),
+        tasks: app.state.tasks.clone(),
+        volumes: app.state.volumes.clone(),
+    })
+    .await
+    .unwrap();
+    app.router = apm_server::app::router(app.state.clone());
+    let (v, tree) = app.add_volume("photos").await;
+    tree.write("src/one.CR3", b"photo");
+    tree.write("src/one.JPG", b"jpeg");
+    tree.write("src/one.xmp", b"metadata");
+    let seed = Seed::new(&app.state.db);
+    let a = seed.file(v, "src", "one.CR3").size(5).insert().await;
+    let b = seed.file(v, "src", "one.JPG").size(4).insert().await;
+    let s = seed.file(v, "src", "one.xmp").size(8).insert().await;
+    seed.sidecar(a, s, "stem").await;
+    seed.sidecar(b, s, "stem").await;
+    ready(&app).await;
+    let plan = build(&app, &params(MoveType::Flat, v, v)).await;
+    let (result, _) = run(&app, plan.id, None).await;
+    assert_eq!((result.done, result.failed), (2, 1), "{result:?}");
+    assert_eq!(result.failures[0].file_id, Some(s));
+    assert!(result.failures[0].path.ends_with("/src/one.xmp"));
+    assert_eq!(result.failures[0].code, "io_error");
+    assert!(tree.path("out/one.CR3").exists());
+    assert!(tree.path("out/one.JPG").exists());
+    assert_eq!(
+        std::fs::read(tree.path("src/one.xmp")).unwrap(),
+        b"metadata"
+    );
+    assert_eq!(
+        std::fs::read(tree.path("out/one.xmp")).unwrap(),
+        b"metadata"
+    );
+}
+
+#[tokio::test]
 async fn build_types_kinds_pending_and_cross_volume_stats() {
     let app = TestApp::new().await;
     let (src, _) = app.add_volume("source").await;

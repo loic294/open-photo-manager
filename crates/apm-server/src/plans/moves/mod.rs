@@ -2,7 +2,7 @@
 //! live formatting previews. Only FsOps mutates volume files.
 //!
 //! Smart hashing is bounded by 1 GiB and 20 seconds per build. Unknown content is renamed.
-//! Snapshot source facts detect relocation, reused ids and changed content before execution.
+//! Snapshot source facts revalidate location, size, mtime and derived destinations before execution.
 
 mod build;
 mod conflicts;

@@ -273,7 +273,11 @@ pub(super) async fn execute(ctx: ExecContext, plan: &Plan) -> Result<PlanResult,
                             if let Some(id) = id {
                                 failed_sidecars.insert(id);
                             }
-                            result.fail_fs(id, display.clone(), &err);
+                            result.fail_fs(
+                                id,
+                                display_path(&ctx.volumes, source.volume_id, &source.rel),
+                                &err,
+                            );
                         }
                         SidecarOutcome::Skipped(SidecarSkip::SidecarConflict) => {
                             if let Some(id) = id {
@@ -281,7 +285,7 @@ pub(super) async fn execute(ctx: ExecContext, plan: &Plan) -> Result<PlanResult,
                             }
                             result.skip_with_detail(
                                 id,
-                                display.clone(),
+                                display_path(&ctx.volumes, source.volume_id, &source.rel),
                                 "sidecar_conflict",
                                 "The sidecar destination is occupied; its original was kept",
                             );
@@ -289,6 +293,9 @@ pub(super) async fn execute(ctx: ExecContext, plan: &Plan) -> Result<PlanResult,
                         _ => {}
                     }
                 }
+            }
+            Err(err) if err.code() == "immich_move_refused" => {
+                result.skip_with_detail(Some(item.file_id), display, err.code(), err.to_string());
             }
             Err(err) => result.fail_fs(Some(item.file_id), display, &err),
         }
