@@ -1,5 +1,6 @@
 import { afterEach, expect, it, vi } from 'vitest';
 import { api } from '@/api/client';
+import { ApiError } from '@/api/errors';
 import { resetPlanRunsForTests } from '@/stores/plan-runs';
 import { resetSelectionForTests } from '@/stores/selection';
 import { resetToolStateForTests } from '@/stores/tool-state';
@@ -110,4 +111,17 @@ it('does not execute after cancel and falls back to the plan count without selec
   await pressConfirm('Cancel');
   await run;
   expect(post).toHaveBeenCalledOnce();
+});
+
+it.each([
+  [404, 'plan_not_found'],
+  [409, 'plan_not_ready'],
+  [409, 'plan_executed'],
+])('uses the shared expired-plan handling for %s %s', async (status, code) => {
+  const { ctx, plan } = setup();
+  ctx.selection('source').set([1]);
+  vi.spyOn(api, 'post').mockRejectedValue(new ApiError({ status, code, message: 'Changed' }));
+  await moveActions(ctx, options).options[0]?.run(ctx);
+  expect(plan.retry).toHaveBeenCalledOnce();
+  expect(ctx.selection('source').count.value).toBe(1);
 });

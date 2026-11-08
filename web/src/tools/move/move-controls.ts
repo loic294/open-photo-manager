@@ -154,9 +154,10 @@ export function moveControls(ctx: ToolContext) {
         ? html`<apm-match-mode
       .mode=${matchMode.value} .strict=${strictPrefix.value}
       @match-change=${(event: MatchChangeEvent) => {
-        if (!isMatchMode(event.detail.mode) || typeof event.detail.strict !== 'boolean') return;
-        matchMode.value = event.detail.mode;
-        strictPrefix.value = event.detail.strict;
+        const detail = event.detail;
+        if (!detail || !isMatchMode(detail.mode) || typeof detail.strict !== 'boolean') return;
+        matchMode.value = detail.mode;
+        strictPrefix.value = detail.strict;
       }}></apm-match-mode><span class="text-xs text-base-content/70">Files without a match go to the destination folder.</span>`
         : nothing
     }

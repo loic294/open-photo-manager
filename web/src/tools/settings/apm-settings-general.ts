@@ -546,6 +546,7 @@ export class ApmSettingsGeneral extends ApmElement {
           <span class="text-sm font-medium">When a file with the same name already exists</span>
           <apm-select
             id=${policyId}
+            size="md"
             data-field="default_conflict_policy"
             label="When a file with the same name already exists"
             .options=${CONFLICT_POLICIES.map((entry) => ({ ...entry, title: entry.help }))}

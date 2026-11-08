@@ -1,3 +1,4 @@
+import type { MoveExecuteOptions } from '@/api/generated/MoveExecuteOptions';
 import type { IconName } from '@/components/apm-icon';
 import type { ConfirmOptions } from '@/components/confirm-dialog';
 import type { PaneLocation } from '@/stores/nav';
@@ -67,7 +68,7 @@ export function moveActions(
         run: (ctx) =>
           executePlanAction(ctx, {
             side: 'source',
-            options: {},
+            options: {} satisfies MoveExecuteOptions,
             confirm: confirmMove(ctx, options.wording),
             emptyMessage: options.emptyMessage,
           }),
