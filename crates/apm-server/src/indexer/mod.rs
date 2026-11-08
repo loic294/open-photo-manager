@@ -83,7 +83,9 @@ use std::collections::HashMap;
 use std::fmt;
 use std::sync::{Arc, Mutex, PoisonError};
 
+use apm_core::datetime::tz_or_utc;
 use apm_core::paths::{RelPath, VolumeId};
+use chrono_tz::Tz;
 use serde::Serialize;
 use thiserror::Error;
 use tokio_util::sync::CancellationToken;
@@ -109,6 +111,10 @@ pub mod watcher;
 pub mod xmp;
 
 pub use changes::{ChangeCall, ChangeSink, NoopChanges, RecordingChanges};
+pub use extract::{
+    Embedded, ExiftoolExtractor, ExtractFailure, ExtractOutcome, ExtractRequest, ExtractSummary,
+    FakeExtractor, MetadataExtractor,
+};
 pub use progress::{
     IndexPhase, IndexProgress, NoopProgress, PhaseProgress, ProgressSink, REPORT_INTERVAL,
     RecordingProgress,
@@ -268,9 +274,17 @@ pub struct IndexSummary {
     pub hashed: u64,
     pub thumbnails: u64,
     pub failed: u64,
+    /// The metadata extractor (exiftool) is missing or too old; its files stay pending.
+    pub extractor_unavailable: bool,
 }
 
 impl IndexSummary {
+    fn absorb_extract(&mut self, extract: &ExtractSummary) {
+        self.extracted += extract.extracted;
+        self.failed += extract.failed;
+        self.extractor_unavailable |= extract.unavailable;
+    }
+
     fn absorb_scan(&mut self, scan: &ScanSummary) {
         self.added += scan.added;
         self.changed += scan.changed;
@@ -291,7 +305,11 @@ struct Inner {
     settings: SettingsService,
     volumes: VolumeRegistry,
     /// One lock per volume: two scans of the same volume never overlap.
-    locks: Mutex<HashMap<VolumeId, Arc<tokio::sync::Mutex<()>>>>,
+    locks: Arc<Mutex<HashMap<VolumeId, Arc<tokio::sync::Mutex<()>>>>>,
+    /// Reads the embedded metadata (stage 2).
+    extractor: Arc<dyn MetadataExtractor>,
+    /// The zone that file times and offset-less capture dates are read in.
+    timezone: Tz,
 }
 
 impl fmt::Debug for Indexer {
@@ -301,15 +319,60 @@ impl fmt::Debug for Indexer {
 }
 
 impl Indexer {
+    /// An indexer with the production extractor (`exiftool` from `PATH`, a scratch `HOME`) and the
+    /// server's `TZ`. [`AppState`](crate::state::AppState) replaces the home with a directory of
+    /// the data dir through [`with_extractor`](Self::with_extractor).
     pub fn new(db: Db, settings: SettingsService, volumes: VolumeRegistry) -> Self {
+        let concurrency = usize::from(settings.get().index.concurrency);
+        let extractor = ExiftoolExtractor::new(
+            "exiftool",
+            std::env::temp_dir().join("apm-exiftool-home"),
+            concurrency,
+        );
         Self {
             inner: Arc::new(Inner {
                 db,
                 settings,
                 volumes,
-                locks: Mutex::new(HashMap::new()),
+                locks: Arc::new(Mutex::new(HashMap::new())),
+                extractor: Arc::new(extractor),
+                timezone: tz_or_utc(std::env::var("TZ").ok().as_deref()),
             }),
         }
+    }
+
+    /// The same indexer (sharing its volume locks) reading metadata with `extractor`.
+    #[must_use]
+    pub fn with_extractor(&self, extractor: Arc<dyn MetadataExtractor>) -> Self {
+        self.rebuilt(extractor, self.inner.timezone)
+    }
+
+    /// The same indexer (sharing its volume locks) resolving local times in `timezone`.
+    #[must_use]
+    pub fn with_timezone(&self, timezone: Tz) -> Self {
+        self.rebuilt(Arc::clone(&self.inner.extractor), timezone)
+    }
+
+    fn rebuilt(&self, extractor: Arc<dyn MetadataExtractor>, timezone: Tz) -> Self {
+        let inner = &self.inner;
+        Self {
+            inner: Arc::new(Inner {
+                db: inner.db.clone(),
+                settings: inner.settings.clone(),
+                volumes: inner.volumes.clone(),
+                locks: Arc::clone(&inner.locks),
+                extractor,
+                timezone,
+            }),
+        }
+    }
+
+    pub(crate) fn extractor(&self) -> &Arc<dyn MetadataExtractor> {
+        &self.inner.extractor
+    }
+
+    pub(crate) fn timezone(&self) -> Tz {
+        self.inner.timezone
     }
 
     /// Runs every stage over `req`, in order.
@@ -324,7 +387,8 @@ impl Indexer {
         // block in its own file; it reads the rows the previous stages left pending.
         let scan = self.scan(req, ctx).await?; // 1. scanner.rs
         summary.absorb_scan(&scan);
-        // 2. extract.rs (todo `extracting-metadata`)
+        let extract = self.extract_pending(req, ctx).await?; // 2. extract.rs
+        summary.absorb_extract(&extract);
         let hashed = self
             .hash_pending(req, ctx, hash::HashLimits::default())
             .await?; // 3. hash.rs

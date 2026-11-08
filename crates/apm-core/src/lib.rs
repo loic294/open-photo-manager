@@ -15,6 +15,7 @@ pub mod hash;
 pub mod junk;
 pub mod kind;
 pub mod matching;
+pub mod metadata;
 pub mod names;
 pub mod paths;
 pub mod pattern;

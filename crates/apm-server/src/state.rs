@@ -57,7 +57,12 @@ impl AppState {
 
         let volumes = indexer::VolumeRegistry::load(db.clone(), config.volumes_dir.clone()).await?;
 
-        let indexer = indexer::Indexer::new(db.clone(), settings.clone(), volumes.clone());
+        let indexer = indexer::Indexer::new(db.clone(), settings.clone(), volumes.clone())
+            .with_extractor(Arc::new(indexer::ExiftoolExtractor::new(
+                "exiftool",
+                config.data_dir.join("tmp").join("exiftool-home"),
+                usize::from(settings.get().index.concurrency),
+            )));
 
         let media = media::MediaService::new();
 

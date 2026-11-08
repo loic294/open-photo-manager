@@ -18,8 +18,9 @@ use apm_core::dto::settings::SettingsDto;
 use apm_core::paths::{RelPath, VolumeId};
 use apm_server::db::Db;
 use apm_server::indexer::{
-    ChangeSink, HeldRemovals, IndexError, IndexPhase, IndexSummary, NoopChanges, NoopProgress,
-    RecordingChanges, RecordingProgress, RunContext, ScanRequest, ScanSummary, ScanTarget,
+    ChangeSink, Embedded, FakeExtractor, HeldRemovals, IndexError, IndexPhase, IndexSummary,
+    NoopChanges, NoopProgress, RecordingChanges, RecordingProgress, RunContext, ScanRequest,
+    ScanSummary, ScanTarget,
 };
 use common::{BASE_MTIME, TestApp, Tree};
 use sqlx::FromRow;
@@ -1567,8 +1568,13 @@ async fn a_scan_that_is_cancelled_up_front_does_nothing() {
 async fn run_returns_the_counts_of_the_scan() {
     let fx = Fixture::new().await;
     build_sample(&fx.tree);
+    let indexer = fx
+        .app
+        .state
+        .indexer
+        .with_extractor(Arc::new(FakeExtractor::new(|_| Ok(Embedded::default()))));
     let run = |request: ScanRequest| {
-        let indexer = fx.app.state.indexer.clone();
+        let indexer = indexer.clone();
         async move { indexer.run(&request, &RunContext::noop()).await.unwrap() }
     };
 
@@ -1577,6 +1583,7 @@ async fn run_returns_the_counts_of_the_scan() {
         summary,
         IndexSummary {
             added: 7,
+            extracted: 5,
             hashed: 5,
             ..IndexSummary::default()
         }
@@ -1593,6 +1600,7 @@ async fn run_returns_the_counts_of_the_scan() {
         run(ScanRequest::default()).await,
         IndexSummary {
             changed: 1,
+            extracted: 2,
             hashed: 2,
             ..IndexSummary::default()
         }
