@@ -23,6 +23,7 @@ pub enum PlanKind {
     Duplicates,
     Move,
     Cleanup,
+    Rename,
 }
 
 /// Where a plan is in its life, as a client sees it. A plan that is still being built is not
@@ -198,6 +199,7 @@ mod tests {
         assert_eq!(roundtrip(&PlanKind::Duplicates), json!("duplicates"));
         assert_eq!(roundtrip(&PlanKind::Move), json!("move"));
         assert_eq!(roundtrip(&PlanKind::Cleanup), json!("cleanup"));
+        assert_eq!(roundtrip(&PlanKind::Rename), json!("rename"));
     }
 
     #[test]

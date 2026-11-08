@@ -34,6 +34,7 @@ pub(super) const fn kind_to_db(kind: PlanKind) -> &'static str {
         PlanKind::Duplicates => "duplicates",
         PlanKind::Move => "move",
         PlanKind::Cleanup => "cleanup",
+        PlanKind::Rename => "rename",
     }
 }
 
@@ -42,6 +43,7 @@ pub(super) fn kind_from_db(value: &str) -> Result<PlanKind, PlanError> {
         "duplicates" => Ok(PlanKind::Duplicates),
         "move" => Ok(PlanKind::Move),
         "cleanup" => Ok(PlanKind::Cleanup),
+        "rename" => Ok(PlanKind::Rename),
         other => Err(PlanError::Internal(anyhow::anyhow!(
             "unknown plan kind {other:?} in the plans table"
         ))),
@@ -405,7 +407,12 @@ mod tests {
 
     #[test]
     fn kinds_and_states_map_both_ways() {
-        for kind in [PlanKind::Duplicates, PlanKind::Move, PlanKind::Cleanup] {
+        for kind in [
+            PlanKind::Duplicates,
+            PlanKind::Move,
+            PlanKind::Cleanup,
+            PlanKind::Rename,
+        ] {
             assert_eq!(kind_from_db(kind_to_db(kind)).unwrap(), kind);
         }
         assert!(kind_from_db("copy").is_err());

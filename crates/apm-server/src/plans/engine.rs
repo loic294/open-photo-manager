@@ -307,6 +307,7 @@ impl PlanService {
                 PlanKind::Duplicates => "implementing-duplicate-matching",
                 PlanKind::Move => "implementing-move-planner",
                 PlanKind::Cleanup => "implementing-empty-folder-cleanup",
+                PlanKind::Rename => "implementing-rename-planner",
             })
         })
     }

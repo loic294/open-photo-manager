@@ -3,4 +3,4 @@
 /**
  * Kind of plan.
  */
-export type PlanKind = "duplicates" | "move" | "cleanup";
+export type PlanKind = "duplicates" | "move" | "cleanup" | "rename";
