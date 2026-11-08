@@ -444,6 +444,15 @@ export class ImmichPostgres {
     );
   }
 
+  /** Simulate a database outage without touching any other Compose project. */
+  async suspendDatabase() {
+    await this.compose(['stop', 'database']);
+  }
+
+  async resumeDatabase() {
+    await this.compose(['up', '-d', '--wait', 'database']);
+  }
+
   async stop() {
     if (this.started) {
       await this.compose(['down', '--volumes', '--remove-orphans']);
