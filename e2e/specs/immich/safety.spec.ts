@@ -158,6 +158,9 @@ test('a missing database blocks tracked files but allows untracked files in the 
   await expect(stat(app.volumePath('photos/dupes/m1/IMG_0010.JPG'))).rejects.toMatchObject({
     code: 'ENOENT',
   });
+  await expect(stat(app.volumePath('photos/dupes/m1/IMG_0010.JPG.xmp'))).rejects.toMatchObject({
+    code: 'ENOENT',
+  });
   expect(
     mock.state
       .requests(cursor)
