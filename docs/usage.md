@@ -129,3 +129,17 @@ minutes use `{min}`. Month names are English. The sample is `IMG_0042.CR3`, capt
    and limited by the configured generated-name byte limit.
 
    You should see: camera and current-folder names used as folder components.
+
+## Shared-sidecar move exception awaiting verification
+
+This is a confirmed safety decision being implemented, not a verified final tool walkthrough.
+Exact UI wording and per-item outcomes remain pending the move implementation's landing.
+
+For each distinct derived sidecar destination, the first successfully moved owner gets a journaled
+sidecar copy within its move group. Cancellation or restart must not leave an already moved photo
+without its matching companion. Distinct destinations still receive their own matching sidecars.
+
+If the final carrier for the same destination finds that matching sidecar already present
+(`AlreadyPresent`), the original sidecar stays at the source rather than being trashed or swapped
+solely to remove it. The `shared_sidecar_retained` outcome must report that assets moved and name
+the retained original; it does not mean that the asset was skipped.
