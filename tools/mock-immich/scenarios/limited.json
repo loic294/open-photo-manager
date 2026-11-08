@@ -1,0 +1,26 @@
+{
+  "description": "A regular (non-administrator) user on an old server (2.5.1: flat search, no typed filter): the application runs in limited mode, and libraries are reachable only through the user's own assets.",
+  "serverVersion": "2.5.1",
+  "users": [
+    {
+      "email": "user@example.test",
+      "password": "user-password",
+      "name": "Regular User",
+      "isAdmin": false
+    }
+  ],
+  "libraries": [
+    {
+      "name": "Photos",
+      "importPaths": ["/mnt/photo"],
+      "exclusionPatterns": ["**/@eaDir/**"]
+    },
+    {
+      "name": "Videos",
+      "importPaths": ["/mnt/video"],
+      "exclusionPatterns": []
+    }
+  ],
+  "albums": [{ "name": "Holidays", "assets": [] }],
+  "tags": [{ "value": "Travel" }]
+}

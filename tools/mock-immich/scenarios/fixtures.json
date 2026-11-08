@@ -1,0 +1,36 @@
+{
+  "description": "The default scenario with the libraries of the generated fixtures library (make fixtures): Photos at /mnt/photos and Archive at /mnt/archive. No assets: a scan finds the files.",
+  "serverVersion": "3.4.0",
+  "users": [
+    {
+      "email": "admin@example.test",
+      "password": "admin-password",
+      "name": "Admin",
+      "isAdmin": true
+    },
+    {
+      "email": "user@example.test",
+      "password": "user-password",
+      "name": "Regular User",
+      "isAdmin": false
+    }
+  ],
+  "libraries": [
+    {
+      "name": "Photos",
+      "importPaths": ["/mnt/photos"],
+      "exclusionPatterns": ["**/@eaDir/**"]
+    },
+    {
+      "name": "Archive",
+      "importPaths": ["/mnt/archive"],
+      "exclusionPatterns": []
+    }
+  ],
+  "albums": [
+    { "name": "Holidays", "assets": [] },
+    { "name": "Family", "assets": [] },
+    { "name": "To print", "assets": [] }
+  ],
+  "tags": [{ "value": "Travel" }, { "value": "Family/Birthdays" }]
+}

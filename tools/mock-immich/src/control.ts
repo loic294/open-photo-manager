@@ -1,0 +1,315 @@
+import { assetState } from './assets.ts';
+import {
+  type FailRuleInput,
+  type FailRuleView,
+  type GateView,
+  type HeldView,
+  parseFailRule,
+} from './faults.ts';
+import { ApiError, badRequest } from './http.ts';
+import type { MockContext, Settings } from './mock.ts';
+import type { LogEntry } from './requestlog.ts';
+import { libraryView } from './routes/libraries.ts';
+import { queueScan } from './scan.ts';
+import { readAssetInput, readGenerateInput } from './scenario.ts';
+import { type Generated, generateAssets, upsertAsset } from './seeding.ts';
+import { resetState } from './state.ts';
+import type { AssetInput, Job, Library, Mount, Violation } from './types.ts';
+import { iso, type Obj } from './util.ts';
+import { createChecker } from './validate.ts';
+
+/** The fields of `POST /__mock/assets`, with the same meaning. */
+export type AssetOptions = AssetInput;
+
+/** The fields of `POST /__mock/generate`, with the same defaults. */
+export interface GenerateOptions {
+  /** The library, by id or by name; give this or its alias `library`. */
+  libraryId?: string;
+  library?: string;
+  /** The path of the first asset without its number and extension: `/mnt/photos/gen/IMG_`. */
+  prefix: string;
+  count: number;
+  extension?: string;
+  startAt?: string;
+  stepMs?: number;
+  ties?: number;
+}
+
+export interface AddedAssets {
+  created: number;
+  updated: number;
+  items: Array<{ id: string; path: string; created: boolean }>;
+}
+
+export interface StateQuery {
+  /** Keeps the assets whose original path contains this text. */
+  path?: string;
+  limit?: number;
+  offset?: number;
+}
+
+export interface UserView {
+  id: string;
+  email: string;
+  name: string;
+  isAdmin: boolean;
+}
+
+export interface AlbumView {
+  id: string;
+  name: string;
+  ownerId: string;
+  /** The ids of the assets in the album. */
+  assetIds: string[];
+}
+
+export interface TagView {
+  id: string;
+  /** The last part of the tag path. */
+  name: string;
+  /** The full tag path (`Family/Birthdays`). */
+  value: string;
+  assetIds: string[];
+}
+
+/** An API key as the state shows it: the secret is never kept, only its hash. */
+export interface KeyView {
+  id: string;
+  name: string;
+  permissions: string[];
+  userId: string;
+  createdAt: string;
+}
+
+/** What `GET /__mock/state` answers (and `state.snapshot()` returns). */
+export interface StateSnapshot {
+  settings: Settings;
+  /** The version as the server reports it, with its `v` (`v3.4.0`). */
+  serverVersion: string;
+  description: string | null;
+  mounts: Mount[];
+  users: UserView[];
+  libraries: Obj[];
+  /** One page of the assets (`StateQuery`), `total` counting every match. */
+  assets: { total: number; offset: number; limit: number; items: Obj[] };
+  albums: AlbumView[];
+  tags: TagView[];
+  keys: KeyView[];
+  jobs: Job[];
+  violations: Violation[];
+  failures: FailRuleView[];
+  gates: GateView[];
+  held: HeldView[];
+}
+
+/** Reads the model without going through the HTTP API (and without leaving a trace in the log). */
+export interface MockState {
+  assets(): Obj[];
+  assetByPath(path: string): Obj | undefined;
+  albumsOf(assetId: string): Array<{ id: string; name: string }>;
+  /** Forced deletes of online assets: the application must never cause one. */
+  violations(): Violation[];
+  requests(since?: number): { entries: LogEntry[]; next: number };
+  users(): UserView[];
+  libraries(): Obj[];
+  albums(): AlbumView[];
+  tags(): TagView[];
+  keys(): KeyView[];
+  jobs(): Job[];
+  /** What `GET /__mock/state` answers. */
+  snapshot(query?: StateQuery): StateSnapshot;
+}
+
+/** Changes the mock while it runs; every method has an HTTP twin under `/__mock`. */
+export interface MockControl {
+  /** Scans one library (id or name) or all of them now; settles when every scan is over. */
+  scan(library?: string): Promise<Job[]>;
+  fail(rule: FailRuleInput): FailRuleView;
+  failures(): FailRuleView[];
+  clearFailures(): void;
+  /** Deletes the API keys (all, or those named `name`): the next call gets a 401. */
+  revokeKey(name?: string): number;
+  /** Seeds the scenario again; clears sessions, keys, failure rules, gates, latency and the log. */
+  reset(): void;
+  /** Holds the requests that match until `releaseGate()` (the first `times` ones when given). */
+  gate(match: string, options?: { times?: number }): GateView;
+  /** Lets the held requests go and removes the gates; returns how many were held. */
+  releaseGate(): number;
+  waitForHeld(count: number, timeoutMs?: number): Promise<HeldView[]>;
+  /** Delays every `/api` request. */
+  latency(ms: number): void;
+  generate(options: GenerateOptions): Generated;
+  /** Creates the assets, or changes the fields given of the ones that exist (matched by path). */
+  addAssets(inputs: readonly AssetOptions[]): AddedAssets;
+}
+
+const DEFAULT_LIMIT = 100;
+export const MAX_LIMIT = 5000;
+const DEFAULT_HELD_TIMEOUT_MS = 10_000;
+
+function librariesFor(ctx: MockContext, ref: string | undefined): Library[] {
+  const all = [...ctx.data.libraries.values()];
+  if (ref === undefined) {
+    return all;
+  }
+  const found = all.filter((library) => library.id === ref || library.name === ref);
+  if (found.length === 0) {
+    throw badRequest(`unknown library ${JSON.stringify(ref)}`);
+  }
+  return found;
+}
+
+export function createState(ctx: MockContext): MockState {
+  const { data } = ctx;
+  const state: MockState = {
+    assets: () => [...data.assets.values()].map(assetState),
+    assetByPath(path) {
+      const asset = data.assetsByPath.get(path);
+      return asset === undefined ? undefined : assetState(asset);
+    },
+    albumsOf: (assetId) =>
+      [...data.albums.values()]
+        .filter((album) => album.assetIds.has(assetId))
+        .map((album) => ({ id: album.id, name: album.name })),
+    violations: () => data.violations.map((violation) => ({ ...violation })),
+    requests: (since) => ctx.log.since(since),
+    users: () =>
+      [...data.users.values()].map(({ id, email, name, isAdmin }) => ({
+        id,
+        email,
+        name,
+        isAdmin,
+      })),
+    libraries: () => [...data.libraries.values()].map((library) => libraryView(ctx, library)),
+    albums: () =>
+      [...data.albums.values()].map((album) => ({
+        id: album.id,
+        name: album.name,
+        ownerId: album.ownerId,
+        assetIds: [...album.assetIds],
+      })),
+    tags: () =>
+      [...data.tags.values()].map((tag) => ({
+        id: tag.id,
+        name: tag.name,
+        value: tag.value,
+        assetIds: [...tag.assetIds],
+      })),
+    keys: () =>
+      [...data.keys.values()].map((key) => ({
+        id: key.id,
+        name: key.name,
+        permissions: key.permissions,
+        userId: key.userId,
+        createdAt: iso(key.createdAt),
+      })),
+    jobs: () => data.jobs.map((job) => structuredClone(job)),
+    snapshot(query = {}) {
+      const limit = query.limit ?? DEFAULT_LIMIT;
+      const offset = query.offset ?? 0;
+      const text = query.path ?? '';
+      const matching = [...data.assets.values()].filter((asset) =>
+        asset.originalPath.includes(text),
+      );
+      return {
+        settings: { ...ctx.settings },
+        serverVersion: ctx.version.text,
+        description: ctx.scenario.description ?? null,
+        mounts: ctx.mounts.map((mount) => ({ ...mount })),
+        users: state.users(),
+        libraries: state.libraries(),
+        assets: {
+          total: matching.length,
+          offset,
+          limit,
+          items: matching.slice(offset, offset + limit).map(assetState),
+        },
+        albums: state.albums(),
+        tags: state.tags(),
+        keys: state.keys(),
+        jobs: state.jobs(),
+        violations: state.violations(),
+        failures: ctx.faults.rules(),
+        gates: ctx.faults.gates(),
+        held: ctx.faults.held(),
+      };
+    },
+  };
+  return state;
+}
+
+/** Validates `raw` like `POST /__mock/generate` does, then adds the assets. */
+export function runGenerate(ctx: MockContext, raw: unknown): Generated {
+  const c = createChecker(raw);
+  const input = readGenerateInput(c);
+  c.done();
+  if (input === undefined) {
+    throw badRequest('invalid generate options');
+  }
+  return generateAssets(ctx, input);
+}
+
+/** Validates every entry like `POST /__mock/assets` does, then upserts them in order. */
+export function runAddAssets(ctx: MockContext, raw: unknown): AddedAssets {
+  if (!Array.isArray(raw)) {
+    throw badRequest('assets must be an array');
+  }
+  const errors: string[] = [];
+  const parsed: AssetInput[] = [];
+  raw.forEach((item, index) => {
+    const input = readAssetInput(createChecker(item, errors, `assets[${index}].`));
+    if (input !== undefined) {
+      parsed.push(input);
+    }
+  });
+  if (errors.length > 0) {
+    throw new ApiError(400, errors);
+  }
+  const items = parsed.map((input) => {
+    const { asset, created } = upsertAsset(ctx, input);
+    return { id: asset.id, path: asset.originalPath, created };
+  });
+  const created = items.filter((item) => item.created).length;
+  return { created, updated: items.length - created, items };
+}
+
+export function createControl(ctx: MockContext): MockControl {
+  return {
+    async scan(ref) {
+      const queued = librariesFor(ctx, ref).map((library) => queueScan(ctx, library.id, 0));
+      await Promise.all(queued.map(({ done }) => done));
+      return queued.map(({ job }) => structuredClone(job));
+    },
+    fail: (rule) => ctx.faults.addRule(parseFailRule(rule)),
+    failures: () => ctx.faults.rules(),
+    clearFailures: () => ctx.faults.clearRules(),
+    revokeKey(name) {
+      let revoked = 0;
+      for (const [id, key] of ctx.data.keys) {
+        if (name === undefined || key.name === name) {
+          ctx.data.keys.delete(id);
+          revoked += 1;
+        }
+      }
+      return revoked;
+    },
+    reset: () => resetState(ctx),
+    gate(match, options = {}) {
+      const c = createChecker({ times: options.times });
+      const times = c.integer('times', { min: 1 });
+      c.done();
+      return ctx.faults.addGate(match, times);
+    },
+    releaseGate: () => ctx.faults.releaseGates(),
+    waitForHeld: (count, timeoutMs = DEFAULT_HELD_TIMEOUT_MS) =>
+      ctx.faults.waitForHeld(count, timeoutMs),
+    latency(ms) {
+      const c = createChecker({ ms });
+      const value = c.integer('ms', { required: true, min: 0 });
+      c.done();
+      ctx.settings.latencyMs = value ?? 0;
+    },
+    generate: (options) => runGenerate(ctx, options),
+    addAssets: (inputs) => runAddAssets(ctx, inputs),
+  };
+}

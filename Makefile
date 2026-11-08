@@ -42,3 +42,4 @@ clean:
 # Targets owned by other areas; absent until they land.
 -include docker/docker.mk
 -include fixtures/fixtures.mk
+-include tools/tools.mk

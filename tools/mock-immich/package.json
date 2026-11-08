@@ -1,0 +1,14 @@
+{
+  "name": "apm-mock-immich",
+  "private": true,
+  "type": "module",
+  "description": "A mock Immich server for development, browser checks and end-to-end tests. Zero dependencies.",
+  "engines": {
+    "node": ">=24"
+  },
+  "scripts": {
+    "start": "node server.ts",
+    "test": "node --test \"test/*.test.ts\"",
+    "smoke": "node smoke.mjs"
+  }
+}

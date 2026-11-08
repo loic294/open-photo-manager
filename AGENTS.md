@@ -223,3 +223,35 @@ The design plan (source of truth for behaviour) is
    Never read credential files (e.g. `<other-project>/.env`, `login.txt`).
 9. **Final report** (at most ~250 words): what you built, test results, deviations from the plan or brief,
    anything later agents must know, and the landed commit hash. Do not paste file contents.
+
+## Mock Immich (`tools/mock-immich/`)
+
+ONE shared, zero-dependency Node/TypeScript mock of the Immich calls our client makes, for the real
+binary, browser checks, end-to-end and load tests. Never write a throwaway Immich server. Reference:
+`tools/mock-immich/README.md`.
+- Run: `make mock-immich` (default scenario, port 12283; options `MOCK_IMMICH_PORT`,
+  `MOCK_IMMICH_SCENARIO`, `MOCK_IMMICH_MOUNTS=/mnt/photos=DIR,/mnt/archive=DIR2`) or
+  `node tools/mock-immich/server.ts --port 0 --scenario FILE --mount PREFIX=DIR` (repeatable). One
+  stdout line `{"listening":"http://127.0.0.1:PORT","tls":false}` says it is ready. Use your own port,
+  never 8080, 18080 or 15173.
+- Scenarios (`tools/mock-immich/scenarios/`): `default` (libraries Photos `/mnt/photo`, Videos
+  `/mnt/video`), `fixtures` (Photos `/mnt/photos`, Archive `/mnt/archive`: the volumes of
+  `make fixtures`, so mount them on the copy of `fixtures/out/volumes` the backend serves) and
+  `limited` (regular user, v2.5.1). Accounts: `admin@example.test` / `admin-password`,
+  `user@example.test` / `user-password`. They seed no assets: scanning the mounts creates them.
+- Programmatic: `startMockImmich({ scenario, mounts, scanDelayMs, port, tls })` from
+  `tools/mock-immich/index.ts`; `scenario` is a parsed object or a file path (`scenarioFiles.fixtures`),
+  `mounts` an object `{ '/mnt/photos': '<real dir>' }`. It returns `{ url, stop(), state, control }`:
+  `state.assets()|assetByPath()|albumsOf()|violations()|requests()`,
+  `control.scan()|fail()|gate()|revokeKey()|reset()|addAssets()|generate()`.
+- Control API, never under `/api` and without the `x-apm-request` header (that one is our backend's):
+  `/__mock/state|log|reset|scan|assets|generate|latency|revoke-key|fail|gate`.
+- Safety: a forced delete of an online asset removes the real file and is recorded in `violations()`.
+  Every test that drives our backend asserts it is empty.
+- The in-process Rust fake (`crates/apm-server/tests/immich_support/mod.rs`) serves the Rust tests;
+  the mock serves everything with a real HTTP server over real directories. They model the same
+  API: change a shape, a modelled behaviour or `spec-permissions.txt` in BOTH, and keep
+  `make mock-immich-smoke` passing: it drives the real backend against the mock, over a copy of the
+  fixture volumes `photos` and `archive` with the `fixtures` scenario.
+- `make check-tools` (Biome, `tsc`, `node --test`; `scripts/wt-land.sh` runs it when a path under
+  `tools/` or `e2e/` changes). Other todos add their own `check-*` prerequisite to it.

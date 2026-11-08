@@ -1,0 +1,36 @@
+{
+  "description": "Two users, two libraries (Photos at /mnt/photo, Videos at /mnt/video), three albums, two tags, no assets.",
+  "serverVersion": "3.4.0",
+  "users": [
+    {
+      "email": "admin@example.test",
+      "password": "admin-password",
+      "name": "Admin",
+      "isAdmin": true
+    },
+    {
+      "email": "user@example.test",
+      "password": "user-password",
+      "name": "Regular User",
+      "isAdmin": false
+    }
+  ],
+  "libraries": [
+    {
+      "name": "Photos",
+      "importPaths": ["/mnt/photo"],
+      "exclusionPatterns": ["**/@eaDir/**"]
+    },
+    {
+      "name": "Videos",
+      "importPaths": ["/mnt/video"],
+      "exclusionPatterns": []
+    }
+  ],
+  "albums": [
+    { "name": "Holidays", "assets": [] },
+    { "name": "Family", "assets": [] },
+    { "name": "To print", "assets": [] }
+  ],
+  "tags": [{ "value": "Travel" }, { "value": "Family/Birthdays" }]
+}
