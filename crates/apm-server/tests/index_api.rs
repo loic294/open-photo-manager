@@ -386,7 +386,10 @@ async fn an_idle_index_has_nothing_to_report() {
     let (code, body) = app.call(Method::GET, "/api/index/status", None).await;
 
     assert_eq!(code, StatusCode::OK);
-    assert_eq!(body, json!({"held_removals": [], "active_task_id": null}));
+    assert_eq!(
+        body,
+        json!({"held_removals": [], "active_task_id": null, "watcher": app.state.watcher.status()})
+    );
     let (_, tasks) = app.call(Method::GET, "/api/tasks", None).await;
     assert_eq!(tasks, json!([]));
 }
@@ -762,7 +765,13 @@ async fn a_vanished_mount_is_held_until_the_user_confirms_the_removals() {
     healthy_tree.write("keep/IMG_1.jpg", b"x");
     let first = rescan_result(&lab.app, json!({})).await;
     assert_eq!(count(&first, "added"), 61);
-    assert_eq!(status(&lab.app).await, IndexStatusDto::default());
+    assert_eq!(
+        status(&lab.app).await,
+        IndexStatusDto {
+            watcher: Some(lab.app.state.watcher.status()),
+            ..IndexStatusDto::default()
+        }
+    );
     let away = unmount(&lab.app, &lab.tree);
 
     // 60 files gone at once look like a share that is not mounted: the entries are kept.
@@ -814,7 +823,13 @@ async fn a_vanished_mount_is_held_until_the_user_confirms_the_removals() {
         (count(&confirmed, "removed"), count(&confirmed, "held")),
         (60, 0)
     );
-    assert_eq!(status(&lab.app).await, IndexStatusDto::default());
+    assert_eq!(
+        status(&lab.app).await,
+        IndexStatusDto {
+            watcher: Some(lab.app.state.watcher.status()),
+            ..IndexStatusDto::default()
+        }
+    );
     assert!(listing(&lab.app, lab.volume, "d000").await.is_empty());
     assert_eq!(listing(&lab.app, healthy, "keep").await, ["IMG_1.jpg"]);
     assert!(away.join("d000").is_dir());
@@ -842,7 +857,13 @@ async fn a_returning_mount_voids_the_held_removals() {
         [0, 0, 0],
         "{back}"
     );
-    assert_eq!(status(&lab.app).await, IndexStatusDto::default());
+    assert_eq!(
+        status(&lab.app).await,
+        IndexStatusDto {
+            watcher: Some(lab.app.state.watcher.status()),
+            ..IndexStatusDto::default()
+        }
+    );
     assert_eq!(listing(&lab.app, lab.volume, "d001").await.len(), 30);
 }
 

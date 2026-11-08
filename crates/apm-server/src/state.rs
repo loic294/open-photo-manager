@@ -39,6 +39,7 @@ pub struct AppState {
     pub tasks: tasks::TaskEngine,
     pub trash: trash::TrashService,
     pub volumes: indexer::VolumeRegistry,
+    pub watcher: indexer::watcher::Watcher,
 }
 
 impl AppState {
@@ -124,6 +125,16 @@ impl AppState {
             fsops.clone(),
         );
 
+        let watcher = indexer::watcher::Watcher::new(indexer::watcher::WatcherDeps {
+            db: db.clone(),
+            jobs: index_jobs.clone(),
+            settings: settings.clone(),
+            tasks: tasks.clone(),
+            volumes: volumes.clone(),
+            self_writes: fsops.self_writes().clone(),
+            shutdown: shutdown.clone(),
+        });
+
         Ok(Self {
             config,
             db,
@@ -140,6 +151,7 @@ impl AppState {
             tasks,
             trash,
             volumes,
+            watcher,
         })
     }
 
@@ -155,6 +167,7 @@ impl AppState {
     /// and close the database. Await your own service's stop above the
     /// database line.
     pub async fn shutdown(&self) {
+        self.watcher.shutdown().await;
         self.tasks.shutdown().await;
         self.plans.shutdown().await;
         // Keep last: every other service may still write while it stops.

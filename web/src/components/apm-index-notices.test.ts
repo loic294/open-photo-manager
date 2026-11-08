@@ -17,6 +17,7 @@ const archive = { volume_id: 2, volume_name: 'archive', files: 80 };
 const statusOf = (...held: IndexStatusDto['held_removals']): IndexStatusDto => ({
   held_removals: held,
   active_task_id: null,
+  watcher: null,
 });
 
 let post: MockInstance<typeof api.post>;

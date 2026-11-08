@@ -16,10 +16,11 @@ interface Loaded {
   events: typeof import('@/api/sse')['events'];
 }
 
-const idle: IndexStatusDto = { held_removals: [], active_task_id: null };
+const idle: IndexStatusDto = { held_removals: [], active_task_id: null, watcher: null };
 const held: IndexStatusDto = {
   held_removals: [{ volume_id: 1, volume_name: 'photos', files: 12_345 }],
   active_task_id: null,
+  watcher: null,
 };
 
 let current: Loaded | undefined;
@@ -108,6 +109,7 @@ describe('refreshIndexStatus', () => {
     ['without held_removals', { active_task_id: null }],
     ['with a malformed entry', { held_removals: [{ volume_id: 1 }], active_task_id: null }],
     ['with a bad active task', { held_removals: [], active_task_id: 'x' }],
+    ['with a bad watcher', { ...held, watcher: { state: 'watched' } }],
   ])('ignores an answer of the wrong shape (%s)', async (_what, answer) => {
     const { store, get } = await setup();
     get.mockResolvedValueOnce(held).mockResolvedValueOnce(answer);
@@ -150,6 +152,21 @@ describe('refreshIndexStatus', () => {
       { ...held, held_removals: [{ volume_id: 1, volume_name: 'pics', files: 12_345 }] },
     ],
     ['another active task', { ...held, active_task_id: 8 }],
+    [
+      'watcher health',
+      {
+        ...held,
+        watcher: {
+          state: 'degraded',
+          watched_dirs: 4,
+          unwatched_dirs: 2,
+          limit_reached: true,
+          inotify_budget: 4,
+          pending_dirs: 1,
+          last_event_at: 1700000000,
+        },
+      },
+    ],
   ])('replaces the status when it brings %s', async (_what, changed) => {
     const { store, get } = await setup();
     get.mockResolvedValueOnce(held).mockResolvedValueOnce(changed);

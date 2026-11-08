@@ -49,6 +49,35 @@ pub struct IndexStatusDto {
     /// The index task that is running, else the oldest one that is queued; null when the index is
     /// idle. The task itself comes from `GET /api/tasks`.
     pub active_task_id: Option<TaskId>,
+    /// Live filesystem watching health; null for a producer without a watcher.
+    #[serde(default)]
+    pub watcher: Option<WatcherStatusDto>,
+}
+
+// Owned by watching-filesystem.
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Serialize, Deserialize, TS)]
+#[serde(rename_all = "snake_case")]
+#[ts(export)]
+pub enum WatcherState {
+    #[default]
+    Disabled,
+    Starting,
+    Watching,
+    Degraded,
+}
+
+/// Watch limits are shared with other NAS applications. Degraded watching relies on periodic scans.
+#[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize, TS)]
+#[ts(export)]
+pub struct WatcherStatusDto {
+    pub state: WatcherState,
+    pub watched_dirs: u64,
+    pub unwatched_dirs: u64,
+    pub limit_reached: bool,
+    pub inotify_budget: Option<u64>,
+    pub pending_dirs: u64,
+    /// Epoch seconds of the last relevant event, null before the first one.
+    pub last_event_at: Option<i64>,
 }
 
 #[cfg(test)]
@@ -93,11 +122,26 @@ mod tests {
                 files: 12_345,
             }],
             active_task_id: Some(9),
+            watcher: Some(WatcherStatusDto {
+                state: WatcherState::Degraded,
+                watched_dirs: 4,
+                unwatched_dirs: 8,
+                limit_reached: true,
+                inotify_budget: Some(4),
+                pending_dirs: 2,
+                last_event_at: Some(1_700_000_000),
+            }),
         });
         assert_eq!(wire["held_removals"][0]["volume_id"], json!(2));
         assert_eq!(wire["held_removals"][0]["volume_name"], json!("photos"));
         assert_eq!(wire["held_removals"][0]["files"], json!(12_345));
         assert_eq!(wire["active_task_id"], json!(9));
+        assert_eq!(wire["watcher"]["state"], json!("degraded"));
+        assert_eq!(roundtrip(&WatcherState::Watching), json!("watching"));
+        assert_eq!(
+            roundtrip(&WatcherStatusDto::default())["last_event_at"],
+            json!(null)
+        );
 
         let idle = roundtrip(&IndexStatusDto::default());
         assert_eq!(idle["held_removals"], json!([]));

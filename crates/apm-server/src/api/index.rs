@@ -36,5 +36,7 @@ async fn rescan(
 
 /// The removals the guard is holding back per volume, and the active index task if any.
 async fn status(State(state): State<AppState>) -> AppResult<Json<IndexStatusDto>> {
-    Ok(Json(state.index_jobs.status().await?))
+    let mut status = state.index_jobs.status().await?;
+    status.watcher = Some(state.watcher.status());
+    Ok(Json(status))
 }

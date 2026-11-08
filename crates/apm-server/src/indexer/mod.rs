@@ -109,6 +109,8 @@ mod test_support;
 pub mod thumbs;
 mod volumes;
 mod walk;
+pub mod watch_backend;
+mod watch_events;
 pub mod watcher;
 pub mod xmp;
 

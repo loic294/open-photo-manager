@@ -302,6 +302,7 @@ impl IndexJobs {
         Ok(IndexStatusDto {
             held_removals,
             active_task_id,
+            watcher: None,
         })
     }
 

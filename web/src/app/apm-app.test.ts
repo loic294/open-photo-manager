@@ -33,7 +33,7 @@ async function mountApp(url: string, props: Partial<App> = {}): Promise<App> {
 }
 
 const photos: VolumeDto = { id: 1, name: 'photos', writable: true, online: true };
-const IDLE: IndexStatusDto = { held_removals: [], active_task_id: null };
+const IDLE: IndexStatusDto = { held_removals: [], active_task_id: null, watcher: null };
 const RESCAN = '/api/index/rescan';
 
 interface Answers {
@@ -496,6 +496,7 @@ describe('index notices', () => {
   const held: IndexStatusDto = {
     held_removals: [{ volume_id: 1, volume_name: 'photos', files: 12_345 }],
     active_task_id: null,
+    watcher: null,
   };
   const notices = (app: App) => app.querySelector('apm-index-notices');
   const alertOf = (app: App) => notices(app)?.querySelector('[role="alert"]');

@@ -12,6 +12,7 @@ pub mod fsops;
 pub mod media_fixtures;
 pub mod seed;
 pub mod trash;
+pub mod watcher;
 
 use apm_server::app;
 use apm_server::config::Config;
