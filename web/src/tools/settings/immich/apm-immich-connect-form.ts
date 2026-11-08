@@ -120,6 +120,7 @@ export class ApmImmichConnectForm extends ApmElement {
     return html`<label class="fieldset min-w-0">
       <span class="fieldset-legend">${LABELS[field]}</span>
       <input class="input w-full ${error ? 'input-error' : ''}" name=${field}
+        aria-label=${LABELS[field]}
         type=${field === 'password' ? 'password' : field === 'email' ? 'email' : 'url'}
         autocomplete=${field === 'password' ? 'off' : field === 'email' ? 'username' : 'url'}
         required .value=${live(value)} aria-invalid=${!!error}
@@ -131,7 +132,7 @@ export class ApmImmichConnectForm extends ApmElement {
           else this.password = text;
           this.errors = { ...this.errors, [field]: undefined };
         }} />
-      <span id=${`immich-connect-${field}-help`} class="text-error">${error ?? ''}</span>
+      <span id=${`immich-connect-${field}-help`} class="text-base-content">${error ?? ''}</span>
     </label>`;
   }
 

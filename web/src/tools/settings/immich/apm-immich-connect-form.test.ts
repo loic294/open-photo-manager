@@ -128,6 +128,10 @@ it('places all 422 credential errors at the named fields', async () => {
   submit(el);
   await vi.waitFor(() => expect(el.textContent).toContain('Bad password'));
   expect(el.querySelectorAll('[aria-invalid="true"]')).toHaveLength(3);
+  expect(el.querySelector('[name="password"]')?.getAttribute('aria-label')).toBe('Password');
+  expect(
+    el.querySelector('#immich-connect-password-help')?.classList.contains('text-base-content'),
+  ).toBe(true);
   expect(el.textContent).toContain('Bad server_url');
   expect(el.textContent).toContain('Bad email');
 });

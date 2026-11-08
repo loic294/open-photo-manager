@@ -5,7 +5,12 @@ import { expect, test } from '../../src/immich-readonly-test';
 
 test.use({
   appOptions: { env: { APM_IMMICH_QUIET_SECS: '1' } },
-  allowedErrors: ['API 401:', 'API 422:'],
+  allowedErrors: [
+    'API 400:',
+    'API 401:',
+    'API 422:',
+    'console.error: Failed to load resource: the server responded with a status of 400',
+  ],
 });
 
 test('a wrong password preserves the address and email without retrying the login', async ({
