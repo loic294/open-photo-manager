@@ -306,76 +306,84 @@ test('failed tasks retain the full error, dismiss persistently and raise a new b
   }
 });
 
-test('SIGKILL during a real copy reconciles the journal and reconnects without reload @slow', async ({
-  app,
-  page,
-  shell,
-  allowedErrors,
-}) => {
-  test.setTimeout(300_000);
-  test.skip(
-    process.platform !== 'darwin',
-    'Real cross-device mount fixture requires macOS hdiutil',
-  );
-  const device = await CrossDevice.create(app, COPY_BYTES);
-  try {
-    const existingParts = (await snapshotTree(app.volumesDir))
-      .filter((entry) => entry.path.endsWith('.apm-part'))
-      .map((entry) => entry.path);
-    await makeSparseFile(app, 'photos', 'system-crash/large.bin', COPY_BYTES);
-    await app.rescan();
-    const original = await indexedFile(app, 'photos', 'system-crash/large.bin');
-    expect(await diskHash(app.volumePath('photos/system-crash/large.bin'))).toBe(original.hash);
-    await page.goto(`${app.url}/browse?src=photos/system-crash&cmp=${device.volume}`);
-    const plan = await movePlan(
-      app,
-      { volume: 'photos', dir: 'system-crash' },
-      { volume: device.volume, dir: 'crashed' },
+test.describe('intentional SIGKILL outage', () => {
+  // This test starts with no exceptions; exact private-origin SSE patterns exist only during kill/restart.
+  test.use({ allowedErrors: [[], { scope: 'test' }] });
+
+  test('SIGKILL during a real copy reconciles the journal and reconnects without reload @slow', async ({
+    app,
+    page,
+    shell,
+    allowedErrors,
+  }) => {
+    test.setTimeout(300_000);
+    test.skip(
+      process.platform !== 'darwin',
+      'Real cross-device mount fixture requires macOS hdiutil',
     );
-    const task = await executePlan(app, plan);
-    await expect
-      .poll(async () => (await app.api.tasks()).find((entry) => entry.id === task.id)?.bytes_done, {
-        timeout: 30_000,
-      })
-      .toBeGreaterThan(0);
-    // Permit truncated SSE only for this exact private origin during the intentional outage.
-    const allowanceStart = allowedErrors.length;
-    allowedErrors.push(
-      `requestfailed: ${app.url}/api/events net::ERR_INCOMPLETE_CHUNKED_ENCODING`,
-      /^console.error: Failed to load resource: net::ERR_INCOMPLETE_CHUNKED_ENCODING$/,
-    );
+    const device = await CrossDevice.create(app, COPY_BYTES);
     try {
-      await app.kill();
-      await expect(shell.connectionBanner()).toBeVisible({ timeout: 30_000 });
-      await app.restart();
-      await expect(shell.connectionBanner()).not.toBeVisible({ timeout: 45_000 });
+      const existingParts = (await snapshotTree(app.volumesDir))
+        .filter((entry) => entry.path.endsWith('.apm-part'))
+        .map((entry) => entry.path);
+      await makeSparseFile(app, 'photos', 'system-crash/large.bin', COPY_BYTES);
+      await app.rescan();
+      const original = await indexedFile(app, 'photos', 'system-crash/large.bin');
+      expect(await diskHash(app.volumePath('photos/system-crash/large.bin'))).toBe(original.hash);
+      await page.goto(`${app.url}/browse?src=photos/system-crash&cmp=${device.volume}`);
+      const plan = await movePlan(
+        app,
+        { volume: 'photos', dir: 'system-crash' },
+        { volume: device.volume, dir: 'crashed' },
+      );
+      const task = await executePlan(app, plan);
+      await expect
+        .poll(
+          async () => (await app.api.tasks()).find((entry) => entry.id === task.id)?.bytes_done,
+          {
+            timeout: 30_000,
+          },
+        )
+        .toBeGreaterThan(0);
+      // Permit truncated SSE only for this exact private origin during the intentional outage.
+      const allowanceStart = allowedErrors.length;
+      allowedErrors.push(
+        `requestfailed: ${app.url}/api/events net::ERR_INCOMPLETE_CHUNKED_ENCODING`,
+        /^console.error: Failed to load resource: net::ERR_INCOMPLETE_CHUNKED_ENCODING$/,
+      );
+      try {
+        await app.kill();
+        await expect(shell.connectionBanner()).toBeVisible({ timeout: 30_000 });
+        await app.restart();
+        await expect(shell.connectionBanner()).not.toBeVisible({ timeout: 45_000 });
+      } finally {
+        allowedErrors.splice(allowanceStart);
+      }
+      const interrupted = (await app.api.tasks()).find((entry) => entry.id === task.id);
+      expect(interrupted?.state).toBe('interrupted');
+      await shell.hoverTasks();
+      await expect(shell.taskPanel()).toContainText('Interrupted');
+      const tree = await snapshotTree(app.volumesDir);
+      expect(
+        tree.filter((entry) => entry.path.endsWith('.apm-part')).map((entry) => entry.path),
+      ).toEqual(existingParts);
+      const survivors = tree.filter(
+        (entry) => entry.type === 'file' && entry.path.endsWith('/large.bin'),
+      );
+      expect(survivors).toHaveLength(1);
+      expect(survivors[0].path).toBe('photos/system-crash/large.bin');
+      expect(await diskHash(app.volumePath(survivors[0].path))).toBe(original.hash);
+      const recovered = await indexedFile(app, 'photos', 'system-crash/large.bin');
+      expect(recovered.hash).toBe(original.hash);
+      expect(recovered.item.size).toBe(COPY_BYTES);
+      expect(app.sql("SELECT count(*) AS n FROM fs_journal WHERE state = 'pending'")[0]?.n).toBe(0);
+      await shell
+        .taskPanel()
+        .getByRole('button', { name: /^Dismiss/ })
+        .click();
+      await expect(shell.taskTrigger()).toHaveCount(0, { timeout: 10_000 });
     } finally {
-      allowedErrors.splice(allowanceStart);
+      await device.close();
     }
-    const interrupted = (await app.api.tasks()).find((entry) => entry.id === task.id);
-    expect(interrupted?.state).toBe('interrupted');
-    await shell.hoverTasks();
-    await expect(shell.taskPanel()).toContainText('Interrupted');
-    const tree = await snapshotTree(app.volumesDir);
-    expect(
-      tree.filter((entry) => entry.path.endsWith('.apm-part')).map((entry) => entry.path),
-    ).toEqual(existingParts);
-    const survivors = tree.filter(
-      (entry) => entry.type === 'file' && entry.path.endsWith('/large.bin'),
-    );
-    expect(survivors).toHaveLength(1);
-    expect(survivors[0].path).toBe('photos/system-crash/large.bin');
-    expect(await diskHash(app.volumePath(survivors[0].path))).toBe(original.hash);
-    const recovered = await indexedFile(app, 'photos', 'system-crash/large.bin');
-    expect(recovered.hash).toBe(original.hash);
-    expect(recovered.item.size).toBe(COPY_BYTES);
-    expect(app.sql("SELECT count(*) AS n FROM fs_journal WHERE state = 'pending'")[0]?.n).toBe(0);
-    await shell
-      .taskPanel()
-      .getByRole('button', { name: /^Dismiss/ })
-      .click();
-    await expect(shell.taskTrigger()).toHaveCount(0, { timeout: 10_000 });
-  } finally {
-    await device.close();
-  }
+  });
 });

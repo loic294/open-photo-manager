@@ -1,6 +1,7 @@
 import { cp, readFile, rename, rm, stat } from 'node:fs/promises';
 import { basename, dirname, join } from 'node:path';
 import { expectNoSeriousA11yViolations } from '../../src/a11y';
+import { emptyFilter } from '../../src/api';
 import { snapshotTree, touch, writeFile } from '../../src/disk';
 import { captureScreens } from '../../src/screens';
 import { expect, test } from '../../src/test';
@@ -274,6 +275,7 @@ test('offline volume keeps identities and a reconnect restores live re-index con
   app,
   page,
   shell,
+  source,
 }) => {
   test.setTimeout(120_000);
   const volumes = await app.api.volumes();
@@ -291,6 +293,20 @@ test('offline volume keeps identities and a reconnect restores live re-index con
     );
     await shell.navigate('Settings');
     await expect(page.locator('apm-settings-general')).toContainText('offline');
+    await page.goto(`${app.url}/browse?src=archive&cmp=photos`);
+    await expect(source.element.getByRole('alert')).toContainText(
+      'Volume archive is offline: showing what was last indexed',
+    );
+    const snapshot = (await app.api.listing('archive', '')).items;
+    for (const item of snapshot) await expect(source.card(item.name).element).toBeVisible();
+    const folders = await app.api.folders({
+      volume_id: archive.id,
+      dir: '',
+      filter: emptyFilter,
+      plan: null,
+    });
+    expect(snapshot.length + folders.folders.length).toBeGreaterThan(0);
+    for (const folder of folders.folders) await expect(source.folder(folder.name)).toBeVisible();
     expect(app.sql(`SELECT id FROM files WHERE volume_id = ${archive.id} ORDER BY id`)).toEqual(
       ids,
     );
