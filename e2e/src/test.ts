@@ -16,7 +16,7 @@ import { ViewerPage } from './pages/viewer';
 type Mock = Awaited<ReturnType<typeof startMockImmich>>;
 type MockOptions = Parameters<typeof startMockImmich>[0];
 interface Fixtures {
-  allowedErrors: string[];
+  allowedErrors: (string | RegExp)[];
   appOptions: AppOptions;
   app: AppInstance;
   bottomBar: BottomBarPage;
@@ -38,7 +38,7 @@ interface Workers {
 
 export function indexSnapshot(app: AppInstance) {
   return app.sql(
-    'SELECT id, volume_id, dir_path, name, size, mtime, hex(hash) AS hash, camera, rating, flag FROM files ORDER BY id',
+    'SELECT id, volume_id, dir_path, name, size, mtime, hex(hash) AS hash, camera_id, capture_ts, capture_src, rating, flag FROM files ORDER BY id',
   );
 }
 

@@ -6,10 +6,8 @@ export class FilterBarPage {
     this.element = page.getByRole('group', { name: 'Filters', exact: true });
   }
   async pick(label: 'Cameras' | 'Tags', value: string) {
-    const control = this.element
-      .locator('apm-multi-select')
-      .filter({ has: this.page.getByRole('button', { name: new RegExp(`^${label}`) }) });
-    await control.getByRole('button', { name: new RegExp(`^${label}`) }).click();
+    const control = this.element.locator(`apm-multi-select[label="${label}"]`);
+    await control.locator('summary').click();
     await control
       .getByRole('checkbox', {
         name: new RegExp(`^${value.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}( \\(|$)`),
@@ -48,5 +46,11 @@ export class FilterBarPage {
   }
   facets(label: 'Cameras' | 'Tags') {
     return this.element.locator(`apm-multi-select[label="${label}"]`).getByRole('checkbox');
+  }
+  async searchCamera(value: string) {
+    await this.element.locator('apm-multi-select[label="Cameras"] summary').click();
+    const input = this.element.getByRole('searchbox');
+    await input.fill(value);
+    return input;
   }
 }

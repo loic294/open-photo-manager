@@ -46,8 +46,7 @@ export class Api {
     this.request<ItemsResponse>('POST', '/api/browse/items', request);
   ids = (request: ItemsRequest) => this.request<IdsResponse>('POST', '/api/browse/ids', request);
   facets = (request: BrowseRequest) => this.request<Facets>('POST', '/api/facets', request);
-  rescan = (request: RescanRequest) =>
-    this.request<{ task_id: number }>('POST', '/api/index/rescan', request);
+  rescan = (request: RescanRequest) => this.request<TaskDto>('POST', '/api/index/rescan', request);
 
   async listing(volume: string, dir: string): Promise<ItemsResponse> {
     const volumes = await this.volumes();

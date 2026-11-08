@@ -20,7 +20,7 @@ export interface AppOptions {
 }
 
 export async function reservePort(port = 0): Promise<Server> {
-  const server = createServer();
+  const server = createServer((socket) => socket.destroy());
   await new Promise<void>((resolve, reject) => {
     server.once('error', reject);
     server.listen(port, '127.0.0.1', resolve);
@@ -100,7 +100,9 @@ export class AppInstance {
       return app;
     } catch (error) {
       await app.stop();
-      throw new Error(`App start failed: ${error}\n${app.logs()}`, { cause: error });
+      throw new Error(`App start failed at ${app.directory}: ${error}\n${app.logs()}`, {
+        cause: error,
+      });
     }
   }
 
@@ -183,7 +185,7 @@ export class AppInstance {
   }
   async rescan(targets: Scope[] = []) {
     const task = await this.api.rescan({ targets, force: false, confirm_removals: false });
-    await waitForTasksIdle(this, task.task_id - 1);
+    await waitForTasksIdle(this, task.id - 1);
     return task;
   }
 
@@ -227,7 +229,11 @@ export class AppInstance {
       await new Promise<void>((resolve) => this.reservation?.close(() => resolve()));
     this.reservation = undefined;
     if (process.env.E2E_KEEP !== '1') {
-      await fixturePermissions(this.outDir, true);
+      try {
+        await fixturePermissions(this.outDir, true);
+      } catch (error) {
+        if ((error as NodeJS.ErrnoException).code !== 'ENOENT') throw error;
+      }
       await rm(this.directory, { recursive: true, force: true });
     }
   }

@@ -49,16 +49,6 @@ export class FileCard {
     );
   }
   async expectBorder(token: 'primary' | 'success' | 'error') {
-    expect(
-      await this.element.evaluate((element, name) => {
-        const reference = document.createElement('span');
-        reference.style.color = `var(--color-${name})`;
-        element.append(reference);
-        const expected = getComputedStyle(reference).color;
-        reference.remove();
-        return { actual: getComputedStyle(element).borderTopColor, expected };
-      }, token),
-    ).toEqual(expect.objectContaining({ actual: expect.any(String) }));
     await expect
       .poll(() =>
         this.element.evaluate((element, name) => {
@@ -82,7 +72,10 @@ export class PanePage {
     readonly page: Page,
     readonly side: Side,
   ) {
-    this.element = page.locator(`apm-pane[pane="${side}"]`);
+    this.element = page.getByRole('region', {
+      name: side === 'source' ? 'Source' : 'Comparison',
+      exact: true,
+    });
     this.body = this.element.locator('[data-pane-body]');
   }
   card(name: string) {
@@ -101,7 +94,7 @@ export class PanePage {
     await this.waitReady();
   }
   async waitReady() {
-    await expect(this.body).toHaveAttribute('aria-busy', 'false');
+    await expect(this.body).not.toHaveAttribute('aria-busy', 'true');
   }
   async folderNames() {
     return this.folders().evaluateAll((rows) => rows.map((row) => row.getAttribute('data-name')));

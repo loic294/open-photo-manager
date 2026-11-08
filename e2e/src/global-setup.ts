@@ -1,6 +1,7 @@
 import { cp, mkdir, readFile, rm, stat, writeFile } from 'node:fs/promises';
 import { join } from 'node:path';
 import { AppInstance, run } from './app-instance';
+import { snapshotTree } from './disk';
 import { fixturePermissions } from './fixture-copy';
 import { binary, cache, golden, root } from './paths';
 
@@ -13,17 +14,14 @@ export default async function setup() {
     if ((error as NodeJS.ErrnoException).code !== 'ENOENT') throw error;
     await run('make', ['fixtures']);
   }
-  const signature = JSON.stringify(
-    await Promise.all(
-      [join(fixtures, 'manifest.json'), binary, join(root, 'web/dist/index.html')].map(
-        async (path) => ({
-          path,
-          mtime: (await stat(path)).mtimeMs,
-          size: (await stat(path)).size,
-        }),
-      ),
-    ),
-  );
+  const signature = JSON.stringify({
+    manifest: await readFile(join(fixtures, 'manifest.json'), 'utf8'),
+    binary: { mtime: (await stat(binary)).mtimeMs, size: (await stat(binary)).size },
+    web: (await snapshotTree(join(root, 'web/dist'), { hash: true })).map(({ path, hash }) => ({
+      path,
+      hash,
+    })),
+  });
   try {
     if ((await readFile(join(golden, 'stamp'), 'utf8')) === signature) {
       console.log('E2E: reusing golden indexed copy');

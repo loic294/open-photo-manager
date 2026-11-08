@@ -1,6 +1,5 @@
 import { html, type TemplateResult } from 'lit';
 import { keyed } from 'lit/directives/keyed.js';
-import { live } from 'lit/directives/live.js';
 import { isAbortError, isApiError } from '@/api/errors';
 import { fetchFileDetail } from '@/api/files';
 import type { FileDetail } from '@/api/generated/FileDetail';
@@ -489,7 +488,7 @@ export class ApmViewer extends ApmElement {
     return html`
       <apm-modal
         size="full"
-        .open=${live(this.opened)}
+        .open=${this.opened}
         .heading=${this.headingFor()}
         .body=${this.renderBody(item)}
         @close=${this.onClose}

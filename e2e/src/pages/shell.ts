@@ -10,7 +10,7 @@ export class ShellPage {
     await expect(this.page.getByRole('heading', { level: 1, name, exact: true })).toBeVisible();
   }
   topBar() {
-    return this.page.locator('apm-top-bar');
+    return this.page.getByRole('banner');
   }
   toasts() {
     return this.page.locator('apm-toast');
@@ -25,9 +25,11 @@ export class ShellPage {
     await this.taskIndicator().hover();
   }
   async reindex(all = false) {
-    await this.menu().getByRole('button', { name: 'Re-index', exact: true }).click();
     await this.menu()
-      .getByRole('button', { name: all ? 'All assets' : 'Current folders', exact: true })
+      .getByRole('button', {
+        name: all ? 'Re-index all assets' : 'Re-index current folders',
+        exact: true,
+      })
       .click();
   }
   async theme(theme: 'light' | 'dark') {

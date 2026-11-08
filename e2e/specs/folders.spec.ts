@@ -1,5 +1,8 @@
 import { expect, test } from '../src/test';
 
+// A full reload/history navigation intentionally closes the old EventSource.
+test.use({ allowedErrors: [/^requestfailed: .*\/api\/events net::ERR_ABORTED$/] });
+
 test('volume root lists both mounted shares @smoke', async ({
   page,
   sharedApp,

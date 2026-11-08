@@ -1099,6 +1099,15 @@ describe('closing', () => {
     expect(opened.closes()).toBe(1);
   });
 
+  it('keeps a close request when a pending viewer render runs first', async () => {
+    const opened = await open(listing(103).source);
+    document.querySelector('apm-viewer')?.requestUpdate();
+    control('Close').click();
+    await settle();
+    expect(dialog().open).toBe(false);
+    expect(opened.closes()).toBe(1);
+  });
+
   it('abandons every request and the pictures it still waits for', async () => {
     const list = listing(103, { known: false, ids: 'later' });
     await open(list.source);

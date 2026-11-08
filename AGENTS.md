@@ -405,3 +405,15 @@ Execute options are `{}`; `only` restricts owners, not their required sidecars.
 - `POST /api/format/preview` samples the index (default 5, maximum 20); invalid patterns return
   HTTP 200 with `PatternIssue` byte spans and full-span replacement suggestions. Malformed requests
   return 400. `GET /api/format/tokens` exposes bare token names/aliases and core-rendered examples.
+
+## End-to-end tests
+
+For adding browser specs or changing harness helpers, read [e2e/README.md](e2e/README.md) first.
+Run `make e2e-install`, `make check-e2e`, and `CARGO_BUILD_JOBS=2 E2E_WORKERS=2 make e2e`;
+`make e2e-smoke` runs the quick acceptance cases. Specs import the shared `test` from
+`e2e/src/test.ts`, use page objects and manifest scenario keys, and start a pristine app or a
+guarded read-only `sharedApp`. Assert UI then API/disk for mutations; wait for observable state,
+with no fixed sleeps or retries. Preserve failing product assertions: small fixes need product
+regressions; report larger bugs for assignment, never treat `fixme` as final verification.
+Use only private generated copies and free ports (not 8080, 18080 or 15173), the shared mock
+Immich, and no credential files, real media, or mutations of `fixtures/out`.

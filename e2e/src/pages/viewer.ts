@@ -28,6 +28,14 @@ export class ViewerPage {
     await this.page.keyboard.press('ArrowLeft');
   }
   async close() {
+    // The product deliberately swallows the second click of a double-click while opening.
+    await expect
+      .poll(() =>
+        this.page
+          .locator('apm-viewer')
+          .evaluate((element) => 'guarded' in element && element.guarded === false),
+      )
+      .toBe(true);
     await this.dialog().getByRole('button', { name: 'Close', exact: true }).click();
     await expect(this.dialog()).not.toBeVisible();
   }

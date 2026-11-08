@@ -61,9 +61,7 @@ test('keyboard and bottom bar select all real folder IDs; navigation clears', as
 });
 
 test('select-all does not hijack text input focus', async ({ source, filterBar }) => {
-  await filterBar.element.getByRole('button', { name: /^Cameras/ }).click();
-  const input = filterBar.element.getByRole('searchbox');
-  await input.fill('typed camera');
+  const input = await filterBar.searchCamera('typed camera');
   await input.press('ControlOrMeta+A');
   expect(
     await input.evaluate(

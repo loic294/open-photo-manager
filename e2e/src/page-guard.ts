@@ -2,9 +2,14 @@ import type { Page } from '@playwright/test';
 
 export class PageGuard {
   readonly errors: string[] = [];
-  constructor(page: Page, allowed: string[]) {
+  constructor(page: Page, allowed: (string | RegExp)[]) {
     const record = (entry: string) => {
-      if (!allowed.some((pattern) => entry.includes(pattern))) this.errors.push(entry);
+      if (
+        !allowed.some((pattern) =>
+          typeof pattern === 'string' ? entry.includes(pattern) : pattern.test(entry),
+        )
+      )
+        this.errors.push(entry);
     };
     page.on('pageerror', (error) => record(`pageerror: ${error.message}`));
     page.on('console', (message) => {
