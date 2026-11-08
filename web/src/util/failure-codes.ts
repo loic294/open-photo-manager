@@ -17,6 +17,8 @@ export const FAILURE_REASONS: Readonly<Record<string, string>> = {
   name_too_long: 'File name is too long',
   no_space: 'Not enough free space',
   verify_failed: 'Copy verification failed',
+  immich_move_refused:
+    'Immich database update refused: no file moved. Check the database connection and retry.',
   not_empty: 'Folder is no longer empty',
   outside_trash: 'Item is outside the trash',
   io_error: 'File could not be read or written',

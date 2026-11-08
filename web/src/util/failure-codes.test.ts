@@ -15,6 +15,7 @@ describe('shared failure reasons', () => {
       'name_too_long',
       'no_space',
       'verify_failed',
+      'immich_move_refused',
       'not_empty',
       'outside_trash',
       'io_error',
@@ -34,6 +35,11 @@ describe('shared failure reasons', () => {
       expect(FAILURE_REASONS[code]).toBeTruthy();
       expect(describeFailure(code, 'Technical detail')).toBe(FAILURE_REASONS[code]);
     }
+  });
+  it('makes an Immich move refusal explicit and actionable in the shared result flow', () => {
+    const reason = describeFailure('immich_move_refused', 'Database unavailable');
+    expect(reason).toContain('no file moved');
+    expect(reason).toContain('database connection and retry');
   });
   it('humanizes unknown future codes and preserves a message when no code exists', () => {
     expect(describeFailure('counterpart_went_missing', 'Internal detail')).toBe(
