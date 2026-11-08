@@ -9,6 +9,8 @@ import subprocess
 import sys
 from pathlib import Path
 from urllib.parse import unquote, urlsplit
+sys.path.insert(0, str(Path("docker").resolve()))
+from check_compose import check_windows_compose, extract_windows_compose
 
 errors = []
 def fail(path, line, message):
@@ -115,47 +117,26 @@ else:
 
 windows_guide = Path("docs/windows.md")
 windows_text = windows_guide.read_text()
-yaml_match = re.search(r"^```yaml\s*\n(.*?)^```\s*$", windows_text, re.M | re.S)
-if not yaml_match:
-    fail(windows_guide, 1, "expected a fenced YAML Compose example")
-else:
-    compose_yaml = yaml_match[1]
-    try:
-        subprocess.run(
-            ["docker", "compose", "-f", "-", "config", "-q"],
-            input=compose_yaml,
-            text=True,
-            check=True,
-            capture_output=True,
-        )
-        resolved = subprocess.run(
-            ["docker", "compose", "-f", "-", "config", "--format", "json"],
-            input=compose_yaml,
-            text=True,
-            check=True,
-            capture_output=True,
-        )
-        config = json.loads(resolved.stdout)
-        service = config.get("services", {}).get("apm", {})
-        mounts = service.get("volumes", [])
-        if "user" in service:
-            fail(windows_guide, 1, "Windows Compose example must omit the user key")
-        if not any(mount.get("type") == "volume" and mount.get("target") == "/data"
-                   for mount in mounts):
-            fail(windows_guide, 1, "Windows Compose example must mount /data as a named volume")
-        if not re.search(
-            r"(?ms)^ {6}-\s+type:\s*bind\s*\n"
-            r"(?:(?:^ {8}.+\n)|^\s*\n)*?"
-            r"^ {8}source:\s*\S[^\n]*\n"
-            r"(?:(?:^ {8}.+\n)|^\s*\n)*?"
-            r"^ {8}target:\s*/volumes/photos\s*$",
-            compose_yaml,
-        ):
-            fail(windows_guide, 1,
-                 "Windows photo folder must use long bind syntax at /volumes/photos")
-    except (OSError, subprocess.CalledProcessError, json.JSONDecodeError) as error:
-        detail = getattr(error, "stderr", None) or str(error)
-        fail(windows_guide, 1, f"invalid Windows Compose example: {detail.strip()}")
+try:
+    compose_yaml = extract_windows_compose(windows_text)
+    subprocess.run(
+        ["docker", "compose", "-f", "-", "config", "-q"],
+        input=compose_yaml,
+        text=True,
+        check=True,
+        capture_output=True,
+    )
+    resolved = subprocess.run(
+        ["docker", "compose", "-f", "-", "config", "--format", "json"],
+        input=compose_yaml,
+        text=True,
+        check=True,
+        capture_output=True,
+    )
+    check_windows_compose(windows_text, json.loads(resolved.stdout))
+except (OSError, subprocess.CalledProcessError, json.JSONDecodeError, ValueError) as error:
+    detail = getattr(error, "stderr", None) or str(error)
+    fail(windows_guide, 1, f"invalid Windows Compose example: {detail.strip()}")
 if errors:
     print("\n".join(errors), file=sys.stderr)
     sys.exit(1)
