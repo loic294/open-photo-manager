@@ -289,7 +289,7 @@ impl Token {
     }
 
     /// The value this token takes for `ctx`, sanitised as the module docs describe.
-    fn value(self, ctx: &FileContext, options: &RenderOptions) -> String {
+    pub(crate) fn value(self, ctx: &FileContext, options: &RenderOptions) -> String {
         let at = ctx.captured;
         let year = at.year().clamp(0, 9999);
         let month_index = at.month().saturating_sub(1) as usize;
@@ -466,6 +466,8 @@ pub enum PatternErrorKind {
     ControlCharacter,
     /// A `\` in the literal text.
     Backslash,
+    /// A slash in a rename name pattern.
+    SlashInName,
 }
 
 fn write_hint(f: &mut fmt::Formatter<'_>, suggestion: Option<&str>) -> fmt::Result {
@@ -503,6 +505,7 @@ impl fmt::Display for PatternErrorKind {
                 f.write_str("control characters are not allowed in a pattern")
             }
             Self::Backslash => f.write_str("`\\` is not allowed: use `/` to separate folders"),
+            Self::SlashInName => f.write_str("`/` is not allowed in a file name"),
         }
     }
 }
@@ -536,6 +539,7 @@ impl PatternError {
             PatternErrorKind::UnmatchedBrace => "unmatched_brace",
             PatternErrorKind::ControlCharacter => "control_character",
             PatternErrorKind::Backslash => "backslash",
+            PatternErrorKind::SlashInName => "slash_in_name",
         }
     }
 
@@ -693,6 +697,8 @@ pub enum Piece {
     Literal(String),
     /// A value substituted when the pattern is rendered.
     Token(Token),
+    /// The rename-only `{count}` token.
+    Count,
 }
 
 /// A parsed folder pattern. Build one with [`parse`]; the value is canonical, so
@@ -711,7 +717,25 @@ pub fn parse(text: &str) -> Result<Pattern, PatternError> {
         folder_only,
         errors,
         ..
-    } = scan(text);
+    } = scan(text, Dialect::Folder);
+    match errors.into_iter().next() {
+        Some(error) => Err(error),
+        None => Ok(Pattern {
+            components,
+            folder_only,
+        }),
+    }
+}
+
+/// Parses a single-component rename name pattern. Unlike [`parse`], this dialect accepts
+/// `{count}` and rejects `/`.
+pub fn parse_name(text: &str) -> Result<Pattern, PatternError> {
+    let Scanned {
+        components,
+        folder_only,
+        errors,
+        ..
+    } = scan(text, Dialect::Name);
     match errors.into_iter().next() {
         Some(error) => Err(error),
         None => Ok(Pattern {
@@ -724,7 +748,12 @@ pub fn parse(text: &str) -> Result<Pattern, PatternError> {
 /// Every error of `text`, ordered by position; empty when the pattern is valid. For the editor,
 /// which underlines them all.
 pub fn validate(text: &str) -> Vec<PatternError> {
-    scan(text).errors
+    scan(text, Dialect::Folder).errors
+}
+
+/// Every error in a single-component rename name pattern.
+pub fn validate_name(text: &str) -> Vec<PatternError> {
+    scan(text, Dialect::Name).errors
 }
 
 impl FromStr for Pattern {
@@ -749,8 +778,16 @@ impl Pattern {
             .flatten()
             .filter_map(|piece| match piece {
                 Piece::Token(token) => Some(*token),
-                Piece::Literal(_) => None,
+                Piece::Literal(_) | Piece::Count => None,
             })
+    }
+
+    /// Whether this name pattern uses the rename-only `{count}` token.
+    pub fn uses_count(&self) -> bool {
+        self.components
+            .iter()
+            .flatten()
+            .any(|piece| matches!(piece, Piece::Count))
     }
 
     /// Whether `{filename}` or `{name}` appears anywhere in the pattern.
@@ -790,6 +827,11 @@ impl Pattern {
                 folders.push(finish_component(&raw, false, &ctx.file_name, max_component));
             }
         }
+
+        /// Finishes one rendered file-name component using the folder formatter's exact component rules.
+        pub(crate) fn finish_name_component(raw: &str, original: &str, max: usize) -> String {
+            finish_component(raw, true, original, max.max(MIN_COMPONENT_BYTES))
+        }
         let file = file.unwrap_or_else(|| {
             finish_component(
                 &file_text(&ctx.file_name),
@@ -826,6 +868,7 @@ impl fmt::Display for Pattern {
                         }
                     }
                     Piece::Token(token) => write!(f, "{token}")?,
+                    Piece::Count => f.write_str("{count}")?,
                 }
             }
         }
@@ -862,6 +905,11 @@ impl Component {
     fn push_token(&mut self, token: Token) {
         self.flush_literal();
         self.pieces.push(Piece::Token(token));
+    }
+
+    fn push_count(&mut self) {
+        self.flush_literal();
+        self.pieces.push(Piece::Count);
     }
 
     fn into_pieces(mut self) -> Vec<Piece> {
@@ -918,7 +966,13 @@ impl Scanned {
     }
 }
 
-fn scan(text: &str) -> Scanned {
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum Dialect {
+    Folder,
+    Name,
+}
+
+fn scan(text: &str, dialect: Dialect) -> Scanned {
     let mut scanned = Scanned {
         components: Vec::new(),
         starts: Vec::new(),
@@ -950,6 +1004,9 @@ fn scan(text: &str) -> Scanned {
         let after = text.get(next..).unwrap_or_default();
         match c {
             '/' => {
+                if dialect == Dialect::Name {
+                    scanned.error(index, next, PatternErrorKind::SlashInName);
+                }
                 let finished = std::mem::replace(&mut current, Component::new(next));
                 scanned.close(finished, index);
             }
@@ -968,21 +1025,36 @@ fn scan(text: &str) -> Scanned {
                     next = name_end + 1;
                     if name.is_empty() {
                         scanned.error(index, next, PatternErrorKind::EmptyToken);
+                    } else if dialect == Dialect::Name && name == "count" {
+                        current.push_count();
                     } else if let Some(token) = Token::from_name(name) {
                         current.push_token(token);
                     } else {
                         let kind = PatternErrorKind::UnknownToken {
                             name: name.to_owned(),
-                            suggestion: suggest(name),
+                            suggestion: suggest_name(name, dialect),
                         };
                         scanned.error(index, next, kind);
                     }
                 } else {
                     next = name_end;
                     let kind = PatternErrorKind::UnclosedBrace {
-                        suggestion: suggest(name),
+                        suggestion: suggest_name(name, dialect),
                     };
                     scanned.error(index, next, kind);
+                }
+
+                fn suggest_name(name: &str, dialect: Dialect) -> Option<&'static str> {
+                    if dialect == Dialect::Name
+                        && matches!(
+                            name.trim().to_ascii_lowercase().as_str(),
+                            "counter" | "cnt" | "number" | "seq" | "n"
+                        )
+                    {
+                        Some("count")
+                    } else {
+                        suggest(name)
+                    }
                 }
             }
             '}' if after.starts_with('}') => {
@@ -1078,6 +1150,7 @@ fn render_pieces(pieces: &[Piece], ctx: &FileContext, options: &RenderOptions) -
         match piece {
             Piece::Literal(text) => out.push_str(text),
             Piece::Token(token) => out.push_str(&token.value(ctx, options)),
+            Piece::Count => {}
         }
     }
     out
@@ -1277,6 +1350,21 @@ mod tests {
             parsed.tokens().collect::<Vec<_>>(),
             [Token::Day, Token::Month, Token::Day, Token::FileName]
         );
+    }
+
+    #[test]
+    fn count_is_only_valid_in_the_rename_name_dialect() {
+        let folder_error = error("{count}");
+        assert_eq!(folder_error.code(), "unknown_token");
+        assert_ne!(folder_error.suggestion().as_deref(), Some("{count}"));
+        let rename = parse_name("{name}_{count}").expect("rename token is valid");
+        assert!(rename.uses_count());
+        assert_eq!(parse_name(&rename.to_string()).expect("round trip"), rename);
+        assert_eq!(validate_name("a/b")[0].code(), "slash_in_name");
+        for typo in ["counter", "cnt", "number", "seq", "n"] {
+            let error = parse_name(&format!("{{{typo}}}")).expect_err("unknown token");
+            assert_eq!(error.suggestion().as_deref(), Some("{count}"));
+        }
     }
 
     #[test]

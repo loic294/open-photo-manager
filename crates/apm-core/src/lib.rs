@@ -20,4 +20,5 @@ pub mod names;
 pub mod paths;
 pub mod pattern;
 pub mod progress;
+pub mod rename;
 pub mod sidecar;

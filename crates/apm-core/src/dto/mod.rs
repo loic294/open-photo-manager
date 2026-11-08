@@ -24,6 +24,7 @@ pub mod immich;
 pub mod index;
 pub mod moves;
 pub mod plans;
+pub mod rename;
 pub mod settings;
 pub mod tasks;
 pub mod trash;
@@ -44,6 +45,7 @@ pub use immich::*;
 pub use index::*;
 pub use moves::*;
 pub use plans::*;
+pub use rename::*;
 #[allow(unused_imports)]
 pub use settings::*;
 pub use tasks::*;
