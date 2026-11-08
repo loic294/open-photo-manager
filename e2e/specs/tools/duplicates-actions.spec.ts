@@ -20,6 +20,35 @@ async function waitForTask(app: import('../../src/app-instance').AppInstance, id
     .toBe('done');
 }
 
+test('duplicate action choice survives reload and browser context restart', async ({
+  app,
+  page,
+  browser,
+  duplicatesPage,
+}) => {
+  const url = new URL('/duplicates', app.url);
+  url.searchParams.set('src', 'photos/dupes/m1');
+  url.searchParams.set('cmp', 'archive/m1');
+  await page.goto(url.href);
+  await duplicatesPage.chooseAction('Delete source items');
+  await expect(duplicatesPage.actionButton()).toContainText('Delete source items');
+
+  await page.reload();
+  await expect(duplicatesPage.actionButton()).toContainText('Delete source items');
+
+  const storageState = await page.context().storageState();
+  const restartedContext = await browser.newContext({ storageState });
+  try {
+    const restartedPage = await restartedContext.newPage();
+    await restartedPage.goto(url.href);
+    await expect(
+      restartedPage.locator('apm-bottom-bar apm-split-button button.btn-lg').first(),
+    ).toContainText('Delete source items');
+  } finally {
+    await restartedContext.close();
+  }
+});
+
 test('@smoke duplicate deletion is counted, trashed and restorable', async ({
   app,
   page,
@@ -122,6 +151,63 @@ test('@smoke duplicate deletion is counted, trashed and restorable', async ({
   await page.goto(restoredUrl.href);
   await restoredPlanResponse;
   await expect.poll(() => matchedNames(comparison)).toContain('vacation_copy.jpg');
+});
+
+test('duplicate deletion can target the source while preserving its comparison copy', async ({
+  app,
+  page,
+  manifest,
+  source,
+  comparison,
+  duplicatesPage,
+  confirmDialog,
+}) => {
+  const sourceFile = manifest.file('photos', 'dupes/m1/IMG_0300.jpg');
+  const url = new URL('/duplicates', app.url);
+  url.searchParams.set('src', 'photos/dupes/m1');
+  url.searchParams.set('cmp', 'archive/m1');
+  const planResponse = taskResponse(page, /^\/api\/plans$/);
+  await page.goto(url.href);
+  const plan = (await (await planResponse).json()) as PlanDto;
+  expect(plan.stats.source_matched).toBeGreaterThan(0);
+
+  await duplicatesPage.chooseAction('Delete source items');
+  await expect(duplicatesPage.actionButton()).toContainText('Delete source items');
+  const selectionResponse = taskResponse(page, /^\/api\/plans\/\d+\/selection$/);
+  await duplicatesPage.actionButton().click();
+  const selection = (await (await selectionResponse).json()) as SelectionDto;
+  expect(selection.item_count).toBeGreaterThan(0);
+  await expect(confirmDialog.dialog()).toContainText(`Delete ${selection.item_count} files?`);
+  await expect(confirmDialog.dialog()).toContainText(formatFileSize(selection.total_size));
+
+  const executeResponse = taskResponse(page, /^\/api\/plans\/\d+\/execute$/);
+  await confirmDialog.confirm(`Delete ${selection.item_count} files`);
+  const executed = await executeResponse;
+  const task = (await executed.json()) as { id: number };
+  await waitForTask(app, task.id);
+
+  const trash = await trashEntries(app);
+  expect(trash.some((entry) => entry.hash === sourceFile.sha1)).toBe(true);
+  await expect.poll(() => matchedNames(source)).toEqual([]);
+  await expect
+    .poll(() => app.api.listing('photos', 'dupes/m1'))
+    .toMatchObject({
+      items: expect.not.arrayContaining([expect.objectContaining({ name: 'IMG_0300.jpg' })]),
+    });
+  await expect
+    .poll(() => app.api.listing('archive', 'm1'))
+    .toMatchObject({
+      items: expect.arrayContaining([expect.objectContaining({ name: 'vacation_copy.jpg' })]),
+    });
+  await expect.poll(() => matchedNames(comparison)).toEqual(['vacation_copy.jpg']);
+
+  const planId = Number(new URL(executed.url()).pathname.split('/')[3]);
+  const result = (await app.api.request<PlanDto>('GET', `/api/plans/${planId}`)).result;
+  expect(result).toMatchObject({
+    done: selection.item_count,
+    skipped: 0,
+    failed: 0,
+  });
 });
 
 async function matchedNames(pane: import('../../src/pages/pane').PanePage) {
