@@ -5,34 +5,53 @@ For an owner who wants to "login into an Immich instance using a username and pa
 The login identifier is the account email. This guide describes the landed repository code;
 the isolated mock-backed screen walkthrough is still pending, and the published `edge` may lag behind.
 
-Warning: move integration is being redesigned to update paths directly in Immich's database.
-The existing outbox/carry-over description below is a reference to the currently landed implementation,
-not the final design or an accepted move walkthrough. Database setup, supported versions and move
-instructions are paused until the replacement contract is supplied and verified. No direct database
-access or credentials are configured by this guide.
+Warning: Immich discourages direct database modification and does not officially support these writes.
+Take a current backup before tracked moves. PostgreSQL transactions do not serialize with Immich's
+scanner: pause watching and scheduled/manual scans and drain queued jobs. An active scan can race a move,
+import a duplicate or remove an asset. The filesystem and PostgreSQL cannot share one atomic transaction.
 
-## Confirmed move requirements awaiting implementation verification
+## Direct path updates for tracked moves
 
-The direct-database move target is exactly Immich v3.3.3. These are confirmed requirements,
-not a claim that the feature has landed; database configuration, schema checks, exact error messages
-and retry controls must be reconciled with the implementation owner's feature-specific documentation.
+The repository implementation updates the existing asset's `originalPath` directly in PostgreSQL
+for tracked moves within the same mapped external library, for Immich v3.3.3 only. It preserves the
+asset UUID and associations instead of deleting/reimporting the asset. It does not request a scan or
+fall back to delete/recreate for these moves. The final move-tool screen walkthrough remains pending.
 
-- An affected Immich-tracked move must be refused if the database is missing, unavailable or fails
-  the v3.3.3 schema check. The failure must clearly state that the affected file was not moved and
-  explain how to retry after restoring database access or resolving the schema mismatch.
-- Untracked files in a mixed move may proceed. A failed tracked item therefore does not imply that
-  every other file stayed in place; inspect the per-item outcome before retrying.
-- A database failure after successful preflight uses durable outbox retry and a warning. Filesystem
-  and database changes are not a cross-system atomic transaction: a file may already have moved
-  while its Immich update is pending.
-- Immich discourages direct database writes. They can race its scanner and require a current backup.
-  This integration must not be described as officially supported or atomic.
-- For an asset using Immich v3.3.3's `sha1Path` checksum, the writer must update `originalPath`
-  and its path-derived digest in the same database transaction, using Immich's exact
-  `sha1("path:" + normalized new path)` formula. Keeping the old digest can block unrelated
-  imports at the old location, potentially affecting an import chunk. Content-derived checksums
-  remain unchanged; not all checksums are immutable. Verify normalization and checksum handling
-  against the writer's final implementation before documenting the feature as delivered.
+1. Configure `APM_IMMICH_DATABASE_URL_FILE` as a read-only secret file, never a Settings field.
+   Follow the [production database reference](../docker/README.md#immich-direct-database-access)
+   for private networking, certificate-verified `verify-full` TLS, least-privilege grants and exclusions.
+   Do not paste a database URL or password into the browser, Compose environment values, logs or chat.
+
+   You should see: the last executor readiness reason in **Settings**, without the secret.
+   Restart after changing configuration; refresh Immich sync before moving so tracked classification
+   is current. Locked assets invisible to the API cannot be discovered by that index.
+
+2. Missing/unavailable database access or a failed exact v3.3.3 schema check refuses the affected
+   tracked in-library move before replacing files or changing sidecars. The warning begins
+   "No file was moved." and gives recovery instructions. Untracked files in a mixed move still
+   proceed; this warning concerns the refused item, not necessarily the entire batch.
+
+   You should see: a refusal explaining configuration, connectivity or compatibility.
+   Fix that cause, refresh status and rebuild/retry the move. Do not downgrade Immich's database.
+   Cross-library in-place updates and unverifiable custom exclusion rules also fail closed;
+   supported boundaries are defined in the production reference.
+
+3. If PostgreSQL fails after movement passed preflight, the file may already have moved.
+   The durable outbox keeps the update retryable and warns:
+   "The file moved, but its Immich path update is NOT confirmed."
+   Repair access and finish/retry that update before moving the file again or reusing its old path.
+   Avoid connection or mapping changes while work is in flight.
+
+   You should see: a visible unconfirmed-update warning, not a claim of cross-system rollback.
+
+4. For stored `sha1-path`, the path-derived checksum changes in the same database transaction
+   as the path using Immich's `sha1("path:" + path.posix.normalize(newPath))` formula.
+   Content-derived `sha1` checksums stay byte-for-byte unchanged. This prevents a stale path digest
+   from blocking later imports at the old location; it does not lock out the scanner.
+
+   You should see: the same tracked asset at its new path, retaining associations.
+   The [isolated PostgreSQL gate](../docker/immich-postgres-test.md) documents real-schema validation
+   and its limitations. It is a developer test, never a procedure to run against your installation.
 
 ## Prerequisites and shared paths
 
@@ -120,34 +139,33 @@ and retry controls must be reconciled with the implementation owner's feature-sp
    Sync is read-only towards Immich and the filesystem. Its scheduler checks every 30 seconds,
    with incremental passes after 15 minutes and full passes after 24 hours; new/changed mappings
    are due immediately. Mapping save also requests a sync. Work is coalesced on the Immich task lane.
-   Matching uses mapped paths, not content hashes: external-library checksums are path-based.
+   Matching uses mapped paths, not content hashes. An external asset's stored checksum algorithm
+   can be path-derived or content-derived; sync does not treat either as a substitute for mapping.
 
    You should see: **Files matched**, total/live counts and **Library sync details**.
    The **In Immich** badge applies to live, mapped assets, not offline or trashed entries.
    There is currently no separate Immich membership filter in the browse API.
 
-## Existing outbox reference
+## Deletions and other queued changes
 
-This section records the pre-redesign implementation only. Do not treat its move/carry-over mechanism
-as the final design; the replacement direct-database move contract and acceptance are pending.
+The API asset-deletion safeguards are unchanged. Moves outside mapped libraries retain the
+offline-confirmed removal path; tracked in-library moves use the direct update described above.
 
 1. APM records mapped photo/video moves, copies, trash and restores in a transactional outbox.
-   Filesystem work does not wait for Immich. The scheduler waits for quiet file operations; see
+   Tracked in-library moves first require the database preflight; queued mirroring then runs in
+   background tasks. The scheduler waits for quiet file operations; see
    `APM_IMMICH_QUIET_SECS` in the [configuration reference](../docker/README.md#configuration).
    This delay is not a promise that Immich finishes importing within that window.
    Changes before the scan is requested can merge; later moves create separate rows.
 
    You should see: **Changes waiting for Immich** and background update tasks.
 
-2. The task refreshes affected libraries, snapshots the old asset's albums and metadata, requests
-   one scan per affected library when permitted, then waits for the old asset to become offline
-   and the replacement to be imported. It carries albums, favorite, rating, archive state,
-   description and tags to a replacement without overwriting fields already customised there.
-   Moving outside all mapped libraries removes the old offline record without a replacement;
-   moving into a mapped library asks for import.
+2. Trash and moves outside mapped libraries remove the old record only after Immich reports it
+   offline and the old file is absent. Copies/restores or entry into a mapped library can ask for
+   import through Immich's scan. Library scan triggers require an administrator account;
+   limited-mode accounts wait for Immich's own schedule.
 
-   You should see: the new path appear in Immich after its scan, rather than an in-place path edit.
-   Limited-mode accounts wait for Immich's own scan schedule.
+   You should see: queued changes and scans where applicable, not delete/recreate for a direct move.
 
 3. Safety rules: only outbox-named assets can be removed; a fresh asset read must confirm offline;
    its path must match the mapped old path; that old file must be absent on a readable volume.
@@ -168,19 +186,22 @@ as the final design; the replacement direct-database move contract and acceptanc
 
 ## Carry-over limits
 
-1. Treat carry-over as best effort, not a metadata backup. People, stacks and shared links do not
-   transfer. Trash processed in Immich can lose album membership even if the file is restored.
+1. Direct moves preserve the existing asset rather than carrying metadata to a new one.
+   This is not a metadata backup or a guarantee against concurrent scanner changes.
+   Where a legacy API copy/reimport flow carries metadata between assets, people, stacks and
+   shared links do not transfer. Trash processed in Immich can lose album membership even if restored.
    Whole-directory trash/restore is not mirrored file by file. Locked assets are invisible to API keys.
    Google Takeout supplemental JSON filenames do not link as supported sidecars.
 
    You should see: supported external-library photo/video changes, not uploaded or locked assets.
 
-2. Important: once the old asset is observed offline, a replacement file that Immich has still not
+2. For legacy API carry-over only: once the old asset is observed offline, a replacement file that has not
    imported after ten minutes can cause the old record to be removed without carry-over.
    Repeated moves after scanning begins also depend on the intermediate asset being online when
    the next snapshot is taken. Keep an independent metadata/album backup and verify results.
 
-   You should see: no guarantee that album membership survives every delayed import or move chain.
+   You should see: no promise of album recovery after trash/reimport. These carry-over limits do not
+   describe the new tracked in-library direct-move mechanism.
 
 ## Connection errors
 

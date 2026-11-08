@@ -236,6 +236,7 @@ Set these as environment variables. An empty value counts as not set.
 | `APM_LOG` | `info` | Log filter: `error`, `warn`, `info`, `debug`, or finer such as `info,apm_server::indexer=debug`. Logs go to stdout (`docker logs apm`). |
 | `APM_ALLOWED_HOSTS` | (empty) | Names you type in the browser to reach the app, comma separated: `diskstation`, `diskstation:8080`, `*.example.com`. `localhost` and IP addresses always work. **Set this when you use a name**, otherwise the app answers 403 "host not allowed". |
 | `APM_IMMICH_QUIET_SECS` | `15` | Seconds of quiet file operations before queued changes are mirrored to Immich; accepts 1 through 600. An invalid value refuses startup. This is not an import-completion deadline. |
+| `APM_IMMICH_DATABASE_URL_FILE` | (unset) | Read-only secret file containing the PostgreSQL URL for tracked in-library moves, Immich v3.3.3 only. See [Immich direct database access](#immich-direct-database-access) for required TLS, grants, backup and scanner precautions. Never use a Settings field or a plaintext URL environment variable. |
 | `APM_INDEX_CONCURRENCY` | (empty: the smaller of 2 and the CPU count) | How many files are analysed at once. Use `1` on a NAS with little memory. |
 | `TZ` | `UTC` | Time zone name, e.g. `Europe/Paris`. Used for filesystem fallback dates and UTC-defined video dates. Embedded wall-clock dates are preserved; application log timestamps remain UTC. |
 | `LANG` | `C.UTF-8` | Keeps accented file names intact in the media tools. Leave it alone. |

@@ -48,7 +48,7 @@ for base, suffix in [("crates", "*.rs"), ("web/src", "*.ts")]:
     for path in Path(base).rglob(suffix):
         if any(p in {"tests", "test", "generated"} for p in path.parts) or ".test." in path.name:
             continue
-        if path.name in {"test_support.rs", "testing.rs"}:
+        if path.name in {"tests.rs", "test_support.rs", "testing.rs"} or path.name.endswith("_tests.rs"):
             continue
         text = path.read_text()
         # Colocated test modules conventionally occupy the remainder of their source file.

@@ -50,12 +50,14 @@ not verified on a DSM device. Tool-specific failures will be added after the pen
 ## Immich
 
 Connection-code messages and fixes are in the [Immich guide](immich.md#connection-errors).
-Move/carry-over rows below refer to the existing implementation, not the pending direct-database
-move design. Final move troubleshooting and acceptance are paused.
+Tracked in-library moves now use [direct database updates](immich.md#direct-path-updates-for-tracked-moves),
+not delete/recreate. Final tool-screen acceptance remains pending.
 
 | Symptom / outbox code | Cause | Fix |
 |---|---|---|
 | Zero **Files matched** | Wrong mapped prefix, unscanned library or different physical share | Compare a test file's exact path in both containers; **Auto-detect** needs existing indexed/scanned samples. |
+| Tracked move refused; warning starts "No file was moved." | Database is missing/unavailable, or exact v3.3.3/schema/identity/boundary checks failed | Read the per-item recovery reason; follow [database setup](../docker/README.md#immich-direct-database-access), refresh and rebuild/retry. Untracked items in a mixed batch may still have moved. |
+| File moved but Immich path update is NOT confirmed | PostgreSQL failed after preflight/movement | Repair access and finish/retry the durable outbox update before moving again or reusing the old path; there is no cross-system rollback guarantee. |
 | Status seems stale | UI refresh is event-driven, not periodic polling | Use **Check connection** for a live connection probe; **Sync now** refreshes asset data. |
 | `immich_unavailable` | Remote server is temporarily unavailable | Restore connectivity; queued updates back off and resume, or use **Retry all** after fixing the cause. |
 | `unreadable` | Volume cannot be safely inspected | Fix the offline mount/permissions before retrying; absence has not been proved. |
@@ -65,7 +67,7 @@ move design. Final move troubleshooting and acceptance are paused.
 | `path_mismatch` | Fresh asset path differs from the mapped old location | Correct mapping; do not bypass the path check. |
 | Trash appears as new photos | Immich watcher imported `.apm-trash` | Use **Keep the trash out of Immich** or ask an admin to set exclusions; check [shared paths](immich.md#prerequisites-and-shared-paths). |
 | Changes wait in limited mode | Regular account cannot trigger scans | Wait for or request Immich's own library scan through an admin. |
-| Albums missing after a move/restore | Best-effort carry-over has explicit limits | Read [carry-over limits](immich.md#carry-over-limits), including delayed imports and whole-folder trash. APM is not an album backup. |
+| Associations missing after direct move, or albums missing after restore | Concurrent scanner race, or legacy trash/reimport limits | Direct moves preserve the existing asset; stop conflicting scans and inspect backups. Read [carry-over limits](immich.md#carry-over-limits) for trash/reimport, not as the direct-move mechanism. |
 
 ## Performance
 

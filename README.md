@@ -173,7 +173,8 @@ services:
 
 These guides describe the repository implementation. A published development image may lag behind it.
 The four tool walkthroughs and complete local acceptance walkthrough are still awaiting integration.
-Immich move instructions also await the new direct-database path-update contract.
+The Immich guide reflects the landed direct-database path-update contract; final tool walkthroughs
+and full acceptance remain pending.
 
 | Guide | For |
 |---|---|
