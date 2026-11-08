@@ -11,6 +11,23 @@ not the final design or an accepted move walkthrough. Database setup, supported 
 instructions are paused until the replacement contract is supplied and verified. No direct database
 access or credentials are configured by this guide.
 
+## Confirmed move requirements awaiting implementation verification
+
+The direct-database move target is exactly Immich v3.3.3. These are confirmed requirements,
+not a claim that the feature has landed; database configuration, schema checks, exact error messages
+and retry controls must be reconciled with the implementation owner's feature-specific documentation.
+
+- An affected Immich-tracked move must be refused if the database is missing, unavailable or fails
+  the v3.3.3 schema check. The failure must clearly state that the affected file was not moved and
+  explain how to retry after restoring database access or resolving the schema mismatch.
+- Untracked files in a mixed move may proceed. A failed tracked item therefore does not imply that
+  every other file stayed in place; inspect the per-item outcome before retrying.
+- A database failure after successful preflight uses durable outbox retry and a warning. Filesystem
+  and database changes are not a cross-system atomic transaction: a file may already have moved
+  while its Immich update is pending.
+- Immich discourages direct database writes. They can race its scanner and require a current backup.
+  This integration must not be described as officially supported or atomic.
+
 ## Prerequisites and shared paths
 
 1. Use an Immich server reachable from the APM container, not a `localhost` URL pointing back at APM.
