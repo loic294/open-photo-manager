@@ -52,3 +52,38 @@ test('a gated Immich sync leaves browsing usable and coalesces follow-up request
   await waitForTask(app, task.id);
   await waitForTask(app, followUp.id);
 });
+
+test('a sync can be cancelled from the task indicator and run again', async ({
+  app,
+  page,
+  shell,
+  settingsPage,
+  mockImmich,
+}) => {
+  test.setTimeout(180_000);
+  const mock = await mockImmich({ serverVersion: '3.3.3', scanDelayMs: 0 });
+  expect((await mock.control.scan()).every((job) => job.status === 'completed')).toBe(true);
+  await connectThroughUi(app, page, shell, settingsPage, mock.url);
+  await mapAndSync(app, ['photos']);
+  mock.control.gate('POST /api/search/metadata', { times: 1 });
+  try {
+    const task = await app.api.request<TaskDto>('POST', '/api/immich/sync', { full: true });
+    await mock.control.waitForHeld(1);
+    await expect
+      .poll(async () => (await app.api.tasks()).find((entry) => entry.id === task.id)?.state)
+      .toBe('running');
+    await shell.hoverTasks();
+    const row = shell.taskIndicator().locator('apm-task-row').filter({ hasText: task.title });
+    await expect(row).toBeVisible();
+    await row.getByRole('button', { name: `Cancel ${task.title}`, exact: true }).click();
+    await expect
+      .poll(async () => (await app.api.tasks()).find((entry) => entry.id === task.id)?.state, {
+        timeout: 120_000,
+      })
+      .toBe('cancelled');
+  } finally {
+    mock.control.releaseGate();
+  }
+  const next = await app.api.request<TaskDto>('POST', '/api/immich/sync', { full: true });
+  await waitForTask(app, next.id);
+});
