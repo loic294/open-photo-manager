@@ -137,7 +137,9 @@ pub use dirs::RmdirOutcome;
 pub use error::FsOpError;
 pub use executor::{MoveOutcome, MoveRequest, SkipReason};
 pub use failpoints::{FailAction, Failpoints, Step};
-pub use groups::{GroupOutcome, MoveGroup, SidecarAction, SidecarItem, SidecarOutcome};
+pub use groups::{
+    GroupOutcome, MoveGroup, SidecarAction, SidecarItem, SidecarOutcome, SidecarSkip,
+};
 pub use hooks::{AppliedOp, OpHook};
 pub use reconcile::ReconcileReport;
 pub use self_writes::SelfWrites;
@@ -178,6 +180,15 @@ impl Loc {
     pub(crate) fn with_name(&self, name: &str) -> Result<Self, FsOpError> {
         let rel = self
             .dir()
+            .join(name)
+            .map_err(|_| FsOpError::DestinationInvalid("not a valid file name"))?;
+        Ok(Self::new(self.volume_id, rel))
+    }
+
+    /// The entry `name` inside this folder.
+    pub(crate) fn child(&self, name: &str) -> Result<Self, FsOpError> {
+        let rel = self
+            .rel
             .join(name)
             .map_err(|_| FsOpError::DestinationInvalid("not a valid file name"))?;
         Ok(Self::new(self.volume_id, rel))

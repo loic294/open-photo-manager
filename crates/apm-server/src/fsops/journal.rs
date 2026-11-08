@@ -204,6 +204,12 @@ impl Journal {
             .await;
     }
 
+    /// The operation turned out to have nothing to do (a skip, a raced attempt): the row is
+    /// closed as `failed` with a free-text `reason`.
+    pub(crate) async fn cancel(&self, id: i64, reason: &str) {
+        self.close(id, "failed", reason).await;
+    }
+
     /// The operation cannot be finished or undone automatically: `reason` says why.
     pub(crate) async fn abandon(&self, id: i64, reason: &str) {
         self.close(id, "abandoned", reason).await;
