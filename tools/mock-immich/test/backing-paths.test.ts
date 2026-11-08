@@ -367,6 +367,51 @@ test('a backed scan publishes its changes only after the backing commit succeeds
   assert.ok(mock.state.assetByPath('/mnt/photo/new.jpg'));
 });
 
+test('a backed scan retains distinct capture and local dates in its proposed state', async (t) => {
+  const photos = scratchDir(t, 'backed-scan-dates');
+  let active = false;
+  let dates: { fileCreatedAt: number; localDateTime: number } | undefined;
+  const mock = await startMock(t, {
+    mounts: { '/mnt/photo': photos },
+    readOnlyBacking: () => active,
+    beforeAssetRead: async () => {},
+    beforeScanCommit: async ({ after }) => {
+      dates = after[0];
+    },
+  });
+  mock.control.addAssets([{ path: '/mnt/photo/missing.jpg' }]);
+  const asset = mock.state.assets()[0];
+  assert.ok(asset);
+  const fileCreatedAt = '2024-01-02T03:04:05.000Z';
+  const localDateTime = '2024-01-02T04:04:05.000Z';
+  mock.control.reconcileAssetPaths([
+    {
+      id: String(asset.id),
+      ownerId: String(asset.ownerId),
+      libraryId: String(asset.libraryId),
+      originalPath: String(asset.originalPath),
+      originalFileName: String(asset.originalFileName),
+      checksum: String(asset.checksum),
+      fileCreatedAt,
+      fileModifiedAt: String(asset.fileModifiedAt),
+      localDateTime,
+      updatedAt: String(asset.updatedAt),
+      isOffline: false,
+      isFavorite: Boolean(asset.isFavorite),
+      rating: asset.rating === null ? null : Number(asset.rating),
+      description: String(asset.description),
+      visibility: 'timeline',
+      deletedAt: null,
+    },
+  ]);
+  active = true;
+  const result = await mock.control.scan('Photos');
+  assert.equal(result[0]?.status, 'completed', result[0]?.error ?? undefined);
+  assert.equal(dates?.fileCreatedAt, Date.parse(fileCreatedAt));
+  assert.equal(dates?.localDateTime, Date.parse(localDateTime));
+  assert.equal(mock.state.assetByPath('/mnt/photo/missing.jpg')?.localDateTime, localDateTime);
+});
+
 test('a backed scan serializes asset reads until its commit is published', async (t) => {
   const photos = scratchDir(t, 'held-scan');
   writeTree(photos, { 'new.jpg': 'new' });
