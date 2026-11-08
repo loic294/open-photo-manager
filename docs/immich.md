@@ -27,6 +27,12 @@ and retry controls must be reconciled with the implementation owner's feature-sp
   while its Immich update is pending.
 - Immich discourages direct database writes. They can race its scanner and require a current backup.
   This integration must not be described as officially supported or atomic.
+- For an asset using Immich v3.3.3's `sha1Path` checksum, the writer must update `originalPath`
+  and its path-derived digest in the same database transaction, using Immich's exact
+  `sha1("path:" + normalized new path)` formula. Keeping the old digest can block unrelated
+  imports at the old location, potentially affecting an import chunk. Content-derived checksums
+  remain unchanged; not all checksums are immutable. Verify normalization and checksum handling
+  against the writer's final implementation before documenting the feature as delivered.
 
 ## Prerequisites and shared paths
 
