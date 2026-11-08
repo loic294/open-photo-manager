@@ -2,6 +2,9 @@ import type { TaskDto } from '../../../web/src/api/generated/TaskDto';
 import { connectThroughUi, mapAndSync, waitForTask } from '../../src/immich';
 import { expect, test } from '../../src/immich-readonly-test';
 
+// Navigating from Settings to Browse closes the old SSE stream.
+test.use({ allowedErrors: [/^requestfailed: .*\/api\/events net::ERR_ABORTED$/] });
+
 test('a gated Immich sync leaves browsing, filters and selection usable', async ({
   app,
   page,
