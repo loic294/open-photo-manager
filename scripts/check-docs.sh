@@ -2,7 +2,7 @@
 # Source-only documentation contracts; Python 3 is already required by check-compose.
 set -eu
 cd "$(dirname "$0")/.."
-python3 - <<'PY'
+PYTHONDONTWRITEBYTECODE=1 python3 - <<'PY'
 import json
 import re
 import subprocess
