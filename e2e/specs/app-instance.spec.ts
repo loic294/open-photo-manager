@@ -125,3 +125,19 @@ test('shared mutations script returns the seven external fixture changes', async
   expect(mutations).toHaveLength(7);
   await app.rescan();
 });
+
+test('shared Trash object exposes the real empty-list controls', async ({
+  sharedApp,
+  page,
+  shell,
+  trashPage,
+}) => {
+  await page.goto(sharedApp.url);
+  await shell.navigate('Trash');
+  await expect(trashPage.emptyButton()).toBeDisabled();
+  await trashPage.tab('Items');
+  await expect(trashPage.selectedRestore()).toBeDisabled();
+  expect(await trashPage.rows().count()).toBe(0);
+  await trashPage.openActions();
+  await expect(trashPage.syncButton()).toBeVisible();
+});

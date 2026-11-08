@@ -84,6 +84,8 @@ response. `allowedErrors` accepts exact message fragments or regular expressions
 allow-list at its spec: reload closes SSE, history navigation cancels pending thumbnails, and
 changing/closing the viewer cancels preloads. Allow
 only those named URLs with `net::ERR_ABORTED`, never general 4xx/5xx answers or connection failures.
+Wrap an array override as `allowedErrors: [[pattern1, pattern2], { scope: 'test' }]`:
+Playwright otherwise interprets a two-element array as a fixture tuple.
 
 ## Acceptance rules for this and subsequent E2E work
 

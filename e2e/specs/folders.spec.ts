@@ -20,8 +20,11 @@ test.describe('full history navigation', () => {
   // Leaving/reloading media cancels still-loading thumbnails as well as the old EventSource.
   test.use({
     allowedErrors: [
-      /^requestfailed: .*\/api\/events net::ERR_ABORTED$/,
-      /^requestfailed: http:\/\/127\.0\.0\.1:\d+\/api\/files\/\d+\/thumb\?size=(sm|lg)&v=\d+ net::ERR_ABORTED$/,
+      [
+        /^requestfailed: .*\/api\/events net::ERR_ABORTED$/,
+        /^requestfailed: http:\/\/127\.0\.0\.1:\d+\/api\/files\/\d+\/thumb\?size=(sm|lg)&v=\d+ net::ERR_ABORTED$/,
+      ],
+      { scope: 'test' },
     ],
   });
   test('folder navigation is independent and survives history and reload', async ({
