@@ -73,7 +73,12 @@ test('a sync can be cancelled from the task indicator and run again', async ({
       .poll(async () => (await app.api.tasks()).find((entry) => entry.id === task.id)?.state)
       .toBe('running');
     await shell.hoverTasks();
-    const row = shell.taskIndicator().locator('apm-task-row').filter({ hasText: task.title });
+    const row = shell
+      .taskIndicator()
+      .locator('apm-task-row')
+      .filter({
+        has: page.getByRole('button', { name: `Cancel ${task.title}`, exact: true }),
+      });
     await expect(row).toBeVisible();
     await row.getByRole('button', { name: `Cancel ${task.title}`, exact: true }).click();
     await expect

@@ -17,6 +17,7 @@ test('Immich settings remain accessible through keyboard connection and reconnec
   const mock = await mockImmich({ serverVersion: '3.3.3', scanDelayMs: 0 });
   expect((await mock.control.scan()).every((job) => job.status === 'completed')).toBe(true);
   await page.goto(app.url);
+  await page.getByRole('button', { name: 'Menu', exact: true }).click();
   await shell.navigate('Settings');
   await settingsPage.tab('Immich');
   const check = async (name: string) => {
