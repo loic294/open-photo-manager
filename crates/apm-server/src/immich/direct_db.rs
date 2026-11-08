@@ -95,7 +95,9 @@ pub enum DbMoveError {
 
 impl DbMoveError {
     pub fn refusal(self) -> String {
-        format!("No file was moved. {self}")
+        format!(
+            "No file was moved. This refusal applies only to this item. {self} After resolving the issue, rebuild the plan and retry this item."
+        )
     }
 
     pub fn queued_warning(self) -> String {

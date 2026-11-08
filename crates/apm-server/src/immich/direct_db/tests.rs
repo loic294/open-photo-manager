@@ -109,6 +109,18 @@ fn tls_configuration_fails_closed_without_revealing_credentials() {
 }
 
 #[test]
+fn preflight_refusal_gives_item_scoped_retry_advice() {
+    let refusal = DbMoveError::NotConfigured.refusal();
+    assert!(refusal.starts_with("No file was moved."));
+    assert!(refusal.contains("only to this item"));
+    assert!(refusal.contains("restart APM"));
+    assert!(refusal.contains("rebuild the plan and retry this item"));
+    let queued = DbMoveError::NotConfigured.queued_warning();
+    assert!(queued.contains("The file moved"));
+    assert!(!queued.contains("No file was moved"));
+}
+
+#[test]
 fn default_exclusions_and_synology_rules_are_conservative() {
     let rules = [
         "**/@eaDir/**",
