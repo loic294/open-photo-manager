@@ -6,7 +6,7 @@ mod common;
 mod immich_support;
 
 use apm_core::dto::{ConflictPolicy, TaskState};
-use apm_server::fsops::{FsOps, MoveGroup, MoveOutcome, OpContext, SidecarAction, SidecarItem};
+use apm_server::fsops::{FsOps, MoveGroup, MoveOutcome, Mover, OpContext, SidecarAction, SidecarItem, SystemMover};
 use apm_server::immich::direct_db::{
     DbMoveError, MoveApplied, MoveDatabase, MoveSpec, PreparedMove,
 };
@@ -15,7 +15,26 @@ use apm_server::immich::{ImmichOutbox, ImmichService, ImmichSync};
 use async_trait::async_trait;
 use common::fsops::{loc, request};
 use immich_support::{Fixture, Site, one_photo};
-use std::sync::{Arc, Mutex};
+use std::{io, path::Path, sync::{Arc, Mutex}};
+
+struct ForcedCopy;
+
+impl Mover for ForcedCopy {
+    fn rename_no_replace(&self, from: &Path, to: &Path) -> io::Result<()> {
+        if from
+            .file_name()
+            .is_some_and(|name| name.to_string_lossy().ends_with(".apm-part"))
+        {
+            SystemMover.rename_no_replace(from, to)
+        } else {
+            Err(io::ErrorKind::CrossesDevices.into())
+        }
+    }
+
+    fn crosses_devices(&self, _: &Path, _: u64, _: &Path, _: u64) -> bool {
+        true
+    }
+}
 
 #[derive(Default)]
 struct Database {
@@ -371,24 +390,7 @@ async fn replacement_does_not_recheck_and_falsely_refuse_after_trashing_the_vict
 
 #[tokio::test]
 async fn a_late_cross_device_conflict_checks_the_actual_final_name_before_placement() {
-    use apm_server::fsops::{FailAction, Failpoints, Mover, Step, SystemMover};
-    use std::{io, path::Path};
-    struct ForcedCopy;
-    impl Mover for ForcedCopy {
-        fn rename_no_replace(&self, from: &Path, to: &Path) -> io::Result<()> {
-            if from
-                .file_name()
-                .is_some_and(|name| name.to_string_lossy().ends_with(".apm-part"))
-            {
-                SystemMover.rename_no_replace(from, to)
-            } else {
-                Err(io::ErrorKind::CrossesDevices.into())
-            }
-        }
-        fn crosses_devices(&self, _: &Path, _: u64, _: &Path, _: u64) -> bool {
-            true
-        }
-    }
+    use apm_server::fsops::{FailAction, Failpoints, Step};
     for outage in [false, true] {
         let (fx, site, _) = one_photo().await;
         let database = Arc::new(Database {
@@ -469,6 +471,26 @@ async fn ordinary_post_disk_errors_and_crashes_keep_recoverable_intents() {
 }
 
 #[tokio::test]
+async fn completing_moves_allows_sqlite_outbox_id_reuse_without_losing_replay_proof() {
+    let (fx, site, _) = one_photo().await;
+    fx.seed_one(&site, "2020/b.jpg").await;
+    fx.sync_ok().await;
+    let database = Arc::new(Database::default());
+    let (ops, outbox) = engines(&fx, database.clone());
+    move_photo(&ops, &site, "2021/a.jpg", ConflictPolicy::Skip).await.unwrap();
+    let first_id = fx.only_row().await.id;
+    assert_eq!(pass(&fx, &outbox).await.state, TaskState::Done);
+    ops.move_file(request(loc(site.volume_id, "2020/b.jpg"),
+        loc(site.volume_id, "2021/b.jpg"), ConflictPolicy::Skip), &OpContext::detached()).await.unwrap();
+    assert_eq!(fx.only_row().await.id, first_id, "SQLite reuses a drained outbox's rowid");
+    assert_eq!(pass(&fx, &outbox).await.state, TaskState::Done);
+    assert_eq!(database.applied.lock().unwrap().len(), 2);
+    let proof: i64 = sqlx::query_scalar("SELECT COUNT(*) FROM immich_direct_move WHERE queued = 2 AND outbox_id IS NULL")
+        .fetch_one(fx.app.state.db.read()).await.unwrap();
+    assert_eq!(proof, 2);
+}
+
+#[tokio::test]
 async fn restart_cleans_orphan_preparation_but_retains_completed_journal_replay_proof() {
     use apm_server::fsops::{AppliedOp, OpHook};
     use apm_server::immich::outbox::OutboxHook;
@@ -526,6 +548,16 @@ async fn restart_cleans_orphan_preparation_but_retains_completed_journal_replay_
         0,
         "completed replay cannot enqueue generic scan/delete"
     );
+    // Even SQLite file IDs can be reused. A DIFFERENT journal at the same
+    // paths is a new operation, not replay of the completed direct move.
+    sqlx::query(
+        "INSERT INTO fs_journal (op, state, src_volume_id, src_path, dst_volume_id, dst_path, created_at)
+        VALUES ('move', 'done', ?, '2020/a.jpg', ?, '2021/a.jpg', 1)")
+        .bind(site.volume_id).bind(site.volume_id).execute(fx.app.state.db.write()).await.unwrap();
+    let mut tx = fx.app.state.db.begin_write().await.unwrap();
+    hook.on_applied(&mut tx, &operation).await.unwrap();
+    tx.commit().await.unwrap();
+    assert_eq!(fx.row_count().await, 1, "old proof cannot swallow a new operation");
 }
 
 #[tokio::test]
@@ -542,18 +574,24 @@ async fn failed_or_cancelled_groups_remove_inert_intents_when_disk_work_did_not_
         let (ops, _) = engines(&fx, database);
         let cx = OpContext::detached();
         let token = cx.cancel.clone();
+        let ops = if cancel {
+            ops.with_mover(Arc::new(ForcedCopy))
+        } else {
+            ops
+        };
         let failing = ops.with_failpoints(Failpoints::new(move |step| {
             if step == Step::AfterJournal {
                 if cancel {
                     token.cancel();
+                    FailAction::Continue
+                } else {
+                    FailAction::Error
                 }
-                FailAction::Error
             } else {
                 FailAction::Continue
             }
         }));
-        assert!(
-            failing
+        let error = failing
                 .move_group(
                     MoveGroup {
                         owner: request(
@@ -571,8 +609,10 @@ async fn failed_or_cancelled_groups_remove_inert_intents_when_disk_work_did_not_
                     &cx
                 )
                 .await
-                .is_err()
-        );
+                .unwrap_err();
+        if cancel {
+            assert_eq!(error.code(), "cancelled");
+        }
         let intents: i64 = sqlx::query_scalar("SELECT COUNT(*) FROM immich_direct_move")
             .fetch_one(fx.app.state.db.read())
             .await
@@ -580,6 +620,7 @@ async fn failed_or_cancelled_groups_remove_inert_intents_when_disk_work_did_not_
         assert_eq!(intents, 0);
         assert!(site.tree.root().join("2020/a.jpg").exists());
         assert!(site.tree.root().join("2020/a.xmp").exists());
+        assert!(!site.tree.root().join("2021/b.jpg").exists());
         assert!(!site.tree.root().join("2021/b.xmp").exists());
         assert_eq!(fx.row_count().await, 0);
     }

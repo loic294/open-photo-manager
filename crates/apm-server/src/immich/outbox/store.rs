@@ -672,7 +672,7 @@ pub(super) async fn dismiss(db: &Db, ids: &[i64]) -> Result<u64, DbError> {
     let mut tx = db.begin_write().await?;
     for chunk in ids.chunks(ID_CHUNK) {
         let mut proof = QueryBuilder::<Sqlite>::new(
-            "UPDATE immich_direct_move SET queued = 2 WHERE outbox_id IN (",
+            "UPDATE immich_direct_move SET queued = 2, outbox_id = NULL WHERE outbox_id IN (",
         );
         let mut list = proof.separated(", ");
         for id in chunk {
@@ -696,7 +696,10 @@ pub(super) async fn dismiss(db: &Db, ids: &[i64]) -> Result<u64, DbError> {
 /// server it was queued for.
 pub(super) async fn clear(db: &Db) -> Result<(), DbError> {
     let mut tx = db.begin_write().await?;
-    sqlx::query("DELETE FROM immich_direct_move")
+    // Disconnect may race a successful preflight before its local hook. Preserve
+    // inert intent and replay proof; forgetting queued work must not turn it into
+    // a later generic scan/delete during journal recovery.
+    sqlx::query("UPDATE immich_direct_move SET queued = 2, outbox_id = NULL WHERE queued = 1")
         .execute(&mut *tx)
         .await?;
     sqlx::query(
@@ -1442,6 +1445,22 @@ mod tests {
             clip(&"x".repeat(MAX_ERROR_CHARS)),
             "x".repeat(MAX_ERROR_CHARS)
         );
+    }
+
+    #[tokio::test]
+    async fn clearing_connection_keeps_in_flight_intent_and_completed_replay_proof() {
+        let fx = Fixture::connected().await;
+        for (name, queued) in [("in-flight.jpg", 0), ("queued.jpg", 1)] {
+            sqlx::query(
+                "INSERT INTO immich_direct_move
+                (old_volume_id, old_rel, new_volume_id, new_rel, request_json, prepared_at, file_id, queued)
+                VALUES (1, ?, 1, 'new.jpg', '{}', 1, 1, ?)")
+                .bind(name).bind(queued).execute(fx.db.write()).await.unwrap();
+        }
+        clear(&fx.db).await.unwrap();
+        let states: Vec<i64> = sqlx::query_scalar("SELECT queued FROM immich_direct_move ORDER BY old_rel")
+            .fetch_all(fx.db.read()).await.unwrap();
+        assert_eq!(states, [0, 2]);
     }
 
     #[tokio::test]

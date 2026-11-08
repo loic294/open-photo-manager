@@ -78,7 +78,8 @@ replacing, transferring or changing sidecars. A failed preflight refuses that
 item with **"No file was moved"** and recovery instructions; unrelated untracked
 items continue. A database failure after movement remains durably queued with
 an **unconfirmed path update** warning. Finish/retry it before moving that file
-again. APM's tracked classification uses its synchronized Immich index: refresh
+again or reusing its old source path. Avoid changing the connection/mappings
+while a move or its path update is in flight. APM's tracked classification uses its synchronized Immich index: refresh
 sync before moving; API-invisible locked assets are not discovered by that index.
 
 The supported exclusion subset is the six v3.3.3 defaults (`**/@eaDir/**`,
