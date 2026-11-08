@@ -227,20 +227,31 @@ pub(super) async fn build(ctx: &BuildContext, value: Value) -> Result<Built, Pla
     )?;
     let mut directories = HashMap::new();
     let mut missing_parents = HashMap::new();
-    // Two streaming passes retain only distinct destinations, not all source rows. Loading
-    // collisions between passes keeps every lookup on one WAL snapshot without rescanning
-    // the scope for each keyset page.
     let mut destination_keys = HashSet::new();
-    {
-        let mut statement = source_statement(&query);
-        let mut rows = statement.build_query_as::<Source>().fetch(&mut *read);
-        while let Some(row) = rows.try_next().await? {
-            ctx.check_cancelled()?;
-            if let Ok(wanted) =
-                destination_for(&rules, &row, counterparts.get(&row.id).map(|c| &c.dir))
-                && wanted.loc()? != row.loc()?
-            {
-                destination_keys.insert((wanted.volume_id, wanted.dir));
+    match rules.move_type {
+        MoveType::Flat => {
+            destination_keys.insert((rules.destination_volume, rules.destination_base.clone()));
+        }
+        MoveType::KeepDestination => {
+            destination_keys.insert((rules.destination_volume, rules.destination_base.clone()));
+            destination_keys.extend(
+                counterparts
+                    .values()
+                    .map(|c| (rules.destination_volume, c.dir.clone())),
+            );
+        }
+        MoveType::KeepSource | MoveType::Custom => {
+            // Derived paths use the shared destination function. Stream on the same
+            // snapshot, retaining distinct directories rather than every source row.
+            let mut statement = source_statement(&query);
+            let mut rows = statement.build_query_as::<Source>().fetch(&mut *read);
+            while let Some(row) = rows.try_next().await? {
+                ctx.check_cancelled()?;
+                if let Ok(wanted) = destination_for(&rules, &row, None)
+                    && wanted.loc()? != row.loc()?
+                {
+                    destination_keys.insert((wanted.volume_id, wanted.dir));
+                }
             }
         }
     }
@@ -434,7 +445,9 @@ pub(super) async fn build(ctx: &BuildContext, value: Value) -> Result<Built, Pla
                 "Content could not be hashed within the build budget; conflicts are renamed".into()
             }
             "pattern_failed" => "The pattern could not produce a valid destination".into(),
-            "reserved_destination" => "Reserved or ignored destinations are not moved".into(),
+            "reserved_destination" => {
+                "Reserved or ignored source/destination paths are not moved".into()
+            }
             _ => return Err(PlanError::Internal(anyhow::anyhow!("unknown move warning"))),
         };
         built = built.warning(code, message, count);

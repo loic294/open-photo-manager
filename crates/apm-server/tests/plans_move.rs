@@ -672,6 +672,52 @@ async fn overlay_filters_windows_nested_folders_and_handoff() {
 }
 
 #[tokio::test]
+async fn protected_source_and_destination_components_ignore_junk_settings_and_not_prefixes() {
+    let app = TestApp::new().await;
+    let (v, _) = app.add_volume("photos").await;
+    let seed = Seed::new(&app.state.db);
+    seed.file(v, "src/#SNAPSHOT", "protected.jpg")
+        .insert()
+        .await;
+    seed.file(v, "src/#snapshot.old", "safe.jpg").insert().await;
+    ready(&app).await;
+    let mut settings = (*app.state.settings.get()).clone();
+    settings.junk_names.clear();
+    settings.junk_prefixes.clear();
+    app.state.settings.update(settings).await.unwrap();
+    for source in [false, true] {
+        let mut p = params(MoveType::Flat, v, v);
+        if source {
+            p.source.scope.dir = "src/#ReCyClE".into();
+        } else {
+            p.destination.dir = "out/#SNAPSHOT/child".into();
+        }
+        let (status, _) = app
+            .call(
+                Method::POST,
+                "/api/plans",
+                Some(json!({"kind":"move", "params":p, "replaces":null})),
+            )
+            .await;
+        assert_eq!(status, StatusCode::BAD_REQUEST);
+    }
+    let plan = build(&app, &params(MoveType::KeepSource, v, v)).await;
+    assert_eq!(plan.stats["reserved_destination"], 1);
+    assert_eq!(plan.stats["to_move"], 1);
+    assert!(
+        names(&app, plan.id)
+            .await
+            .iter()
+            .any(|r| r.1 == "out/#snapshot.old" && r.3 == "move")
+    );
+    let mut custom = params(MoveType::Custom, v, v);
+    custom.pattern = Some("#rEcYcLe/{filename}".into());
+    let plan = build(&app, &custom).await;
+    assert_eq!(plan.stats["reserved_destination"], 2);
+    assert_eq!(plan.stats["to_move"], 0);
+}
+
+#[tokio::test]
 async fn validation_and_reserved_generated_destinations() {
     let app = TestApp::new().await;
     let (v, _) = app.add_volume("photos").await;

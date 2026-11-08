@@ -104,6 +104,10 @@ pub(super) fn destination_for(
         return Err("metadata_pending");
     }
     let current_dir = RelPath::new(&row.dir_path).map_err(|_| "pattern_failed")?;
+    let source_path = current_dir.join(&row.name).map_err(|_| "pattern_failed")?;
+    if super::params::reserved(&rules.junk, &source_path) {
+        return Err("reserved_destination");
+    }
     let (dir, name) = match rules.move_type {
         MoveType::KeepSource => {
             let relative = current_dir

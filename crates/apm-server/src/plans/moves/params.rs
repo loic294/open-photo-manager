@@ -98,7 +98,7 @@ pub(super) fn rules(p: &MoveParams, settings: &Settings) -> Result<Rules, PlanEr
 }
 
 pub(super) fn reserved(junk: &JunkRules, path: &RelPath) -> bool {
-    junk.is_junk_path(path)
+    crate::fsops::is_protected_path(path) || junk.is_junk_path(path)
 }
 
 pub(super) fn volumes(p: &MoveParams, registry: &VolumeRegistry) -> Result<(), PlanError> {
