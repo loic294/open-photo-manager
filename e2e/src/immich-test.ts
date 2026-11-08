@@ -1,5 +1,6 @@
 import { scenarioFiles, startMockImmich } from '../../tools/mock-immich/index.ts';
 import { AppInstance } from './app-instance';
+import { snapshotTree } from './disk';
 import { ImmichPostgres } from './immich-postgres';
 import { Manifest } from './manifest';
 import { test as base, expect } from './test';
@@ -10,6 +11,7 @@ interface BackedImmich {
   app: AppInstance;
   database: ImmichPostgres;
   mock: Mock;
+  expectRemovedFiles(paths: readonly string[]): void;
 }
 
 /** A private APM, upstream PostgreSQL schema, and fixture-mounted shared Immich mock. */
@@ -23,6 +25,8 @@ export const test = base.extend<{ backedImmich: BackedImmich }>({
       const database = await ImmichPostgres.start();
       let app: AppInstance | undefined;
       let mock: Mock | undefined;
+      let before: Set<string> | undefined;
+      const expectedRemoved = new Set<string>();
       try {
         const runningApp = await AppInstance.start({
           env: {
@@ -50,13 +54,30 @@ export const test = base.extend<{ backedImmich: BackedImmich }>({
           beforeScanCommit: (scan) => database.commitScan(scan),
         });
         mock = liveMock;
+        before = new Set(
+          (await snapshotTree(app.volumesDir))
+            .filter((entry) => entry.type !== 'directory')
+            .map((entry) => entry.path),
+        );
         const scans = await mock.control.scan();
         expect(scans.map(({ status, error }) => ({ status, error }))).toEqual(
           scans.map(() => ({ status: 'completed', error: null })),
         );
         await database.seedMock(mock);
         seeded = true;
-        await use({ app, database, mock });
+        await use({
+          app,
+          database,
+          mock,
+          expectRemovedFiles(paths) {
+            for (const path of paths) {
+              if (!before?.has(path) || expectedRemoved.has(path)) {
+                throw new Error(`Not an unregistered initial fixture file: ${path}`);
+              }
+              expectedRemoved.add(path);
+            }
+          },
+        });
       } finally {
         try {
           if (app && info.status !== info.expectedStatus) {
@@ -64,13 +85,27 @@ export const test = base.extend<{ backedImmich: BackedImmich }>({
           }
         } finally {
           try {
-            await app?.stop();
+            if (app && before) {
+              const remaining = new Set(
+                (await snapshotTree(app.volumesDir))
+                  .filter((entry) => entry.type !== 'directory')
+                  .map((entry) => entry.path),
+              );
+              const removed = [...before].filter((path) => !remaining.has(path)).sort();
+              expect(removed, 'unexpected fixture files disappeared').toEqual(
+                [...expectedRemoved].sort(),
+              );
+            }
           } finally {
             try {
-              await mock?.stop();
-              if (mock) expect(mock.state.violations()).toEqual([]);
+              await app?.stop();
             } finally {
-              await database.stop();
+              try {
+                await mock?.stop();
+                if (mock) expect(mock.state.violations()).toEqual([]);
+              } finally {
+                await database.stop();
+              }
             }
           }
         }

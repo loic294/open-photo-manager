@@ -8,7 +8,7 @@ import { connectThroughUi, mapAndSync, waitForTask } from '../../src/immich';
 import { expect, test } from '../../src/immich-test';
 
 test('same-folder rename preserves the Immich identity, album, sidecar and cursors', async ({
-  backedImmich: { app, database, mock },
+  backedImmich: { app, database, mock, expectRemovedFiles },
   page,
   shell,
   settingsPage,
@@ -86,6 +86,7 @@ test('same-folder rename preserves the Immich identity, album, sidecar and curso
   expect(
     await database.sql(`SELECT "originalPath" FROM public.asset WHERE id = '${id}'::uuid`),
   ).toBe('/mnt/photos/sidecars/IMG_0010.JPG');
+  expectRemovedFiles(['photos/sidecars/IMG_0010.JPG', 'photos/sidecars/IMG_0010.JPG.xmp']);
   const finished = await execute(await build());
   expect(finished.result).toMatchObject({ done: 1, skipped: 0, failed: 0 });
   expect(await readFile(newPhoto)).toEqual(photoBytes);
