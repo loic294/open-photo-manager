@@ -747,11 +747,13 @@ html`<apm-pane pane="comparison" heading="Comparison" .filter=${filter} .plan=${
   there is no grid and no file there, and its ids provider answers `[]`.
 - Hide or grey: `folderState(entry, hideUnmatched)` (`@/util/folder-state`). A folder is UNMATCHED when
   `count === 0` or `matches === 0` (`matches` is `null` outside a plan). Unmatched is `hide` when the
-  preference says so (`prefs.hideUnmatchedFolders`), else `grey` (`opacity-50`, still a link); anything
-  else is `show`. A folder the plan creates (`overlay.planned`) or deletes (`overlay.will_delete`) is part
-  of the plan: never hidden, greyed at most, and told in text ("new", "will be deleted"), not by colour
-  alone. `emptyTextFor(...)` words the grid's empty state from what the folder list shows: a folder that
-  only holds subfolders is not empty, and the filters are blamed only while they are on.
+  preference says so (`prefs.hideUnmatchedFolders`), else `grey` (muted text, still a link); anything
+  else is `show`. Do not dim the whole row: that lowers text and indicator contrast. A folder the plan
+  creates (`overlay.planned`) or deletes (`overlay.will_delete`) is part of the plan: never hidden,
+  greyed at most, and told in text ("new", "will be deleted"), not by colour alone. Deletion keeps a
+  readable label with a red border and icon. `emptyTextFor(...)` words the grid's empty state from what
+  the folder list shows: a folder that only holds subfolders is not empty, and the filters are blamed
+  only while they are on.
 - `<apm-folder-list>` is presentational: `.folders`, `.hrefFor`, `hide-unmatched`, `show-matches`, `pane`,
   `loading` (skeletons for the first load only); event `folder-open { entry }` for a plain click. Rows use
   `content-visibility: auto` with the REAL row height (35px) as the intrinsic size, no virtualiser: a wrong

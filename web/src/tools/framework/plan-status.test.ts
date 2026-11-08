@@ -230,6 +230,16 @@ describe('warnings', () => {
     expect(text(part(area, '[role="button"]'))).toBe('2 warnings');
   });
 
+  it('keeps warning text readable and the warning icon coloured', () => {
+    const { ctx, plan } = setup();
+    const area = show(ctx);
+    plan.warningsSignal.value = [WARNINGS[0] as (typeof WARNINGS)[number]];
+    const trigger = part(area, '[role="button"]');
+    expect(trigger.classList.contains('text-base-content')).toBe(true);
+    expect(trigger.classList.contains('text-warning')).toBe(false);
+    expect(part(trigger, 'apm-icon').classList.contains('text-warning')).toBe(true);
+  });
+
   it('lists each message with its count', () => {
     const { ctx, plan } = setup();
     const area = show(ctx);

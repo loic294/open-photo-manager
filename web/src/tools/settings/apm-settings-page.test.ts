@@ -133,6 +133,18 @@ describe('apm-settings-page', () => {
       expect(tab(page, 'alpha').getAttribute('tabindex')).toBe('-1');
     });
 
+    it('uses readable muted text for inactive tabs without muting the active one', async () => {
+      const page = await open([section('alpha'), section('beta')]);
+
+      expect(tab(page, 'beta').classList.contains('text-base-content/70')).toBe(true);
+      expect(tab(page, 'alpha').classList.contains('text-base-content/70')).toBe(false);
+
+      await choose(page, 'beta');
+
+      expect(tab(page, 'alpha').classList.contains('text-base-content/70')).toBe(true);
+      expect(tab(page, 'beta').classList.contains('text-base-content/70')).toBe(false);
+    });
+
     it('point at the panel they open, and the panel at its tab', async () => {
       const page = await open([section('alpha'), section('beta')]);
 

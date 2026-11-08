@@ -176,7 +176,7 @@ export class ApmSettingsPage extends ApmElement {
         type="button"
         role="tab"
         id=${tabId(section)}
-        class=${selected ? 'tab tab-active gap-2' : 'tab gap-2'}
+        class=${selected ? 'tab tab-active gap-2' : 'tab gap-2 text-base-content/70'}
         aria-selected=${selected ? 'true' : 'false'}
         aria-controls=${selected ? panelId(section) : nothing}
         tabindex=${selected ? '0' : '-1'}

@@ -725,8 +725,8 @@ export class ApmTrashPage extends ApmElement {
           ${
             summary
               ? html`
-                  <div class="alert alert-info alert-soft mt-3 py-2 text-sm">
-                    <apm-icon name="info" size="sm"></apm-icon>
+                  <div class="alert alert-info alert-soft mt-3 py-2 text-sm text-base-content">
+                    <apm-icon name="info" size="sm" class="text-info"></apm-icon>
                     <span>
                       ${retentionText(summary.retention_days)}
                       <a class="link" href=${linkTo('/settings?section=general')}>
@@ -744,7 +744,7 @@ export class ApmTrashPage extends ApmElement {
                   type="button"
                   role="tab"
                   id=${tabId(tab.id)}
-                  class=${tab.id === open ? 'tab tab-active gap-2' : 'tab gap-2'}
+                  class=${tab.id === open ? 'tab tab-active gap-2' : 'tab gap-2 text-base-content/70'}
                   aria-selected=${tab.id === open ? 'true' : 'false'}
                   aria-controls=${tab.id === open ? panelId(tab.id) : nothing}
                   tabindex=${tab.id === open ? '0' : '-1'}

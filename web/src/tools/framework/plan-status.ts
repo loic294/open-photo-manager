@@ -69,8 +69,8 @@ function renderWarnings(ctx: ToolContext) {
   if (warnings.length === 0) return nothing;
   return html`
     <div class="dropdown dropdown-end" @keydown=${closeOnEscape}>
-      <div tabindex="0" role="button" class="btn btn-ghost btn-xs gap-1 text-warning">
-        <apm-icon name="triangle-alert" size="sm"></apm-icon>
+      <div tabindex="0" role="button" class="btn btn-ghost btn-xs gap-1 text-base-content">
+        <apm-icon name="triangle-alert" size="sm" class="text-warning"></apm-icon>
         <span>${warnings.length === 1 ? '1 warning' : `${warnings.length} warnings`}</span>
       </div>
       <ul

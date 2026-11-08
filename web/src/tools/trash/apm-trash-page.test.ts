@@ -391,6 +391,8 @@ describe('apm-trash-page opening', () => {
     await mountPage();
     const note = required(page, '.alert-info');
     expect(text(note)).toBe(`${sentence} Change in Settings`);
+    expect(note.classList.contains('text-base-content')).toBe(true);
+    expect(required(note, 'apm-icon').classList.contains('text-info')).toBe(true);
     expect(required(note, 'a').getAttribute('href')).toMatch(/^\/settings\?section=general/);
   });
 });
@@ -404,6 +406,8 @@ describe('apm-trash-page tabs', () => {
     expect(tabs.map(text)).toEqual(['Deletions', 'Items']);
     expect(tabs.map((entry) => entry.getAttribute('aria-selected'))).toEqual(['true', 'false']);
     expect(tabs.map((entry) => entry.getAttribute('tabindex'))).toEqual(['0', '-1']);
+    expect(tab('items').classList.contains('text-base-content/70')).toBe(true);
+    expect(tab('deletions').classList.contains('text-base-content/70')).toBe(false);
     const panels = page.querySelectorAll('[role="tabpanel"]');
     expect(panels).toHaveLength(1);
     expect(panels[0]?.getAttribute('aria-labelledby')).toBe('trash-tab-deletions');
@@ -416,6 +420,8 @@ describe('apm-trash-page tabs', () => {
     );
     expect(tab('items').getAttribute('tabindex')).toBe('0');
     expect(tab('deletions').getAttribute('tabindex')).toBe('-1');
+    expect(tab('deletions').classList.contains('text-base-content/70')).toBe(true);
+    expect(tab('items').classList.contains('text-base-content/70')).toBe(false);
   });
 
   it('loads the items the first time their tab opens, and only then', async () => {

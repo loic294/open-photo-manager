@@ -190,6 +190,19 @@ describe('apm-task-indicator trigger', () => {
     expect(bar(element).classList.contains('md:w-28')).toBe(true);
   });
 
+  it('switches theme foreground and background together without a low-contrast colour transition', async () => {
+    const element = await show(
+      { id: 1, items_done: 20, items_total: 100 },
+      { id: 2, state: 'queued', started_at: null },
+    );
+
+    expect(
+      trigger(element).classList.contains('transition-[border-color,box-shadow,transform]'),
+    ).toBe(true);
+    expect(percentText(element)).toBe('20%');
+    expect(badge(element, 'ghost')?.textContent).toBe('1');
+  });
+
   it('follows the progress live', async () => {
     const element = await show({ items_done: 10, items_total: 100 });
 

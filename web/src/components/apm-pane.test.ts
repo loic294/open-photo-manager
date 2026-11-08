@@ -424,8 +424,8 @@ describe('the subfolders', () => {
     const pane = await mountPane();
 
     expect(rowNames(pane)).toEqual(['raw', 'jpg']);
-    expect(row(pane, 'jpg').className).toContain('opacity-50');
-    expect(row(pane, 'raw').className).not.toContain('opacity-50');
+    expect(row(pane, 'jpg').className).toContain('text-base-content/70');
+    expect(row(pane, 'raw').className).not.toContain('text-base-content/70');
 
     pane.hideUnmatched = true;
     await settle(pane);

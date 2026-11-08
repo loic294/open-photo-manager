@@ -257,14 +257,16 @@ describe('apm-folder-list plan overlay', () => {
     expect(anchor.querySelector('.badge-info')?.getAttribute('title')).toBe('Will be created');
   });
 
-  it('marks a folder the plan deletes with a red border and text, and says so in words', async () => {
+  it('marks a folder the plan deletes with a red border and icon, and says so in words', async () => {
     const host = await mountList({
       folders: [folderEntry({ name: 'old', count: 0, total: 0, overlay: { will_delete: true } })],
     });
 
     const anchor = row(host, 'old');
     expect(anchor.classList.contains('border-error')).toBe(true);
-    expect(anchor.classList.contains('text-error')).toBe(true);
+    expect(anchor.classList.contains('text-base-content')).toBe(true);
+    expect(anchor.classList.contains('text-error')).toBe(false);
+    expect(anchor.querySelector('apm-icon')?.classList.contains('text-error')).toBe(true);
     expect(srText(anchor)).toContain('will be deleted');
   });
 
@@ -290,14 +292,15 @@ describe('apm-folder-list grey and hide', () => {
     folderEntry({ name: 'removed', count: 0, total: 0, overlay: { will_delete: true } }),
   ];
 
-  it('greys the folders without matches and keeps them listed and clickable', async () => {
+  it('mutes unmatched folders without lowering text contrast and keeps them clickable', async () => {
     const host = await mountList({ folders });
 
     expect(names(host)).toEqual(['full', 'emptied', 'nomatch', 'created', 'removed']);
-    const faded = (name: string) => row(host, name).classList.contains('opacity-50');
-    expect(faded('full')).toBe(false);
-    expect(faded('emptied')).toBe(true);
-    expect(faded('nomatch')).toBe(true);
+    const muted = (name: string) => row(host, name).classList.contains('text-base-content/70');
+    expect(muted('full')).toBe(false);
+    expect(muted('emptied')).toBe(true);
+    expect(muted('nomatch')).toBe(true);
+    expect(row(host, 'emptied').classList.contains('opacity-50')).toBe(false);
     expect(row(host, 'emptied').getAttribute('href')).toBe('#');
   });
 
@@ -305,9 +308,12 @@ describe('apm-folder-list grey and hide', () => {
     const host = await mountList({ folders, hideUnmatched: true });
 
     expect(names(host)).toEqual(['full', 'created', 'removed']);
-    expect(row(host, 'created').classList.contains('opacity-50')).toBe(true);
-    expect(row(host, 'removed').classList.contains('opacity-50')).toBe(true);
-    expect(row(host, 'full').classList.contains('opacity-50')).toBe(false);
+    expect(row(host, 'created').classList.contains('text-base-content/70')).toBe(true);
+    expect(row(host, 'removed').querySelector('apm-icon')?.classList.contains('text-error')).toBe(
+      true,
+    );
+    expect(row(host, 'removed').classList.contains('text-base-content/70')).toBe(false);
+    expect(row(host, 'full').classList.contains('text-base-content/70')).toBe(false);
   });
 
   it('follows hideUnmatched', async () => {

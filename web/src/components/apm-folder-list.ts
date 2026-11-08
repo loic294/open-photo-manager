@@ -51,13 +51,13 @@ function iconFor(entry: FolderEntry): IconName {
   return entry.path === '' ? 'hard-drive' : 'folder';
 }
 
-/** The border and text colour of a row: the plan's states are never told by colour alone. */
+/** The border and text tone of a row: the plan's states are never told by colour alone. */
 function toneClass(entry: FolderEntry, state: FolderState): string {
   const classes: string[] = [];
-  if (entry.overlay.will_delete) classes.push('border-error', 'text-error');
+  if (entry.overlay.will_delete) classes.push('border-error', 'text-base-content');
   else if (entry.overlay.planned) classes.push('border-dashed', 'border-info');
   else classes.push('border-transparent');
-  if (state === 'grey') classes.push('opacity-50');
+  if (state === 'grey' && !entry.overlay.will_delete) classes.push('text-base-content/70');
   return classes.join(' ');
 }
 
@@ -170,7 +170,11 @@ export class ApmFolderList extends ApmElement {
     return html`
       <li class=${ITEM_CLASS}>
         <a href=${href} data-name=${entry.name} class="${ROW_CLASS} ${toneClass(entry, state)}">
-          <apm-icon name=${iconFor(entry)} size="sm"></apm-icon>
+          <apm-icon
+            name=${iconFor(entry)}
+            size="sm"
+            class=${overlay.will_delete ? 'text-error' : nothing}
+          ></apm-icon>
           <span class="list-col-grow min-w-0 truncate" title=${entry.name}>${entry.name}</span>
           <span class="flex shrink-0 items-center gap-1">
             ${overlay.will_delete ? html`<span class="sr-only">will be deleted</span>` : nothing}

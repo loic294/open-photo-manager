@@ -241,6 +241,14 @@ describe('main menu', () => {
     ]);
   });
 
+  it('keeps menu theme colours in sync while retaining shadow transitions', async () => {
+    const app = await mountApp('/browse');
+    const entries = menuLists(app).flatMap(entriesOf);
+
+    expect(entries.length).toBeGreaterThan(0);
+    expect(entries.every((item) => item.classList.contains('transition-shadow'))).toBe(true);
+  });
+
   it('carries both pane locations in the links, so moving between tools keeps them', async () => {
     const app = await mountApp('/browse?src=photos/2024&cmp=backup');
 

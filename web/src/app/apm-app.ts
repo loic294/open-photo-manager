@@ -49,6 +49,7 @@ const REINDEX_ITEMS: readonly { scope: ReindexScope; label: string }[] = [
  * stores, the re-index menu actions, the SSE connection, the router and the single toast host. The
  * menu is built from the route table in `app/routes.ts`; below the `lg` breakpoint it collapses
  * into a drawer opened by the menu button.
+ * Menu entries transition shadows only, so theme changes keep text and backgrounds in sync.
  */
 export class ApmApp extends ApmElement {
   static override properties = {
@@ -157,7 +158,7 @@ export class ApmApp extends ApmElement {
       <li>
         <a
           href=${linkTo(route.path)}
-          class=${classMap({ 'menu-active': active })}
+          class=${classMap({ 'menu-active': active, 'transition-shadow': true })}
           aria-current=${active ? 'page' : nothing}
         >
           <apm-icon name=${route.icon} size="sm"></apm-icon>
@@ -172,7 +173,7 @@ export class ApmApp extends ApmElement {
     const disabled = reindexDisabled.value;
     return html`
       <li class=${classMap({ 'menu-disabled': disabled })}>
-        <button type="button" ?disabled=${disabled} @click=${() => requestReindex(item.scope)}>
+        <button type="button" class="transition-shadow" ?disabled=${disabled} @click=${() => requestReindex(item.scope)}>
           ${
             reindexPending.value === item.scope
               ? html`<span class="loading loading-spinner loading-xs"></span>`

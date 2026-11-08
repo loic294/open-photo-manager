@@ -124,6 +124,8 @@ function triggerView(list: readonly TaskDto[], counts: TaskAggregate): TriggerVi
  * DaisyUI's own `dropdown-hover` and `:focus-within`: the CSS alone cannot be dismissed with
  * Escape or leave the panel pinned, and the state has to be in the DOM to be tested. The trigger
  * is a disclosure button (`aria-expanded`, `aria-controls`); the panel is not a menu.
+ * Its foreground and background switch themes together without colour transitions, which would
+ * briefly blend them into low-contrast midtones while the focused button changes theme.
  *
  * ONE visually hidden live region (`aria-live="polite"`, `aria-atomic="false"` so an addition does
  * not make a screen reader read the earlier lines again) announces the tasks that end while the
@@ -391,7 +393,7 @@ export class ApmTaskIndicator extends ApmElement {
         <button
           ${ref(this.triggerRef)}
           type="button"
-          class="btn btn-ghost btn-sm gap-2 px-2"
+          class="btn btn-ghost btn-sm gap-2 px-2 transition-[border-color,box-shadow,transform]"
           aria-label=${view.name}
           aria-expanded=${open ? 'true' : 'false'}
           aria-controls=${this.panelId}
