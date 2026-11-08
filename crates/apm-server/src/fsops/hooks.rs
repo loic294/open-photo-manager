@@ -25,11 +25,7 @@ use super::Loc;
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum AppliedOp {
     /// A file moved or was renamed. `file_id` is the row that now lives at `to`.
-    Moved {
-        file_id: FileId,
-        from: Loc,
-        to: Loc,
-    },
+    Moved { file_id: FileId, from: Loc, to: Loc },
     /// A file was copied. `source_file_id` is the row of the original when it is indexed.
     Copied {
         source_file_id: Option<FileId>,

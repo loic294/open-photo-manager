@@ -162,7 +162,9 @@ fn rename_once(
 ) -> Result<Attempt, FsOpError> {
     let taken = || pick_trash_path(root, batch, orig, max).map(Attempt::Retarget);
     make_dirs(root, &target.parent().unwrap_or_else(RelPath::root))?;
-    let from = root.resolve_existing(orig).map_err(FsOpError::from_source)?;
+    let from = root
+        .resolve_existing(orig)
+        .map_err(FsOpError::from_source)?;
     let to = match root.resolve_for_create(target) {
         Ok(path) => path,
         Err(FsError::AlreadyExists(_)) => return taken(),
@@ -331,7 +333,9 @@ fn rename_dir_back(
     from: &RelPath,
     to: &RelPath,
 ) -> Result<(), FsOpError> {
-    let source = root.resolve_existing(from).map_err(FsOpError::from_source)?;
+    let source = root
+        .resolve_existing(from)
+        .map_err(FsOpError::from_source)?;
     let target = root
         .resolve_for_create(to)
         .map_err(FsOpError::from_destination)?;
@@ -543,10 +547,7 @@ impl FsOps {
         policy: ConflictPolicy,
         cx: &OpContext,
     ) -> Result<RestoreOutcome, FsOpError> {
-        let snap = match TrashMeta::parse(item.meta_json.as_deref()) {
-            Some(TrashMeta::File(snap)) => Some(snap),
-            _ => None,
-        };
+        let snap = TrashMeta::file_snapshot(item.meta_json.as_deref());
         let job = Job {
             mode: Mode::Restore,
             src: item.trash_loc(),
@@ -664,7 +665,7 @@ impl FsOps {
     }
 
     /// Removes the empty folders a restored or purged item left in its batch.
-    async fn prune_after(&self, item: &TrashItem) {
+    pub(crate) async fn prune_after(&self, item: &TrashItem) {
         let Ok(root) = self.volume(item.volume_id) else {
             return;
         };

@@ -94,6 +94,9 @@ pub(crate) struct PendingRow {
 pub(crate) struct Journal {
     db: Db,
     inflight: Arc<Mutex<HashSet<i64>>>,
+    /// Held while a row is inserted and registered, and while recovery lists the pending rows:
+    /// a listed row therefore has a live guard or belongs to an operation that already ended.
+    gate: Arc<tokio::sync::Mutex<()>>,
 }
 
 /// Proof that a journal row belongs to a live operation of this process: while it exists,
@@ -136,11 +139,13 @@ impl Journal {
         Self {
             db,
             inflight: Arc::default(),
+            gate: Arc::default(),
         }
     }
 
     /// Inserts the `pending` row. Call it right before the disk change it describes.
     pub(crate) async fn begin(&self, entry: NewEntry<'_>) -> Result<Guard, FsOpError> {
+        let _gate = self.gate.lock().await;
         let created_at = now_secs();
         let id: i64 = sqlx::query_scalar(
             "INSERT INTO fs_journal (task_id, op, state, src_volume_id, src_path, dst_volume_id, \
@@ -231,11 +236,22 @@ impl Journal {
         }
     }
 
+    /// Marks the row `done` outside any index change (recovery found nothing in the index to
+    /// repair).
+    pub(crate) async fn finish(&self, id: i64) -> Result<(), FsOpError> {
+        sqlx::query(
+            "UPDATE fs_journal SET state = 'done', error = NULL, finished_at = ? \
+             WHERE id = ? AND state = 'pending'",
+        )
+        .bind(now_secs())
+        .bind(id)
+        .execute(self.db.write())
+        .await?;
+        Ok(())
+    }
+
     /// Marks the row `done`, inside the transaction that makes the index change final.
-    pub(crate) async fn finish_tx(
-        tx: &mut SqliteConnection,
-        id: i64,
-    ) -> Result<(), sqlx::Error> {
+    pub(crate) async fn finish_tx(tx: &mut SqliteConnection, id: i64) -> Result<(), sqlx::Error> {
         sqlx::query(
             "UPDATE fs_journal SET state = 'done', error = NULL, finished_at = ? WHERE id = ?",
         )
@@ -251,8 +267,19 @@ impl Journal {
         lock(&self.inflight).contains(&id)
     }
 
+    /// Whether the row is still `pending` (an operation that ended since the list was read has
+    /// closed it).
+    pub(crate) async fn is_pending(&self, id: i64) -> Result<bool, FsOpError> {
+        let state: Option<String> = sqlx::query_scalar("SELECT state FROM fs_journal WHERE id = ?")
+            .bind(id)
+            .fetch_optional(self.db.read())
+            .await?;
+        Ok(state.as_deref() == Some("pending"))
+    }
+
     /// Every `pending` row, oldest first.
     pub(crate) async fn pending(&self) -> Result<Vec<PendingRow>, FsOpError> {
+        let _gate = self.gate.lock().await;
         let rows = sqlx::query(
             "SELECT id, task_id, op, src_volume_id, src_path, dst_volume_id, dst_path, part_path, \
              size, hash, created_at FROM fs_journal WHERE state = 'pending' ORDER BY id",
@@ -369,7 +396,10 @@ mod tests {
             .await
             .unwrap();
         journal
-            .set_part(guard.id(), &RelPath::new(".apm-0123456789abcdef.apm-part").unwrap())
+            .set_part(
+                guard.id(),
+                &RelPath::new(".apm-0123456789abcdef.apm-part").unwrap(),
+            )
             .await
             .unwrap();
         let renamed = loc(1, "b (1).jpg");
@@ -379,7 +409,10 @@ mod tests {
             .unwrap();
 
         let row = journal.pending().await.unwrap().remove(0);
-        assert_eq!(row.part_path.unwrap().as_str(), ".apm-0123456789abcdef.apm-part");
+        assert_eq!(
+            row.part_path.unwrap().as_str(),
+            ".apm-0123456789abcdef.apm-part"
+        );
         assert_eq!(row.dst, Some(renamed));
         assert_eq!(row.hash, Some(vec![1, 2, 3]));
         assert_eq!(row.size, Some(4));
@@ -477,7 +510,13 @@ mod tests {
                     .unwrap(),
             );
         }
-        let ids: Vec<i64> = journal.pending().await.unwrap().iter().map(|r| r.id).collect();
+        let ids: Vec<i64> = journal
+            .pending()
+            .await
+            .unwrap()
+            .iter()
+            .map(|r| r.id)
+            .collect();
         let mut sorted = ids.clone();
         sorted.sort_unstable();
         assert_eq!(ids, sorted);

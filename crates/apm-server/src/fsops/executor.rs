@@ -17,7 +17,6 @@
 
 use std::fs;
 use std::io;
-use std::ops::ControlFlow;
 use std::os::unix::ffi::OsStrExt;
 use std::os::unix::fs::DirEntryExt;
 use std::path::Path;
@@ -27,7 +26,7 @@ use apm_core::conflict::{
     self, ConflictDecision, ContentInfo, decide, needs_hashes, sidecar_destination,
 };
 use apm_core::dto::ConflictPolicy;
-use apm_core::hash::{self, Sha1Digest, sha1_reader};
+use apm_core::hash::{self, Sha1Digest};
 use apm_core::junk::JunkRules;
 use apm_core::paths::{FileId, RelPath};
 use apm_core::sidecar::LinkKind;
@@ -43,6 +42,7 @@ use super::error::FsOpError;
 use super::failpoints::Step;
 use super::journal::{Guard, NewEntry, Op};
 use super::{Expect, FileStat, FsOps, Loc, Rules, blocking};
+use crate::indexer::hash::{HashError, sha1_file};
 use crate::security::{FsError, VolumeRoot};
 
 /// How often the engine looks again at a destination that keeps changing underneath it.
@@ -289,30 +289,29 @@ pub(crate) fn names_with_inode(
     Ok(names)
 }
 
-/// The SHA-1 of a file, read through one descriptor and refused when the file is not the one
-/// that was looked at (`expected`) before or after the read.
-fn hash_file(
+/// The SHA-1 of a file through the shared hasher, refused when the file is not the one that was
+/// looked at (`expected`) right before or right after the read.
+pub(crate) fn hash_file(
     root: &VolumeRoot,
     rel: &RelPath,
     expected: &FileStat,
     cancel: &CancellationToken,
 ) -> Result<Sha1Digest, FsOpError> {
-    let mut file = root.open_read(rel).map_err(FsOpError::from_source)?;
-    let before = FileStat::from_metadata(&file.metadata()?);
-    if !before.same_file(expected) {
-        return Err(FsOpError::SourceChanged);
-    }
-    let digest = sha1_reader(&mut file, |_| {
-        if cancel.is_cancelled() {
-            ControlFlow::Break(())
+    let unchanged = || -> Result<(), FsOpError> {
+        let meta = root.stat(rel).map_err(FsOpError::from_source)?;
+        if meta.is_file() && FileStat::from_metadata(&meta).same_file(expected) {
+            Ok(())
         } else {
-            ControlFlow::Continue(())
+            Err(FsOpError::SourceChanged)
         }
-    })?
-    .ok_or(FsOpError::Cancelled)?;
-    if !FileStat::from_metadata(&file.metadata()?).same_file(&before) {
-        return Err(FsOpError::SourceChanged);
-    }
+    };
+    unchanged()?;
+    let digest = sha1_file(root, rel, cancel, &mut |_| {}).map_err(|err| match err {
+        HashError::Cancelled => FsOpError::Cancelled,
+        HashError::Gone(err) => FsOpError::from_source(err),
+        HashError::Io(kind) => FsOpError::Io(kind),
+    })?;
+    unchanged()?;
     Ok(digest)
 }
 
@@ -354,9 +353,9 @@ pub(crate) fn rename_into_place(
     let to = if case_only {
         match dst_root.resolve_existing(dst) {
             Ok(path) => path,
-            Err(
-                FsError::NotFound(_) | FsError::NotADirectory(_) | FsError::SymlinkRejected(_),
-            ) => return Ok(Placed::Raced),
+            Err(FsError::NotFound(_) | FsError::NotADirectory(_) | FsError::SymlinkRejected(_)) => {
+                return Ok(Placed::Raced);
+            }
             Err(err) => return Err(FsOpError::from_destination(err)),
         }
     } else {
@@ -379,16 +378,12 @@ pub(crate) fn rename_into_place(
         Ok(()) => Ok(Placed::Done),
         Err(err) if err.kind() == io::ErrorKind::AlreadyExists => Ok(Placed::Raced),
         Err(err) if err.kind() == io::ErrorKind::CrossesDevices => Ok(Placed::CrossDevice),
-        Err(err) if err.kind() == io::ErrorKind::NotFound => {
-            match fs::symlink_metadata(&from) {
-                Err(gone) if gone.kind() == io::ErrorKind::NotFound => {
-                    Err(FsOpError::SourceMissing)
-                }
-                _ => Err(FsOpError::DestinationInvalid(
-                    "a parent directory is missing",
-                )),
-            }
-        }
+        Err(err) if err.kind() == io::ErrorKind::NotFound => match fs::symlink_metadata(&from) {
+            Err(gone) if gone.kind() == io::ErrorKind::NotFound => Err(FsOpError::SourceMissing),
+            _ => Err(FsOpError::DestinationInvalid(
+                "a parent directory is missing",
+            )),
+        },
         Err(err) => Err(FsOpError::from(err)),
     }
 }
@@ -511,12 +506,15 @@ impl FsOps {
             Some(info) => info.snap.clone(),
             None => {
                 let mut conn = self.db.read().acquire().await?;
-                load_snap(&mut conn, &job.src)
-                    .await?
-                    .map(|(_, snap)| snap)
+                load_snap(&mut conn, &job.src).await?.map(|(_, snap)| snap)
             }
         };
-        let tail = job.companions.iter().map(Companion::tail).max().unwrap_or(0);
+        let tail = job
+            .companions
+            .iter()
+            .map(Companion::tail)
+            .max()
+            .unwrap_or(0);
         let mut run = Run {
             job,
             cx,
@@ -727,8 +725,8 @@ impl FsOps {
         }
         let own = run.job.src.name().as_bytes();
         let alone = names.len() == 1 && names.first().is_some_and(|name| name == own);
-        let same_dir = run.job.src.volume_id == run.target.volume_id
-            && run.job.src.dir() == run.target.dir();
+        let same_dir =
+            run.job.src.volume_id == run.target.volume_id && run.job.src.dir() == run.target.dir();
         Ok(if !exact && alone && same_dir {
             Resolution::CaseOnly
         } else {

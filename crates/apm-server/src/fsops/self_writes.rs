@@ -85,7 +85,11 @@ mod tests {
             writes.note(1, &rel(&format!("d{index}")));
         }
         assert!(writes.lock().len() <= MAX_ENTRIES);
-        assert!(writes.is_recent(1, &rel(&format!("d{}", MAX_ENTRIES + 49)), Duration::from_secs(60)));
+        assert!(writes.is_recent(
+            1,
+            &rel(&format!("d{}", MAX_ENTRIES + 49)),
+            Duration::from_secs(60)
+        ));
     }
 
     #[test]

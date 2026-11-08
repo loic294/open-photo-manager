@@ -229,6 +229,8 @@ pub struct FsOps {
     pub(crate) mover: Arc<dyn Mover>,
     pub(crate) free_space: Arc<dyn FreeSpace>,
     failpoints: Option<Failpoints>,
+    /// One recovery pass at a time: two passes over the same row would race.
+    reconcile_lock: Arc<tokio::sync::Mutex<()>>,
 }
 
 impl fmt::Debug for FsOps {
@@ -258,6 +260,7 @@ impl FsOps {
             mover: Arc::new(SystemMover),
             free_space: Arc::new(SystemFreeSpace),
             failpoints: None,
+            reconcile_lock: Arc::default(),
         }
     }
 

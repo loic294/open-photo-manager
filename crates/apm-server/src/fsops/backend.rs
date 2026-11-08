@@ -49,7 +49,7 @@ pub struct SystemFreeSpace;
 impl FreeSpace for SystemFreeSpace {
     fn available(&self, dir: &Path) -> io::Result<u64> {
         let stat = rustix::fs::statvfs(dir)?;
-        Ok(u64::from(stat.f_bavail).saturating_mul(u64::from(stat.f_frsize)))
+        Ok(stat.f_bavail.saturating_mul(stat.f_frsize))
     }
 }
 

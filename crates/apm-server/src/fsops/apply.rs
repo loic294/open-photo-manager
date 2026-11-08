@@ -130,13 +130,21 @@ impl Snap {
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(tag = "item", rename_all = "snake_case")]
 pub(crate) enum TrashMeta {
-    File(Snap),
+    File(Box<Snap>),
     Dir { files: u64, bytes: u64 },
 }
 
 impl TrashMeta {
-    pub(crate) fn parse(json: Option<&str>) -> Option<Self> {
+    fn parse(json: Option<&str>) -> Option<Self> {
         serde_json::from_str(json?).ok()
+    }
+
+    /// The snapshot a trashed file's item carries (`None` for a folder or unreadable metadata).
+    pub(crate) fn file_snapshot(json: Option<&str>) -> Option<Snap> {
+        match Self::parse(json)? {
+            Self::File(snap) => Some(*snap),
+            Self::Dir { .. } => None,
+        }
     }
 
     fn json(&self) -> Option<String> {
@@ -225,7 +233,6 @@ pub(crate) struct Trashed {
 pub(crate) struct TrashItem {
     pub id: i64,
     pub volume_id: VolumeId,
-    pub batch: String,
     pub orig_path: RelPath,
     pub trash_path: RelPath,
     pub is_dir: bool,
@@ -233,8 +240,7 @@ pub(crate) struct TrashItem {
     pub meta_json: Option<String>,
 }
 
-const TRASH_ITEM_COLUMNS: &str =
-    "id, volume_id, batch, orig_path, trash_path, is_dir, size, meta_json";
+const TRASH_ITEM_COLUMNS: &str = "id, volume_id, orig_path, trash_path, is_dir, size, meta_json";
 
 impl TrashItem {
     fn from_row(row: &sqlx::sqlite::SqliteRow) -> Result<Self, FsOpError> {
@@ -244,7 +250,6 @@ impl TrashItem {
         Ok(Self {
             id: row.try_get("id")?,
             volume_id: row.try_get("volume_id")?,
-            batch: row.try_get("batch")?,
             orig_path: RelPath::new(&orig)
                 .map_err(|_| FsOpError::internal("a trash item has an invalid original path"))?,
             trash_path: RelPath::new(&trash)
@@ -790,9 +795,7 @@ async fn maintain_links(
     }
     let dir = t.dst.dir();
     let mut relink = kind == FileKind::Sidecar;
-    if moved_row
-        && drop_crossing_links(&mut *conn, file_id, t.dst.volume_id, dir.as_str()).await?
-    {
+    if moved_row && drop_crossing_links(&mut *conn, file_id, t.dst.volume_id, dir.as_str()).await? {
         relink = true;
     }
     if !relink {
@@ -899,7 +902,7 @@ async fn subtree_ids(
 }
 
 /// Commits the transaction when the body succeeded, rolls it back otherwise.
-async fn conclude<T>(
+pub(crate) async fn conclude<T>(
     tx: Transaction<'static, Sqlite>,
     result: Result<T, sqlx::Error>,
 ) -> Result<T, FsOpError> {
@@ -985,7 +988,7 @@ impl FsOps {
             maintain_links(&mut *conn, rules, t, file_id, kind, moved_row).await?;
         }
         if let Some(kept) = t.kept {
-            let meta = t.pre.map(|snap| TrashMeta::File(snap.clone()));
+            let meta = t.pre.map(|snap| TrashMeta::File(Box::new(snap.clone())));
             insert_trash_item(
                 &mut *conn,
                 &NewTrashItem {
@@ -1058,7 +1061,7 @@ impl FsOps {
             match file_at(&mut *conn, &here).await? {
                 Some(row) => {
                     let snap = snapshot_of(&mut *conn, &row).await?;
-                    (vec![row.id], Some(TrashMeta::File(snap)), t.size)
+                    (vec![row.id], Some(TrashMeta::File(Box::new(snap))), t.size)
                 }
                 // Never indexed (a junk file, a file the scanner has not seen yet): nothing to
                 // restore into the index.

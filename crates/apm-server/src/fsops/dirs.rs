@@ -525,7 +525,12 @@ mod tests {
     fn new_folder_paths_are_checked() {
         let rules = rules();
         assert!(validate_dir_path(&rules, &rel("a/b")).is_ok());
-        for bad in [".apm-trash/b", "a/@eaDir", "a/.DS_Store/b", "a/.apm-probe-x"] {
+        for bad in [
+            ".apm-trash/b",
+            "a/@eaDir",
+            "a/.DS_Store/b",
+            "a/.apm-probe-x",
+        ] {
             assert!(validate_dir_path(&rules, &rel(bad)).is_err(), "{bad}");
         }
     }
@@ -553,8 +558,8 @@ mod tests {
         assert_eq!(
             list_contents(&root, &rel("junky"), &junk).unwrap(),
             Contents::OnlyJunk(vec![
-                "._x.jpg".to_owned(),
                 ".DS_Store".to_owned(),
+                "._x.jpg".to_owned(),
                 "@eaDir".to_owned()
             ])
         );

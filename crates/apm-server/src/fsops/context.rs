@@ -151,6 +151,15 @@ impl OpContext {
         self
     }
 
+    /// A clone that cancelling this context does not reach, for finishing what a cancelled
+    /// operation already started (the sidecars of an owner that moved). It shares the trash batch.
+    pub(crate) fn without_cancel(&self) -> Self {
+        Self {
+            cancel: CancellationToken::new(),
+            ..self.clone()
+        }
+    }
+
     /// The trash batch of this context (and its clones), created on first use.
     pub fn batch(&self) -> &TrashBatch {
         self.batch.get_or_init(|| match self.task_id {
@@ -217,6 +226,16 @@ mod tests {
         let cx = OpContext::detached();
         let clone = cx.clone();
         assert_eq!(cx.batch(), clone.batch());
+    }
+
+    #[test]
+    fn the_finishing_clone_ignores_the_cancel_but_shares_the_batch() {
+        let cx = OpContext::detached();
+        let finishing = cx.without_cancel();
+        cx.cancel.cancel();
+        assert!(cx.ensure_active().is_err());
+        assert!(finishing.ensure_active().is_ok());
+        assert_eq!(cx.batch(), finishing.batch());
     }
 
     #[test]

@@ -137,7 +137,9 @@ impl From<FsError> for FsOpError {
         match err {
             FsError::NotFound(_) => Self::SourceMissing,
             FsError::SymlinkRejected(_) => Self::SymlinkRejected,
-            FsError::NotADirectory(_) => Self::DestinationInvalid("a path component is not a directory"),
+            FsError::NotADirectory(_) => {
+                Self::DestinationInvalid("a path component is not a directory")
+            }
             FsError::NotAFile(_) => Self::NotARegularFile,
             FsError::AlreadyExists(_) => Self::DestinationInvalid("the destination exists"),
             FsError::OutsideRoot => Self::DestinationInvalid("the path is outside the volume"),
