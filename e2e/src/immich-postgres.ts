@@ -38,16 +38,16 @@ async function command(program: string, args: string[], env: NodeJS.ProcessEnv):
  * images and actual Immich migrations, never a hand-written substitute schema.
  */
 export class ImmichPostgres {
+  readonly directory: string;
   readonly secretFile: string;
+  private readonly project: string;
   private readonly composeFile: string;
   private readonly env: NodeJS.ProcessEnv;
   private started = false;
 
-  private constructor(
-    readonly directory: string,
-    private readonly project: string,
-    password: string,
-  ) {
+  private constructor(directory: string, project: string, password: string) {
+    this.directory = directory;
+    this.project = project;
     this.secretFile = join(directory, 'database-url');
     this.composeFile = join(directory, 'compose.yml');
     this.env = {
@@ -208,7 +208,7 @@ export class ImmichPostgres {
     await writeFile(this.secretFile, `${url.toString()}\n`, { mode: 0o600 });
   }
 
-  private rawSql(sql: string) {
+  private rawSql(sql: string, guard?: string) {
     return this.compose([
       'exec',
       '-T',
@@ -222,8 +222,10 @@ export class ImmichPostgres {
       'postgres',
       '-d',
       DATABASE,
+      ...(guard ? ['-c', 'BEGIN', '-c', guard] : []),
       '-c',
       sql,
+      ...(guard ? ['-c', 'COMMIT'] : []),
     ]);
   }
 
@@ -234,7 +236,7 @@ export class ImmichPostgres {
       (SELECT shobj_description(oid, 'pg_database') FROM pg_database
        WHERE datname = current_database()) IS DISTINCT FROM '${MARKER}'
       THEN RAISE EXCEPTION 'disposable database marker missing'; END IF; END $$;`;
-    return this.rawSql(`BEGIN; ${guard} ${sql}; COMMIT;`);
+    return this.rawSql(sql, guard);
   }
 
   /** Seed mock identities and scanned assets into the upstream schema, with matching UUIDs. */
