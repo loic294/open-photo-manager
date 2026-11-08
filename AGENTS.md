@@ -162,6 +162,9 @@ the parallel work protocol at the end of this file). Never edit a merged migrati
   `implementing-empty-folder-cleanup`: `plans/cleanup.rs`.
 - `building-immich-client`: `immich/{client,crypto,models}.rs`, `api/immich.rs`.
   `syncing-immich-assets`: `immich/sync.rs`. `reflecting-file-ops-in-immich`: `immich/outbox/**`.
+- `updating-immich-move-paths`: `immich/direct_db/**`, `immich/direct_db.rs`,
+  `immich/outbox/direct.rs`, generic FsOps move guard, migration `0140` (reserved block `0140-0149`).
+  The outbox's existing migration block remains `0120-0139`.
 - DTO files (`apm-core/src/dto/`): each owner edits only the file of their area; `common.rs` is
   shared, change it additively. The `plans.rs` and `immich.rs` files have one marked section per todo.
 - Server paths are under `crates/apm-server/src/`, core paths under `crates/apm-core/src/`.
@@ -362,6 +365,9 @@ submits ONE `ImmichCleanup` task on the `immich` lane once file operations were 
   file is absent from the volume. Keep every new Immich write behind the same rules.
 - Routes: `GET /api/immich/outbox`, `POST /api/immich/outbox/retry` and `/dismiss`; the counts are
   `ImmichStatusDto.outbox`.
+- Direct in-library moves require executor preflight; the local OpHook only activates a durable
+  intent. For direct-DB changes, run the explicit real-v3.3.3 gate in
+  `docker/immich-postgres-test.md`; ordinary ignored-test output is not a passed gate.
 - Tests: `tests/immich_outbox_{flow,faults,api,loop}.rs` use the helpers of `tests/immich_support`
   (`Fixture::connected_with(tweak)`, `photos_in`, `move_file`, `make_due` between two passes, since
   a pass never looks at a row twice within the 15 s settle time; `FakeImmich::set_latency`,

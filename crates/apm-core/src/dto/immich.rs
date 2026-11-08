@@ -143,6 +143,17 @@ mod connection {
         /// How the outbox of file operations stands, from stored data only. `null` when
         /// disconnected.
         pub outbox: Option<OutboxSummary>,
+        /// Persisted result of the last executor probe, not a promise of current availability.
+        pub direct_database: ImmichDirectDatabaseStatus,
+    }
+
+    #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, TS)]
+    #[ts(export)]
+    pub struct ImmichDirectDatabaseStatus {
+        pub ready: bool,
+        pub reason: String,
+        pub checked_at: Option<i64>,
+        pub warning: String,
     }
 
     /// Result of `DELETE /api/immich/connection`.
@@ -356,6 +367,12 @@ mod connection {
                     last_error: None,
                     scans_on_demand: true,
                 }),
+                direct_database: ImmichDirectDatabaseStatus {
+                    ready: false,
+                    reason: "not checked".to_owned(),
+                    checked_at: None,
+                    warning: "Keep a current backup".to_owned(),
+                },
             };
             let wire = roundtrip(&connected);
             assert_eq!(wire["mode"], "full");
@@ -377,6 +394,7 @@ mod connection {
                 outbox_pending: 0,
                 needs_attention: 0,
                 outbox: None,
+                direct_database: connected.direct_database.clone(),
             };
             assert_eq!(roundtrip(&disconnected)["mode"], "disconnected");
             assert_eq!(roundtrip(&disconnected)["outbox"], json!(null));

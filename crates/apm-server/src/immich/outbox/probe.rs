@@ -46,6 +46,55 @@ pub(super) async fn probe(volumes: &VolumeRegistry, place: &Place) -> Disk {
         .unwrap_or(Disk::Unknown)
 }
 
+/// Direct path writes need the exact directory-entry bytes and a regular file,
+/// not a case-insensitive alias or a directory. API deletion deliberately keeps
+/// the more conservative stat-only probe above.
+pub(super) async fn probe_exact_file(volumes: &VolumeRegistry, place: &Place) -> Disk {
+    let Ok(root) = volumes.get(place.volume_id) else {
+        return Disk::Unknown;
+    };
+    let Some(rel) = rel_of(place) else {
+        return Disk::Unknown;
+    };
+    tokio::task::spawn_blocking(move || {
+        let mut parent = RelPath::root();
+        for name in rel.components() {
+            let directory = match root.resolve_dir(&parent) {
+                Ok(path) => path,
+                Err(FsError::NotFound(_)) => return Disk::Absent,
+                Err(_) => return Disk::Unknown,
+            };
+            let Ok(entries) = std::fs::read_dir(directory) else {
+                return Disk::Unknown;
+            };
+            let mut found = false;
+            for entry in entries {
+                let Ok(entry) = entry else {
+                    return Disk::Unknown;
+                };
+                if entry.file_name() == std::ffi::OsStr::new(name) {
+                    found = true;
+                    break;
+                }
+            }
+            if !found {
+                return Disk::Absent;
+            }
+            let Ok(next) = parent.join(name) else {
+                return Disk::Unknown;
+            };
+            parent = next;
+        }
+        match root.stat(&rel) {
+            Ok(metadata) if metadata.is_file() => Disk::Present,
+            Err(FsError::NotFound(_)) => Disk::Absent,
+            Ok(_) | Err(_) => Disk::Unknown,
+        }
+    })
+    .await
+    .unwrap_or(Disk::Unknown)
+}
+
 #[cfg(test)]
 mod tests {
     #![allow(clippy::unwrap_used, clippy::expect_used)]

@@ -53,6 +53,13 @@ export function sampleImmichStatus(overrides: Partial<ImmichStatusDto> = {}): Im
       last_error: null,
       scans_on_demand: true,
     },
+    direct_database: {
+      ready: false,
+      reason: 'Direct database access has not been checked.',
+      checked_at: null,
+      warning:
+        'Direct SQL modification is not officially supported by Immich v3.3.3. Keep a current backup. An active scan can import a duplicate.',
+    },
     ...overrides,
   };
 }

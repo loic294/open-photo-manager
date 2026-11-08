@@ -38,6 +38,8 @@ pub enum FsOpError {
     /// The volume is mounted read-only (every mutation is refused).
     #[error("the volume is read-only")]
     VolumeReadOnly,
+    #[error("{0}")]
+    ImmichMoveRefused(String),
     /// The location is not allowed: the volume root, the trash, a directory or link where a
     /// regular file must go, a name the scanner would ignore.
     #[error("invalid location: {0}")]
@@ -85,6 +87,7 @@ impl FsOpError {
             Self::VolumeOffline => "volume_offline",
             Self::UnknownVolume => "unknown_volume",
             Self::VolumeReadOnly => "volume_read_only",
+            Self::ImmichMoveRefused(_) => "immich_move_refused",
             Self::DestinationInvalid(_) => "destination_invalid",
             Self::NameTooLong => "name_too_long",
             Self::NoSpace => "no_space",
@@ -189,6 +192,7 @@ impl From<FsOpError> for AppError {
             | FsOpError::VolumeReadOnly
             | FsOpError::Cancelled
             | FsOpError::NotEmpty => Self::new(StatusCode::CONFLICT, code, message),
+            FsOpError::ImmichMoveRefused(_) => Self::new(StatusCode::CONFLICT, code, message),
             FsOpError::NoSpace => Self::new(StatusCode::INSUFFICIENT_STORAGE, code, message),
             FsOpError::VerifyFailed | FsOpError::Io(_) | FsOpError::Aborted => {
                 Self::new(StatusCode::INTERNAL_SERVER_ERROR, code, message)

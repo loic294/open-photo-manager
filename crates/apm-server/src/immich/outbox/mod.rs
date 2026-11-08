@@ -165,6 +165,7 @@ mod carry;
 mod check;
 mod consts;
 mod decide;
+mod direct;
 mod hook;
 mod merge;
 mod pass;
@@ -178,6 +179,7 @@ mod store;
 #[cfg(test)]
 mod test_support;
 
+pub use direct::MovePreflight;
 pub use hook::OutboxHook;
 pub use service::ImmichOutbox;
 pub use signal::OutboxSignal;

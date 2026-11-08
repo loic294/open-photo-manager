@@ -21,6 +21,28 @@ use sqlx::SqliteConnection;
 
 use super::Loc;
 
+/// Executor guard before a final destination is touched. Unlike OpHook, this
+/// runs outside SQLite transactions and may wait for an external service.
+pub trait MoveGuard: Send + Sync {
+    fn check<'a>(
+        &'a self,
+        src: &'a Loc,
+        dst: &'a Loc,
+        sidecars: &'a [(Loc, Loc)],
+    ) -> BoxFuture<'a, Result<(), super::FsOpError>>;
+    /// Drops only inert intent for this attempt. An identical sidecar destination
+    /// is a verified copy even though the transfer did not fire an OpHook.
+    fn settled<'a>(
+        &'a self,
+        src: &'a Loc,
+        dst: &'a Loc,
+        identical: bool,
+    ) -> BoxFuture<'a, Result<(), super::FsOpError>> {
+        let _ = (src, dst, identical);
+        Box::pin(async { Ok(()) })
+    }
+}
+
 /// What an operation did, as the hooks see it. The data is owned so a hook can keep it.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum AppliedOp {

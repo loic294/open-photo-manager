@@ -30,6 +30,26 @@ export class ApmSettingsImmich extends ApmElement {
           status.connected
             ? html`
           <apm-immich-mappings></apm-immich-mappings>
+          <section class="card border border-base-300 bg-base-200">
+            <div class="card-body gap-4 min-w-0">
+              <h2 class="card-title">Direct database path updates</h2>
+              <p>${status.direct_database.reason}</p>
+              <p>Last executor check: ${
+                status.direct_database.checked_at == null
+                  ? 'not yet'
+                  : new Date(status.direct_database.checked_at * 1000).toLocaleString()
+              }.
+                Every tracked move checks again before moving a file.</p>
+              <div class="alert alert-warning" role="alert"><span>${status.direct_database.warning}</span></div>
+              <p>Mount a read-only secret file and set <code>APM_IMMICH_DATABASE_URL_FILE</code>
+                on the server. The PostgreSQL URL must use <code>sslmode=verify-full</code>
+                and a trusted CA. No database password is stored in these settings.</p>
+              <p>If database access is missing, unavailable or incompatible, tracked in-library
+                moves are refused: no file is moved. Fix the reported problem and retry.
+                Untracked files can continue. If access fails after a file moves, its path update
+                stays in the durable outbox with a warning; it is not confirmed as successful.</p>
+            </div>
+          </section>
           <apm-immich-sync></apm-immich-sync>
           <apm-immich-outbox></apm-immich-outbox>
         `

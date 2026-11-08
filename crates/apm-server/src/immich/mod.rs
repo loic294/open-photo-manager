@@ -85,6 +85,7 @@ pub mod client;
 mod connect;
 pub mod crypto;
 mod detect;
+pub mod direct_db;
 pub mod error;
 mod mapping;
 pub mod models;
@@ -132,6 +133,7 @@ pub struct ImmichService {
 
 struct Inner {
     db: Db,
+    move_database: Arc<dyn direct_db::MoveDatabase>,
     /// Where the key file of `crypto` lives.
     data_dir: PathBuf,
     /// Held for the whole of a connect or a disconnect so two of them never interleave: each
@@ -185,9 +187,32 @@ impl ImmichService {
     }
 
     fn with_timing(db: Db, data_dir: PathBuf, timing: Timing) -> Self {
+        Self::build(
+            db,
+            data_dir,
+            timing,
+            Arc::new(direct_db::PostgresMoves::new(None)),
+        )
+    }
+
+    pub fn with_move_database(
+        db: Db,
+        data_dir: PathBuf,
+        database: Arc<dyn direct_db::MoveDatabase>,
+    ) -> Self {
+        Self::build(db, data_dir, Timing::default(), database)
+    }
+
+    fn build(
+        db: Db,
+        data_dir: PathBuf,
+        timing: Timing,
+        move_database: Arc<dyn direct_db::MoveDatabase>,
+    ) -> Self {
         Self {
             inner: Arc::new(Inner {
                 db,
+                move_database,
                 data_dir,
                 gate: Mutex::new(()),
                 cache: Mutex::new(None),
@@ -195,6 +220,42 @@ impl ImmichService {
                 timing,
             }),
         }
+    }
+
+    pub(crate) fn move_database(&self) -> &dyn direct_db::MoveDatabase {
+        self.inner.move_database.as_ref()
+    }
+
+    /// Executor-only probe; never called by a request handler or local SQLite hook.
+    pub(crate) async fn probe_move_database(&self) -> Result<(), direct_db::DbMoveError> {
+        let result = match self.client().await {
+            Ok(client) => match client.about().await {
+                Ok(about) => self.move_database().probe(&about.version).await,
+                Err(_) => Err(direct_db::DbMoveError::Unavailable),
+            },
+            Err(_) => Err(direct_db::DbMoveError::Unavailable),
+        };
+        let reason = result.map_or_else(|error| error.to_string(),
+            |()| "Compatible Immich v3.3.3 database verified. Tracked moves still require per-asset checks.".to_owned());
+        let mut tx = self
+            .inner
+            .db
+            .begin_write()
+            .await
+            .map_err(|_| direct_db::DbMoveError::Unavailable)?;
+        sqlx::query(
+            "UPDATE immich_direct_db_state SET ready = ?, reason = ?, checked_at = ? WHERE id = 1",
+        )
+        .bind(result.is_ok())
+        .bind(reason)
+        .bind(crate::db::now_secs())
+        .execute(&mut *tx)
+        .await
+        .map_err(|_| direct_db::DbMoveError::Unavailable)?;
+        tx.commit()
+            .await
+            .map_err(|_| direct_db::DbMoveError::Unavailable)?;
+        result
     }
 
     /// The client of the stored connection: [`ImmichError::NotConnected`] without one,
@@ -263,6 +324,7 @@ impl ImmichService {
                 outbox_pending: 0,
                 needs_attention: 0,
                 outbox: None,
+                direct_database: direct_db::status(db).await?,
             });
         };
 
@@ -300,6 +362,7 @@ impl ImmichService {
             outbox_pending: u32::try_from(outbox.pending).unwrap_or(u32::MAX),
             needs_attention: u32::try_from(outbox.attention).unwrap_or(u32::MAX),
             outbox: Some(outbox),
+            direct_database: direct_db::status(db).await?,
         })
     }
 

@@ -57,6 +57,8 @@ pub struct Config {
     /// `APM_IMMICH_QUIET_SECS` (default 15, 1 to 600): how long file operations must have been
     /// quiet before the changes they queued are mirrored into Immich (see `immich::outbox`).
     pub immich_quiet_secs: u64,
+    /// Read-only secret file; its content is read/redacted only in the PostgreSQL adapter.
+    pub immich_database_url_file: Option<PathBuf>,
     /// `APM_INDEX_CONCURRENCY` (default `min(2, cores)`, at least 1): files the
     /// indexer processes at once.
     pub index_concurrency: usize,
@@ -136,6 +138,7 @@ impl Config {
             listen,
             allowed_hosts,
             immich_quiet_secs,
+            immich_database_url_file: var("APM_IMMICH_DATABASE_URL_FILE").map(PathBuf::from),
             index_concurrency,
             log: var("APM_LOG").unwrap_or_else(|| DEFAULT_LOG.to_owned()),
             web_dir: var("APM_WEB_DIR")
@@ -154,6 +157,7 @@ impl Config {
             listen: SocketAddr::from(([127, 0, 0, 1], 0)),
             allowed_hosts: vec!["localhost".to_owned()],
             immich_quiet_secs: 1,
+            immich_database_url_file: None,
             index_concurrency: 1,
             log: "warn".to_owned(),
             web_dir: dir.join("web"),

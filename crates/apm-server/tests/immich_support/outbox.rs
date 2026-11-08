@@ -10,6 +10,7 @@
 //!
 //! The table is read with plain SQL on purpose, like in the asset sync tests.
 
+use std::sync::Arc;
 use std::time::Duration;
 
 use apm_core::dto::common::ConflictPolicy;
@@ -27,6 +28,22 @@ use serde_json::Value;
 use super::{Fixture, entry, eventually};
 use crate::common::Tree;
 use crate::common::fsops::{loc, request};
+
+/// Models operations journaled BEFORE direct-DB preflight existed. Existing
+/// scan/carry/delete tests cover that persisted queue's recovery, not new moves.
+/// New direct-move tests use the production outbox guard instead of this fixture.
+struct PreUpgradeMove;
+
+impl apm_server::fsops::MoveGuard for PreUpgradeMove {
+    fn check<'a>(
+        &'a self,
+        _: &'a apm_server::fsops::Loc,
+        _: &'a apm_server::fsops::Loc,
+        _: &'a [(apm_server::fsops::Loc, apm_server::fsops::Loc)],
+    ) -> futures_util::future::BoxFuture<'a, Result<(), apm_server::fsops::FsOpError>> {
+        Box::pin(async { Ok(()) })
+    }
+}
 
 /// A row of `immich_outbox`.
 #[derive(Clone, Debug, PartialEq, Eq, sqlx::FromRow)]
@@ -197,6 +214,8 @@ impl Fixture {
             .app
             .state
             .fsops
+            .clone()
+            .with_move_guard(Arc::new(PreUpgradeMove))
             .move_file(
                 request(
                     loc(from.0.volume_id, from.1),
@@ -236,6 +255,8 @@ impl Fixture {
             .app
             .state
             .fsops
+            .clone()
+            .with_move_guard(Arc::new(PreUpgradeMove))
             .move_group(group, &OpContext::detached())
             .await
             .unwrap();

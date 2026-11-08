@@ -511,7 +511,8 @@ pub(super) async fn reset_failures(db: &Db) -> Result<(), DbError> {
 pub(super) async fn summary(db: &Db, scans_on_demand: bool) -> Result<OutboxSummary, DbError> {
     let (pending, waiting, attention, oldest): (i64, i64, i64, Option<i64>) = sqlx::query_as(
         "SELECT COALESCE(SUM(state = 'pending'), 0), \
-         COALESCE(SUM(state = 'pending' AND stage = 1), 0), \
+         COALESCE(SUM(state = 'pending' AND stage = 1 AND NOT EXISTS \
+         (SELECT 1 FROM immich_direct_move d WHERE d.outbox_id = immich_outbox.id AND d.queued = 1)), 0), \
          COALESCE(SUM(state = 'attention'), 0), \
          MIN(CASE WHEN state = 'pending' THEN created_at END) FROM immich_outbox",
     )
@@ -668,15 +669,26 @@ fn retry_statement(now: i64, ids: Option<&[i64]>) -> QueryBuilder<Sqlite> {
 /// Deletes the rows `ids`; how many there were.
 pub(super) async fn dismiss(db: &Db, ids: &[i64]) -> Result<u64, DbError> {
     let mut removed = 0;
+    let mut tx = db.begin_write().await?;
     for chunk in ids.chunks(ID_CHUNK) {
+        let mut proof = QueryBuilder::<Sqlite>::new(
+            "UPDATE immich_direct_move SET queued = 2 WHERE outbox_id IN (",
+        );
+        let mut list = proof.separated(", ");
+        for id in chunk {
+            list.push_bind(*id);
+        }
+        list.push_unseparated(")");
+        proof.build().execute(&mut *tx).await?;
         let mut query = QueryBuilder::<Sqlite>::new("DELETE FROM immich_outbox WHERE id IN (");
         let mut list = query.separated(", ");
         for id in chunk {
             list.push_bind(*id);
         }
         list.push_unseparated(")");
-        removed += query.build().execute(db.write()).await?.rows_affected();
+        removed += query.build().execute(&mut *tx).await?.rows_affected();
     }
+    tx.commit().await?;
     Ok(removed)
 }
 
@@ -684,6 +696,15 @@ pub(super) async fn dismiss(db: &Db, ids: &[i64]) -> Result<u64, DbError> {
 /// server it was queued for.
 pub(super) async fn clear(db: &Db) -> Result<(), DbError> {
     let mut tx = db.begin_write().await?;
+    sqlx::query("DELETE FROM immich_direct_move")
+        .execute(&mut *tx)
+        .await?;
+    sqlx::query(
+        "UPDATE immich_direct_db_state SET ready = 0, checked_at = NULL,
+        reason = 'Direct database access must be checked for this connection.' WHERE id = 1",
+    )
+    .execute(&mut *tx)
+    .await?;
     sqlx::query("DELETE FROM immich_outbox")
         .execute(&mut *tx)
         .await?;

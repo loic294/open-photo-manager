@@ -13,6 +13,8 @@ const MESSAGES: Readonly<Record<string, string>> = {
   immich_error: 'Immich refused the request. Check the connection and try again.',
   immich_not_mapped: 'Map a volume to Immich before syncing.',
   immich_unavailable: 'Immich is not available. Updates will retry when it is back.',
+  database_update_pending:
+    'The file moved, but its Immich path update is not confirmed yet. It is durably queued for retry.',
   unreadable: 'The volume could not be read. Check that it is online.',
   not_offline: 'Immich still shows the old asset online. Rescan its library before retrying.',
   scan_timeout: 'Immich has not noticed the change. Rescan its library and retry.',

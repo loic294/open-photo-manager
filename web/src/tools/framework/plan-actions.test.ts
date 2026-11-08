@@ -1,11 +1,14 @@
+import { render } from 'lit';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { api } from '@/api/client';
 import { ApiError } from '@/api/errors';
 import type { SelectionDto } from '@/api/generated/SelectionDto';
 import { confirmDialog } from '@/components/confirm-dialog';
+import { applyImmichStatus, resetImmichForTests } from '@/stores/immich';
 import { trackPlanRun } from '@/stores/plan-runs';
 import { resetSelectionForTests, selection } from '@/stores/selection';
 import { clearToasts, toasts } from '@/stores/toasts';
+import { sampleImmichStatus } from '@/test/immich-fixtures';
 import { makeTask } from '@/test/task-fixtures';
 import { FakePlan, plainPane, toolConfig } from '@/test/tool-config';
 import { executePlanAction, type PlanActionSpec } from '@/tools/framework/plan-actions';
@@ -35,10 +38,10 @@ const spec = (patch: Partial<PlanActionSpec> = {}): PlanActionSpec => ({
   ...patch,
 });
 
-function setup() {
+function setup(tool: 'duplicates' | 'move' | 'format' = 'duplicates') {
   const ctx = createToolContext(
     toolConfig({
-      id: 'duplicates',
+      id: tool,
       plan: { kind: 'duplicates', params: () => ({ ready: true, params: {} }) },
       panes: {
         source: { ...plainPane('Source'), planSide: 'source' },
@@ -66,12 +69,33 @@ beforeEach(() => {
 });
 afterEach(() => {
   resetSelectionForTests();
+  resetImmichForTests();
   clearToasts();
   vi.restoreAllMocks();
   vi.clearAllMocks();
 });
 
 describe('effective selection and execution', () => {
+  it.each(['move', 'format'] as const)(
+    'shows the unsupported-write and outage warning for %s confirmation',
+    async (tool) => {
+      const status = sampleImmichStatus();
+      status.direct_database.warning =
+        'Unsupported direct SQL. Keep a current backup; scans can race.';
+      applyImmichStatus(status);
+      const { ctx } = setup(tool);
+      await executePlanAction(ctx, spec());
+      const confirmation = vi.mocked(confirmDialog).mock.calls[0]?.[0];
+      const container = document.createElement('div');
+      render(confirmation?.message, container);
+      expect(container.textContent).toContain('Move them to trash');
+      expect(container.textContent).toContain('current backup');
+      expect(container.textContent).toContain('scans can race');
+      expect(container.textContent).toContain('refused before moving files');
+      expect(container.textContent).toContain('queued for retry');
+    },
+  );
+
   it.each(['idle', 'building', 'executing', 'error'] as const)(
     'refuses a %s plan before any work',
     async (state) => {

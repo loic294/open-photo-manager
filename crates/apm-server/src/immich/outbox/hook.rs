@@ -58,6 +58,15 @@ impl OpHook for OutboxHook {
         op: &'a AppliedOp,
     ) -> BoxFuture<'a, Result<(), sqlx::Error>> {
         Box::pin(async move {
+            if let AppliedOp::Moved { from, to, .. } | AppliedOp::Copied { from, to, .. } = op {
+                super::direct::confirm_sidecar(tx, from, to).await?;
+            }
+            if let AppliedOp::Moved { file_id, from, to } = op
+                && super::direct::queue(tx, *file_id, from, to).await?
+            {
+                self.signal.enqueued();
+                return Ok(());
+            }
             let Some((key, effect)) = change_of(op) else {
                 return Ok(());
             };

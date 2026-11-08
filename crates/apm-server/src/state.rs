@@ -76,6 +76,24 @@ impl AppState {
 
         let outbox_signal = immich::outbox::OutboxSignal::new();
 
+        let immich = immich::ImmichService::with_move_database(
+            db.clone(),
+            config.data_dir.clone(),
+            Arc::new(immich::direct_db::PostgresMoves::new(
+                config.immich_database_url_file.clone(),
+            )),
+        );
+        let immich_sync = immich::ImmichSync::new(db.clone(), immich.clone(), tasks.clone());
+        let immich_outbox = immich::ImmichOutbox::new(
+            db.clone(),
+            immich.clone(),
+            immich_sync.clone(),
+            tasks.clone(),
+            volumes.clone(),
+            outbox_signal.clone(),
+            config.immich_quiet_secs,
+        );
+
         let fsops = fsops::FsOps::new(
             db.clone(),
             volumes.clone(),
@@ -84,7 +102,8 @@ impl AppState {
         )
         .with_hook(Arc::new(immich::outbox::OutboxHook::new(
             outbox_signal.clone(),
-        )));
+        )))
+        .with_move_guard(Arc::new(immich_outbox.clone()));
         fsops.reconcile_at_startup(shutdown.clone()).await;
 
         let index_jobs = indexer::IndexJobs::new(
@@ -102,20 +121,6 @@ impl AppState {
             volumes: volumes.clone(),
         })
         .await?;
-
-        let immich = immich::ImmichService::new(db.clone(), config.data_dir.clone());
-
-        let immich_sync = immich::ImmichSync::new(db.clone(), immich.clone(), tasks.clone());
-
-        let immich_outbox = immich::ImmichOutbox::new(
-            db.clone(),
-            immich.clone(),
-            immich_sync.clone(),
-            tasks.clone(),
-            volumes.clone(),
-            outbox_signal,
-            config.immich_quiet_secs,
-        );
 
         let trash = trash::TrashService::new(
             db.clone(),

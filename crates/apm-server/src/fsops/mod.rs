@@ -224,7 +224,7 @@ pub use failpoints::{FailAction, Failpoints, Step};
 pub use groups::{
     GroupOutcome, MoveGroup, SidecarAction, SidecarItem, SidecarOutcome, SidecarSkip,
 };
-pub use hooks::{AppliedOp, OpHook};
+pub use hooks::{AppliedOp, MoveGuard, OpHook};
 pub use reconcile::ReconcileReport;
 pub use self_writes::SelfWrites;
 pub use stat::{Expect, FileStat};
@@ -309,6 +309,7 @@ pub struct FsOps {
     pub(crate) indexer: Indexer,
     pub(crate) journal: Journal,
     hooks: Arc<Vec<Arc<dyn OpHook>>>,
+    move_guard: Option<Arc<dyn MoveGuard>>,
     self_writes: SelfWrites,
     pub(crate) mover: Arc<dyn Mover>,
     pub(crate) free_space: Arc<dyn FreeSpace>,
@@ -340,6 +341,7 @@ impl FsOps {
             settings,
             indexer,
             hooks: Arc::default(),
+            move_guard: None,
             self_writes: SelfWrites::new(),
             mover: Arc::new(SystemMover),
             free_space: Arc::new(SystemFreeSpace),
@@ -356,6 +358,24 @@ impl FsOps {
         hooks.push(hook);
         self.hooks = Arc::new(hooks);
         self
+    }
+
+    #[must_use]
+    pub fn with_move_guard(mut self, guard: Arc<dyn MoveGuard>) -> Self {
+        self.move_guard = Some(guard);
+        self
+    }
+
+    pub(crate) async fn guard_move(
+        &self,
+        src: &Loc,
+        dst: &Loc,
+        sidecars: &[(Loc, Loc)],
+    ) -> Result<(), FsOpError> {
+        match &self.move_guard {
+            Some(guard) => guard.check(src, dst, sidecars).await,
+            None => Ok(()),
+        }
     }
 
     /// Replaces the rename backend (tests force the cross-device copy with it).

@@ -19,6 +19,88 @@ filesystem and has a built-in health check. It is meant for a Synology NAS but r
 | `../scripts/build-image.sh` | Builds for one or several architectures; loads, pushes or exports the image |
 | `../.dockerignore` | Allowlist of what is sent to the builder (sources only, no `target/`, `node_modules/` or secrets) |
 
+## Immich direct database access
+
+Tracked in-library moves require **exactly Immich v3.3.3**. The API still handles
+offline-confirmed asset deletion. Direct SQL writes are not officially supported
+by Immich: keep a current backup, pause watching and scheduled/manual scans, and
+drain queued scan jobs. A PostgreSQL transaction does **not** serialize with those
+jobs; an active scan can still race, import a duplicate or remove the old asset.
+This contract is derived from the immutable
+[v3.3.3 source](https://github.com/immich-app/immich/tree/d2dac658fe1c67e8bbd08aa18200a32e5d45b9e4)
+and its [database-write warning](https://github.com/immich-app/immich/blob/d2dac658fe1c67e8bbd08aa18200a32e5d45b9e4/docs/docs/guides/database-queries.md),
+not an officially supported move API.
+
+Create a separate Compose override rather than publishing PostgreSQL's port.
+The example below joins APM to the existing Immich database's private Docker
+network; replace its name and the host-side secret paths to match your setup:
+
+```yaml
+services:
+  apm:
+    environment:
+      APM_IMMICH_DATABASE_URL_FILE: /run/secrets/immich-postgres-url
+    volumes:
+      - /volume1/docker/apm/secrets/immich-postgres-url:/run/secrets/immich-postgres-url:ro
+      - /volume1/docker/apm/secrets/immich-postgres-ca:/run/secrets/immich-postgres-ca:ro
+    networks:
+      - default
+      - immich_database
+networks:
+  immich_database:
+    external: true
+    name: immich_backend
+```
+
+The URL file contains a single PostgreSQL URL. Use the database's **private DNS
+name**, which must match its TLS certificate, explicit `sslmode=verify-full` and
+`sslrootcert=/run/secrets/immich-postgres-ca`. URL-encode credentials and restrict
+host-file permissions to the APM container's numeric uid/gid. Never place the URL
+in the browser, a settings field, source control or logs. There is no plaintext
+database-password UI and no direct URL environment variable; only the dedicated
+adapter reads this read-only file. Restart APM after changing its configuration.
+Never publish host port 5432 or grant access to unrelated Docker networks.
+
+A database administrator should provision a dedicated role, not reuse Immich's
+superuser. It needs SELECT on `public.kysely_migrations`, `asset`, `asset_file`
+and `library`; UPDATE on `asset`'s `originalPath`, `originalFileName`, `checksum`
+and `asset_file.path`; and execution of the existing cursor-trigger functions and
+their dependencies. PostgreSQL's `FOR SHARE` library lock additionally requires
+UPDATE privilege on at least one library column: an administrator can choose
+`name` as that limited grant; APM does not issue a library UPDATE. Do not grant
+DDL, deletion, schema ownership, superuser, trigger-disabling or role-management
+permissions. Test the grants against a backed-up disposable copy first.
+
+Settings reports the last executor readiness reason without exposing the secret.
+Every tracked move checks API version, exact migration state, schema, ownership,
+library boundaries, supported exclusions and destination collisions before
+replacing, transferring or changing sidecars. A failed preflight refuses that
+item with **"No file was moved"** and recovery instructions; unrelated untracked
+items continue. A database failure after movement remains durably queued with
+an **unconfirmed path update** warning. Finish/retry it before moving that file
+again. APM's tracked classification uses its synchronized Immich index: refresh
+sync before moving; API-invisible locked assets are not discovered by that index.
+
+The supported exclusion subset is the six v3.3.3 defaults (`**/@eaDir/**`,
+`**/._*`, `**/#recycle/**`, `**/#snapshot/**`, `**/.stversions/**`,
+`**/.stfolder/**`) plus `**/.apm-trash/**`, with case-insensitive matching.
+Unsupported custom globs fail closed with a specific warning. In-place moves
+cannot cross libraries, change `libraryId`, or enter excluded/out-of-library
+paths. Moves outside mapped libraries and trash keep the existing API deletion
+checks. Linked sidecar updates use each asset's actual copied/moved destination;
+a shared source sidecar may intentionally remain.
+
+For stored checksum algorithm `sha1-path`, the same transaction updates the
+digest using Immich's official `sha1("path:" + path.posix.normalize(newPath))`;
+this allows later imports at the vacated source path. Stored algorithm `sha1`
+(upstream `sha1File`) remains byte-for-byte unchanged. Unknown algorithms and
+destination path/checksum ownership collisions are refused. UUIDs/associations
+and enabled timestamp/updateId triggers are preserved.
+
+Before changing this adapter, run the mandatory isolated real-schema gate in
+[immich-postgres-test.md](immich-postgres-test.md). An ignored test is not a
+successful PostgreSQL gate.
+
 ## Private GHCR publishing
 
 The normal installation path is [the root README](../README.md), using the private image

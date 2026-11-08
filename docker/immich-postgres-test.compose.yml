@@ -1,0 +1,61 @@
+name: apm-immich-move-paths-test
+
+services:
+  database:
+    image: ghcr.io/immich-app/postgres:14-vectorchord0.4.3-pgvectors0.2.0@sha256:bcf63357191b76a916ae5eb93464d65c07511da41e3bf7a8416db519b40b1c23
+    environment:
+      POSTGRES_DB: apm_immich_test_v333
+      POSTGRES_USER: postgres
+      POSTGRES_PASSWORD: ${APM_IMMICH_TEST_PASSWORD:?Generate a throwaway test password}
+      POSTGRES_INITDB_ARGS: --data-checksums
+    entrypoint:
+      - /bin/sh
+      - -ec
+      - |
+        mkdir -p /run/apm-pg-tls
+        cp /test-tls/server.crt /test-tls/server.key /run/apm-pg-tls/
+        chown -R postgres:postgres /run/apm-pg-tls
+        chmod 600 /run/apm-pg-tls/server.key
+        exec /usr/local/bin/docker-entrypoint.sh postgres \
+          -c ssl=on \
+          -c ssl_cert_file=/run/apm-pg-tls/server.crt \
+          -c ssl_key_file=/run/apm-pg-tls/server.key
+    ports:
+      - 127.0.0.1:25432:5432
+    volumes:
+      - ${APM_IMMICH_TEST_DIR:?Use a task-owned directory}/tls:/test-tls:ro
+      - test-postgres:/var/lib/postgresql/data
+    shm_size: 128mb
+    healthcheck:
+      test: ["CMD", "pg_isready", "-U", "postgres", "-d", "apm_immich_test_v333"]
+      interval: 2s
+      timeout: 2s
+      retries: 60
+  redis:
+    image: docker.io/valkey/valkey:9@sha256:c123e3715db63d06d4ad6964884037aa0d5d4d703939b9929954112889708e1d
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 2s
+      timeout: 2s
+      retries: 60
+  server:
+    image: ghcr.io/immich-app/immich-server:v3.3.3
+    environment:
+      DB_HOSTNAME: database
+      DB_PORT: "5432"
+      DB_USERNAME: postgres
+      DB_PASSWORD: ${APM_IMMICH_TEST_PASSWORD:?Generate a throwaway test password}
+      DB_DATABASE_NAME: apm_immich_test_v333
+      REDIS_HOSTNAME: redis
+      IMMICH_MACHINE_LEARNING_ENABLED: "false"
+    volumes:
+      - test-upload:/data
+    depends_on:
+      database:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+
+volumes:
+  test-postgres:
+  test-upload:

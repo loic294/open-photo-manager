@@ -1,9 +1,11 @@
+import { html } from 'lit';
 import { isApiError } from '@/api/errors';
 import type { PlanSide } from '@/api/generated/PlanSide';
 import type { SelectionDto } from '@/api/generated/SelectionDto';
 import { createPlanSelection, executePlan } from '@/api/plans';
 import { type ConfirmOptions, confirmDialog } from '@/components/confirm-dialog';
 import { toast } from '@/components/toast';
+import { immichStatus } from '@/stores/immich';
 import { PANES } from '@/stores/nav';
 import { trackPlanRun } from '@/stores/plan-runs';
 import type { ToolContext } from '@/tools/framework/tool-context';
@@ -43,17 +45,24 @@ export async function executePlanAction(ctx: ToolContext, spec: PlanActionSpec):
         return;
       }
     }
-    if (
-      spec.confirm &&
-      !(await confirmDialog(
-        spec.confirm({
-          count: selection?.item_count ?? null,
-          bytes: selection?.total_size ?? null,
-          selected,
-        }),
-      ))
-    )
-      return;
+    const confirmation = spec.confirm?.({
+      count: selection?.item_count ?? null,
+      bytes: selection?.total_size ?? null,
+      selected,
+    });
+    const database = immichStatus.peek()?.direct_database;
+    if (confirmation && ['move', 'format'].includes(ctx.tool)) {
+      confirmation.message = html`<div class="flex flex-col gap-4">
+        <div>${confirmation.message}</div>
+        <div class="alert alert-warning" role="alert"><span>${
+          database?.warning ??
+          'For Immich-tracked files, direct SQL updates are not officially supported by Immich v3.3.3. Keep a current backup: an active or queued filesystem scan can race with a move.'
+        }</span></div>
+        <p>Tracked moves are refused before moving files if database checks fail.
+          An outage after a file moves leaves an unconfirmed path update queued for retry.</p>
+      </div>`;
+    }
+    if (spec.confirm && confirmation && !(await confirmDialog(confirmation))) return;
     // Navigation/filters may have changed while numbers or confirmation were on screen.
     if (binding.status !== 'ready' || binding.planId !== planId) {
       toast.warning('The matches changed. Check the updated plan and try again.');

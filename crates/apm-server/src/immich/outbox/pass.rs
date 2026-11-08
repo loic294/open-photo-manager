@@ -66,6 +66,9 @@ pub(super) struct Report {
     pub carried: usize,
     /// Old assets it removed from Immich.
     pub deleted: usize,
+    /// Id-preserving direct database updates (including confirmed retry).
+    pub paths_updated: usize,
+    pub paths_unconfirmed: usize,
     /// Rows whose old asset was gone from Immich already.
     pub gone: usize,
     /// Rows the world had overtaken (the file came back, the asset came online again).
@@ -87,7 +90,11 @@ pub(super) struct Report {
 impl Report {
     /// Whether the pass changed what Immich shows, so that reading its list again is worth it.
     pub fn changed(&self) -> bool {
-        self.scans > 0 || self.carried > 0 || self.deleted > 0 || self.gone > 0
+        self.paths_updated > 0
+            || self.scans > 0
+            || self.carried > 0
+            || self.deleted > 0
+            || self.gone > 0
     }
 
     fn finished(&mut self, finish: Finish) {
@@ -166,6 +173,33 @@ pub(super) async fn run(env: &Env<'_>, report: &mut Report) -> Result<(), PassEr
     if rows.is_empty() {
         return Ok(());
     }
+    let mut api_rows = Vec::new();
+    for row in rows {
+        ensure_running(env.ctx)?;
+        if let Some(json) = super::direct::request(env.db, row.id)
+            .await
+            .map_err(storage)?
+        {
+            let updated = cancellable(
+                env.ctx,
+                super::direct::apply(env.db, env.immich, env.volumes, &row, &json),
+            )
+            .await?
+            .map_err(storage)?;
+            if updated {
+                report.paths_updated += 1;
+            } else {
+                report.retried += 1;
+                report.paths_unconfirmed += 1;
+            }
+        } else {
+            api_rows.push(row);
+        }
+    }
+    if api_rows.is_empty() {
+        return direct_result(report);
+    }
+    let rows = api_rows;
     let client = env.immich.client().await.map_err(connection_lost)?;
     let map = env.immich.path_map().await.map_err(connection_lost)?;
     let Some(connection) = env.immich.connection().await.map_err(connection_lost)? else {
@@ -191,7 +225,19 @@ pub(super) async fn run(env: &Env<'_>, report: &mut Report) -> Result<(), PassEr
     let prepared = std::mem::take(&mut pass.prepared);
     let scans = ask_scans(env, &client, &prepared, connection.is_admin, pass.report).await?;
     conclude_prepared(env, &mut pass, &prepared, &scans).await?;
-    drive(env, shared, Phase::Check, &scanned, &mut pass).await
+    drive(env, shared, Phase::Check, &scanned, &mut pass).await?;
+    direct_result(pass.report)
+}
+
+fn direct_result(report: &Report) -> Result<(), PassError> {
+    if report.paths_unconfirmed > 0 {
+        Err(PassError::Failed(format!(
+            "{} files moved, but their Immich path updates are NOT confirmed. They remain durably queued. Check the outbox warnings and database configuration, then retry.",
+            report.paths_unconfirmed
+        )))
+    } else {
+        Ok(())
+    }
 }
 
 /// The volumes whose assets the rows have to look up by the place of a file in the stored copy of

@@ -25,7 +25,7 @@ use apm_core::dto::{
 };
 use apm_core::paths::TaskId;
 use serde_json::Value;
-use tokio::sync::Mutex;
+use tokio::sync::{Mutex, OnceCell};
 use tokio_util::sync::CancellationToken;
 
 use super::consts::{TICK, WAKE_DEBOUNCE, failure_backoff_secs};
@@ -68,6 +68,7 @@ struct Inner {
     dirty: AtomicBool,
     /// Held from the decision to start a pass to its submission.
     gate: Mutex<()>,
+    direct_initialized: OnceCell<()>,
 }
 
 /// What one look at the queue decided.
@@ -84,7 +85,57 @@ impl fmt::Debug for ImmichOutbox {
     }
 }
 
+impl crate::fsops::MoveGuard for ImmichOutbox {
+    fn check<'a>(
+        &'a self,
+        src: &'a crate::fsops::Loc,
+        dst: &'a crate::fsops::Loc,
+        sidecars: &'a [(crate::fsops::Loc, crate::fsops::Loc)],
+    ) -> futures_util::future::BoxFuture<'a, Result<(), crate::fsops::FsOpError>> {
+        Box::pin(async move {
+            self.preflight_move(src, dst, sidecars)
+                .await
+                .map(|_| ())
+                .map_err(|error| crate::fsops::FsOpError::ImmichMoveRefused(error.refusal()))
+        })
+    }
+    fn settled<'a>(
+        &'a self,
+        src: &'a crate::fsops::Loc,
+        dst: &'a crate::fsops::Loc,
+        identical: bool,
+    ) -> futures_util::future::BoxFuture<'a, Result<(), crate::fsops::FsOpError>> {
+        Box::pin(async move {
+            super::direct::settled(&self.inner.db, src, dst, identical)
+                .await
+                .map_err(crate::fsops::FsOpError::from)
+        })
+    }
+}
+
 impl ImmichOutbox {
+    /// Call from the move executor before any file is touched, with FINAL owner
+    /// and per-asset linked sidecar destinations. No remote I/O in OpHook.
+    pub async fn preflight_move(
+        &self,
+        src: &crate::fsops::Loc,
+        dst: &crate::fsops::Loc,
+        sidecars: &[(crate::fsops::Loc, crate::fsops::Loc)],
+    ) -> Result<super::MovePreflight, crate::immich::direct_db::DbMoveError> {
+        self.initialize_direct()
+            .await
+            .map_err(|_| crate::immich::direct_db::DbMoveError::Unavailable)?;
+        super::direct::preflight(&self.inner.db, &self.inner.immich, src, dst, sidecars).await
+    }
+
+    async fn initialize_direct(&self) -> Result<(), crate::db::DbError> {
+        self.inner
+            .direct_initialized
+            .get_or_try_init(|| async { super::direct::cleanup_at_start(&self.inner.db).await })
+            .await?;
+        Ok(())
+    }
+
     /// Nothing is read or sent here; see [`ImmichOutbox::start_background`]. `signal` is the line
     /// the hook wakes the scheduler on; `quiet_secs` is `immich_quiet_secs`.
     pub fn new(
@@ -109,6 +160,7 @@ impl ImmichOutbox {
                 forced: AtomicBool::new(false),
                 dirty: AtomicBool::new(false),
                 gate: Mutex::new(()),
+                direct_initialized: OnceCell::new(),
             }),
         }
     }
@@ -159,6 +211,7 @@ impl ImmichOutbox {
 
     /// The decision of the loop: submits a pass when the rule says so.
     async fn look(&self) -> Result<Look, AppError> {
+        self.initialize_direct().await?;
         let inner = &self.inner;
         let _gate = inner.gate.lock().await;
         let situation = self.situation().await?;
