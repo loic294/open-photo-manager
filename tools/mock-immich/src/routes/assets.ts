@@ -90,7 +90,7 @@ export const assetRoutes: Route[] = [
     return noContent();
   }),
 
-  route('DELETE', '/assets', { permission: 'asset.delete' }, ({ ctx, user, body }) => {
+  route('DELETE', '/assets', { permission: 'asset.delete' }, async ({ ctx, user, body }) => {
     const c = createChecker(body);
     c.only(['ids', 'force']);
     const ids = c.uuidList('ids');
@@ -98,6 +98,21 @@ export const assetRoutes: Route[] = [
     c.done();
     const assets = requireAssets(ctx, user, ids, 'asset.delete');
     const now = ctx.clock.now();
+    if (ctx.readOnlyBacking?.()) {
+      if (!ctx.beforeAssetDelete) {
+        throw new ApiError(503, 'backing store does not support mock mutations');
+      }
+      await ctx.beforeAssetDelete(
+        assets.map(({ id, ownerId, libraryId, originalPath }) => ({
+          id,
+          ownerId,
+          libraryId,
+          originalPath,
+        })),
+        force,
+        now,
+      );
+    }
     for (const asset of assets) {
       if (force) {
         forceDelete(ctx, asset);

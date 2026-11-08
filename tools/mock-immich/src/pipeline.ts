@@ -31,10 +31,12 @@ export function createRequestHandler(
   router: Router,
   control: ControlRouter,
 ): RequestHandler {
+  let pendingBacking = Promise.resolve();
   return async (req, res) => {
     const method = req.method ?? 'GET';
     const url = new URL(req.url ?? '/', 'http://mock-immich.invalid');
     const path = url.pathname;
+    const apiPath = path.replace(/\/+$/, '') || '/';
 
     if (path.startsWith('/__mock/')) {
       try {
@@ -82,25 +84,38 @@ export function createRequestHandler(
         return;
       }
 
+      const readBacking =
+        ctx.beforeAssetRead &&
+        ((method === 'GET' &&
+          (apiPath.startsWith('/api/assets/') || apiPath.startsWith('/api/libraries'))) ||
+          (method === 'POST' && apiPath === '/api/search/metadata'));
+      const deleteBacking =
+        method === 'DELETE' && apiPath === '/api/assets' && ctx.readOnlyBacking?.();
+      const dispatch = async () => {
+        if (readBacking || deleteBacking) await ctx.beforeAssetRead?.();
+        return router.dispatch(ctx, req, path, url.searchParams, body, entry);
+      };
       if (
         ctx.readOnlyBacking?.() &&
-        ((method === 'PUT' && (path === '/api/assets' || path.startsWith('/api/libraries/'))) ||
-          (method === 'DELETE' && path === '/api/assets') ||
-          (method === 'POST' && /^\/api\/libraries\/[^/]+\/scan$/.test(path)) ||
-          (method === 'PUT' && /^\/api\/albums\/[^/]+\/assets$/.test(path)) ||
-          (method === 'PUT' && path === '/api/tags/assets'))
+        ((method === 'PUT' &&
+          (apiPath === '/api/assets' || apiPath.startsWith('/api/libraries/'))) ||
+          (method === 'POST' && /^\/api\/libraries\/[^/]+\/scan$/.test(apiPath)) ||
+          (method === 'PUT' && /^\/api\/albums\/[^/]+\/assets$/.test(apiPath)) ||
+          (method === 'PUT' && apiPath === '/api/tags/assets'))
       ) {
         throw new ApiError(503, 'backing store does not support mock mutations');
       }
-      if (
-        ctx.beforeAssetRead &&
-        ((method === 'GET' &&
-          (path.startsWith('/api/assets/') || path.startsWith('/api/libraries'))) ||
-          (method === 'POST' && path === '/api/search/metadata'))
-      ) {
-        await ctx.beforeAssetRead();
+      let reply: Awaited<ReturnType<typeof dispatch>>;
+      if (readBacking || deleteBacking) {
+        const operation = pendingBacking.then(dispatch);
+        pendingBacking = operation.then(
+          () => undefined,
+          () => undefined,
+        );
+        reply = await operation;
+      } else {
+        reply = await dispatch();
       }
-      const reply = await router.dispatch(ctx, req, path, url.searchParams, body, entry);
       handle.done(reply.status);
       sendJson(res, reply.status, reply.body);
     } catch (error) {

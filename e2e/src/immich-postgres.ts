@@ -4,7 +4,11 @@ import { chmod, mkdir, mkdtemp, readFile, rm, writeFile } from 'node:fs/promises
 import { join } from 'node:path';
 import { setTimeout as delay } from 'node:timers/promises';
 import { promisify } from 'node:util';
-import type { BackingAssetPath, MockImmich } from '../../tools/mock-immich/index.ts';
+import type {
+  BackingAssetPath,
+  MockImmich,
+  MockImmichOptions,
+} from '../../tools/mock-immich/index.ts';
 import { cache, root } from './paths.ts';
 
 const exec = promisify(execFile);
@@ -260,15 +264,18 @@ export class ImmichPostgres {
     for (let offset = 0; offset < assets.length; offset += 40) {
       await this.sql(`
         INSERT INTO public.asset
-          (id, "ownerId", "libraryId", "isExternal", type, "originalPath", "originalFileName",
-           checksum, "checksumAlgorithm", "fileCreatedAt", "fileModifiedAt", "localDateTime")
+          (id, "ownerId", "libraryId", "isExternal", "isOffline", "deletedAt", type,
+           "originalPath", "originalFileName", checksum, "checksumAlgorithm",
+           "fileCreatedAt", "fileModifiedAt", "localDateTime")
         SELECT id::uuid, "ownerId"::uuid, "libraryId"::uuid, true,
+          "isOffline", "deletedAt"::timestamptz,
           (jsonb_populate_record(NULL::public.asset, jsonb_build_object('type', type))).type,
           "originalPath", "originalFileName", decode(checksum, 'base64'), 'sha1-path',
           "fileCreatedAt"::timestamptz, "fileModifiedAt"::timestamptz, "fileCreatedAt"::timestamp
         FROM jsonb_to_recordset(${sqlJson(assets.slice(offset, offset + 40))})
           AS x(id text, "ownerId" text, "libraryId" text, type text, "originalPath" text,
-               "originalFileName" text, checksum text, "fileCreatedAt" text, "fileModifiedAt" text)
+               "originalFileName" text, checksum text, "fileCreatedAt" text, "fileModifiedAt" text,
+               "isOffline" boolean, "deletedAt" text)
       `);
     }
     await this.refreshMock(mock);
@@ -282,6 +289,42 @@ export class ImmichPostgres {
       encode(checksum, 'base64') AS checksum, "updatedAt" AS "updatedAt"
       FROM public.asset ORDER BY id) a`);
     mock.control.reconcileAssetPaths(JSON.parse(json) as BackingAssetPath[]);
+  }
+
+  /** Persist an authenticated API deletion only if the database still has the same assets. */
+  async deleteAssets(
+    assets: Parameters<NonNullable<MockImmichOptions['beforeAssetDelete']>>[0],
+    force: boolean,
+    now: number,
+  ) {
+    const snapshot = assets.map(({ id, ownerId, libraryId, originalPath }) => ({
+      id,
+      ownerId,
+      libraryId,
+      originalPath,
+    }));
+    await this.sql(`
+      CREATE TEMP TABLE expected_delete ON COMMIT DROP AS
+        SELECT id::uuid, "ownerId"::uuid, "libraryId"::uuid, "originalPath"
+        FROM jsonb_to_recordset(${sqlJson(snapshot)})
+          AS x(id text, "ownerId" text, "libraryId" text, "originalPath" text);
+      DO $$ DECLARE matched integer; BEGIN
+        PERFORM a.id FROM public.asset a JOIN expected_delete e ON a.id = e.id FOR UPDATE OF a;
+        SELECT count(*) INTO matched FROM public.asset a JOIN expected_delete e
+          ON a.id = e.id AND a."ownerId" = e."ownerId" AND a."libraryId" = e."libraryId"
+          AND a."originalPath" = e."originalPath";
+        IF matched <> (SELECT count(*) FROM expected_delete) THEN
+          RAISE EXCEPTION 'mock asset identities differ from database';
+        END IF;
+      END $$;
+      ${
+        force
+          ? 'DELETE FROM public.asset WHERE id IN (SELECT id FROM expected_delete)'
+          : `UPDATE public.asset SET "deletedAt" = COALESCE("deletedAt", to_timestamp(${now} / 1000.0)),
+             "updatedAt" = to_timestamp(${now} / 1000.0)
+             WHERE id IN (SELECT id FROM expected_delete)`
+      }
+    `);
   }
 
   async stop() {

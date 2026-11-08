@@ -9,7 +9,7 @@ import type { AddressInfo } from 'node:net';
 import { createControl, createState, type MockControl, type MockState } from './control.ts';
 import { createControlRouter } from './control-http.ts';
 import { createFaults } from './faults.ts';
-import type { MockContext, Settings } from './mock.ts';
+import type { BackingDeleteAsset, MockContext, Settings } from './mock.ts';
 import { normaliseMounts } from './mounts.ts';
 import { createRequestHandler } from './pipeline.ts';
 import { createRequestLog } from './requestlog.ts';
@@ -43,6 +43,12 @@ export interface MockImmichOptions {
   beforeAssetRead?: () => Promise<void>;
   /** Refuse model mutations the external backing store does not yet support. */
   readOnlyBacking?: () => boolean;
+  /** Persist an asset deletion before the in-memory model is changed. */
+  beforeAssetDelete?: (
+    assets: readonly BackingDeleteAsset[],
+    force: boolean,
+    now: number,
+  ) => Promise<void>;
 }
 
 export interface MockImmich {
@@ -75,6 +81,7 @@ const OPTION_KEYS = [
   'tls',
   'beforeAssetRead',
   'readOnlyBacking',
+  'beforeAssetDelete',
 ];
 
 function checkOptions(options: MockImmichOptions): void {
@@ -91,6 +98,9 @@ function checkOptions(options: MockImmichOptions): void {
   }
   if (options.readOnlyBacking !== undefined && typeof options.readOnlyBacking !== 'function') {
     c.fail('readOnlyBacking', 'must be a function');
+  }
+  if (options.beforeAssetDelete !== undefined && typeof options.beforeAssetDelete !== 'function') {
+    c.fail('beforeAssetDelete', 'must be a function');
   }
   if (c.errors.length > 0) {
     throw new Error(`invalid options:\n  - ${c.errors.join('\n  - ')}`);
@@ -151,6 +161,7 @@ export async function startMockImmich(options: MockImmichOptions = {}): Promise<
     stopSignal: abort.signal,
     beforeAssetRead: options.beforeAssetRead,
     readOnlyBacking: options.readOnlyBacking,
+    beforeAssetDelete: options.beforeAssetDelete,
   };
   seedData(ctx);
 

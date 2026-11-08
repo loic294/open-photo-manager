@@ -1,7 +1,11 @@
 import type { Faults } from './faults.ts';
 import type { RequestLog } from './requestlog.ts';
-import type { Data, LegacyUnknownFields, Mount, Scenario, ServerVersion } from './types.ts';
+import type { Asset, Data, LegacyUnknownFields, Mount, Scenario, ServerVersion } from './types.ts';
 import type { Clock } from './util.ts';
+
+export type BackingDeleteAsset = Readonly<
+  Pick<Asset, 'id' | 'ownerId' | 'libraryId' | 'originalPath'>
+>;
 
 /** What a scenario's `options` or the programmatic options turn into; some change at runtime. */
 export interface Settings {
@@ -33,4 +37,9 @@ export interface MockContext {
   stopSignal: AbortSignal;
   beforeAssetRead?: () => Promise<void>;
   readOnlyBacking?: () => boolean;
+  beforeAssetDelete?: (
+    assets: readonly BackingDeleteAsset[],
+    force: boolean,
+    now: number,
+  ) => Promise<void>;
 }

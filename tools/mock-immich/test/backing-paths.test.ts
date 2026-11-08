@@ -118,7 +118,9 @@ test('unsupported writes are refused rather than diverging from the backing data
   for (const [method, path, body] of [
     ['DELETE', '/api/assets', { ids: [added.items[0]?.id], force: true }],
     ['PUT', '/api/assets', { ids: [added.items[0]?.id], isFavorite: true }],
+    ['PUT', '/api/assets/', { ids: [added.items[0]?.id], isFavorite: true }],
     ['POST', `/api/libraries/${before[0]?.libraryId}/scan`, {}],
+    ['POST', `/api/libraries/${before[0]?.libraryId}/scan/`, {}],
   ] as const) {
     const response = await call(mock, method, path, { key, body });
     assert.equal(response.status, 503);
@@ -126,5 +128,45 @@ test('unsupported writes are refused rather than diverging from the backing data
   await assert.rejects(() => mock.control.scan(), /does not support mock mutations/);
   assert.throws(() => mock.control.addAssets([{ path: '/mnt/photo/new.jpg' }]), /backing store/);
   assert.deepEqual(mock.state.assets(), before);
+  assert.deepEqual(mock.state.violations(), []);
+});
+
+test('backed deletion is serialized with reads and failed writes leave the mock unchanged', async (t) => {
+  let active = false;
+  let fail = true;
+  let release: (() => void) | undefined;
+  let started: (() => void) | undefined;
+  const entered = new Promise<void>((resolve) => {
+    started = resolve;
+  });
+  const blocked = new Promise<void>((resolve) => {
+    release = resolve;
+  });
+  const mock = await startMock(t, {
+    readOnlyBacking: () => active,
+    beforeAssetRead: async () => {},
+    beforeAssetDelete: async () => {
+      if (fail) throw new Error('test backing unavailable');
+      started?.();
+      await blocked;
+    },
+  });
+  const { key } = await connect(mock);
+  const added = mock.control.addAssets([{ path: '/mnt/photo/old.jpg', isOffline: true }]);
+  const id = added.items[0]?.id;
+  assert.ok(id);
+  active = true;
+  assert.equal(
+    (await call(mock, 'DELETE', '/api/assets', { key, body: { ids: [id], force: true } })).status,
+    500,
+  );
+  assert.equal(mock.state.assetByPath('/mnt/photo/old.jpg')?.id, id);
+  fail = false;
+  const deleting = call(mock, 'DELETE', '/api/assets', { key, body: { ids: [id], force: true } });
+  await entered;
+  const reading = call(mock, 'GET', `/api/assets/${id}`, { key });
+  release?.();
+  assert.equal((await deleting).status, 204);
+  assert.equal((await reading).status, 400);
   assert.deepEqual(mock.state.violations(), []);
 });
