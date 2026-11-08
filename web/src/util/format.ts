@@ -79,3 +79,55 @@ export function formatDuration(ms: number | null | undefined): string {
     ? `${hours}:${String(minutes).padStart(2, '0')}:${seconds}`
     : `${minutes}:${seconds}`;
 }
+
+/** What a task's `speed` counts: bytes per second when it declared a byte total, else items. */
+export type RateUnit = 'bytes' | 'items';
+
+const rateFormats = new Map<string, Intl.NumberFormat>();
+
+function rateFormat(locale: string | undefined, fractionDigits: number): Intl.NumberFormat {
+  const key = `${locale ?? ''}|${fractionDigits}`;
+  let format = rateFormats.get(key);
+  if (!format) {
+    format = new Intl.NumberFormat(locale, { maximumFractionDigits: fractionDigits });
+    rateFormats.set(key, format);
+  }
+  return format;
+}
+
+/**
+ * A transfer speed: "42 MB/s" for `bytes` (binary units, like `formatFileSize`), "85 items/s" for
+ * `items`. An items rate keeps one decimal below 10 ("0.4 items/s", a slow hash of big files) and
+ * groups the digits of a large one ("2,400 items/s"). An em dash when there is no usable rate.
+ */
+export function formatRate(
+  perSecond: number | null | undefined,
+  unit: RateUnit,
+  locale?: string,
+): string {
+  if (typeof perSecond !== 'number' || !Number.isFinite(perSecond) || perSecond < 0) return EM_DASH;
+  if (unit === 'bytes') return `${formatFileSize(perSecond, locale)}/s`;
+  const rounded = perSecond >= 10 ? Math.round(perSecond) : Math.round(perSecond * 10) / 10;
+  const text = rateFormat(locale, rounded >= 10 ? 0 : 1).format(rounded);
+  return `${text} ${rounded === 1 ? 'item' : 'items'}/s`;
+}
+
+const MINUTE_SECS = 60;
+const MAX_ETA_MINUTES = 24 * 60;
+
+/**
+ * The time a task still needs (`TaskDto.eta_secs`): "under 1 min", "about 3 min", "about 2 h
+ * 10 min", and "more than a day" from 24 hours on (an estimate that long is noise). Rounded to the
+ * nearest minute, so "about 60 min" never shows: it reads "about 1 h". A negative value counts as
+ * zero, an infinite one as more than a day; an em dash when there is no estimate.
+ */
+export function formatEta(seconds: number | null | undefined): string {
+  if (typeof seconds !== 'number' || Number.isNaN(seconds)) return EM_DASH;
+  if (seconds < MINUTE_SECS) return 'under 1 min';
+  const minutes = Number.isFinite(seconds) ? Math.round(seconds / MINUTE_SECS) : MAX_ETA_MINUTES;
+  if (minutes >= MAX_ETA_MINUTES) return 'more than a day';
+  const hours = Math.floor(minutes / 60);
+  const rest = minutes % 60;
+  if (hours === 0) return `about ${rest} min`;
+  return rest === 0 ? `about ${hours} h` : `about ${hours} h ${rest} min`;
+}

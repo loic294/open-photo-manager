@@ -6,9 +6,11 @@ import { onReindex } from '@/app/app-actions';
 import type { AppRoute } from '@/app/routes';
 import { currentPath, navigate } from '@/stores/nav';
 import { theme } from '@/stores/prefs';
+import { resetTasksForTests, tasks } from '@/stores/tasks';
 import { clearToasts, toasts } from '@/stores/toasts';
 import { FakeEventSource } from '@/test/fake-event-source';
 import { mount } from '@/test/helpers';
+import { taskEvent } from '@/test/task-fixtures';
 import '@/app/apm-app';
 
 type App = HTMLElementTagNameMap['apm-app'];
@@ -71,6 +73,7 @@ beforeEach(() => {
 
 afterEach(() => {
   events.stop();
+  resetTasksForTests();
   vi.useRealTimers();
   vi.restoreAllMocks();
   vi.unstubAllGlobals();
@@ -476,11 +479,38 @@ describe('small screens', () => {
 });
 
 describe('app services', () => {
-  it('connects to the server events and loads the volumes', async () => {
+  it('connects to the server events and loads the volumes and the tasks', async () => {
     await mountApp('/browse');
 
     expect(FakeEventSource.instances.map((source) => source.url)).toEqual(['/api/events']);
-    expect(vi.mocked(api.get).mock.calls.map((call) => call[0])).toEqual(['/api/volumes']);
+    const loaded = vi.mocked(api.get).mock.calls.map((call) => call[0]);
+    expect(loaded.sort()).toEqual(['/api/tasks', '/api/volumes']);
+  });
+
+  it('shows the tasks the server reports in the indicator of the top bar', async () => {
+    const app = await mountApp('/browse');
+    const indicator = () => app.querySelector('header apm-task-indicator');
+    expect(indicator()?.querySelector('button')).toBeNull();
+
+    FakeEventSource.last().open();
+    FakeEventSource.last().message(taskEvent({ items_done: 3, items_total: 4 }));
+
+    await until(() =>
+      expect(indicator()?.querySelector('button')?.getAttribute('aria-label')).toBe(
+        'Move 3 files running, 75 percent',
+      ),
+    );
+  });
+
+  it('stops following the tasks when it is removed', async () => {
+    const app = await mountApp('/browse');
+    events.emit(taskEvent({ id: 1 }));
+    expect(tasks.value.map((task) => task.id)).toEqual([1]);
+
+    app.remove();
+    events.emit(taskEvent({ id: 2 }));
+
+    expect(tasks.value.map((task) => task.id)).toEqual([1]);
   });
 
   it('applies the theme preference while it is mounted', async () => {

@@ -10,11 +10,13 @@ import { type AppRoute, routes as appRoutes, notFound, redirects, routeAt } from
 import { startTheme } from '@/app/theme';
 import { ApmElement } from '@/base/apm-element';
 import { currentPath, linkTo, startNavSync } from '@/stores/nav';
+import { startTasks } from '@/stores/tasks';
 import { startVolumes } from '@/stores/volumes';
 // Components the shell renders. Add one import line here for a shell-level component that another
 // feature provides (for example `import '@/components/apm-task-indicator';`).
 import '@/app/apm-theme-toggle';
 import '@/components/apm-icon';
+import '@/components/apm-task-indicator';
 import '@/components/apm-toast-host';
 
 const APP_NAME = 'Advanced Photo Manager';
@@ -39,7 +41,7 @@ const REINDEX_ITEMS: readonly { scope: ReindexScope; label: string }[] = [
  *   re-index       |
  *   trash/settings |
  *
- * It owns the app-wide services: the theme, the nav/URL sync, the volumes store, the SSE
+ * It owns the app-wide services: the theme, the nav/URL sync, the volumes and tasks stores, the SSE
  * connection, the router and the single toast host. The menu is built from the route table in
  * `app/routes.ts`; below the `lg` breakpoint it collapses into a drawer opened by the menu button.
  */
@@ -70,6 +72,7 @@ export class ApmApp extends ApmElement {
     this.stopServices = [
       startTheme(),
       startNavSync(),
+      startTasks(),
       startVolumes(),
       effect(() => {
         document.title = `${this.pageFor(currentPath.value).label} · ${APP_NAME}`;

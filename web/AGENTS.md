@@ -102,7 +102,7 @@ declare global {
 
 ## App shell and layout contract
 `index.html` holds one element, `<apm-app>` (`src/app/apm-app.ts`). It starts every app-wide service
-(theme, nav/URL sync, volumes, the SSE connection, the router) and renders the single toast host:
+(theme, nav/URL sync, volumes, tasks, the SSE connection, the router) and renders the single toast host:
 never start those anywhere else.
 - **The page itself never scrolls.** Chain: shell root `h-screen w-screen overflow-hidden grid-rows-1`
   → `drawer-content flex min-h-0 min-w-0 flex-col` → top bar and connection banner (`flex-none`) and
@@ -115,9 +115,9 @@ never start those anywhere else.
 - The shell top bar is app-level only (page heading, `<apm-task-indicator>`, theme toggle). A tool's own
   controls (filters, split buttons, sort) live in the tool view, in its own bar.
 - The shell owns the only `<h1>` (the route `label`, also the document title); views start at `<h2>`.
-- A shell-level component that another feature provides (`apm-task-indicator`) gets ONE side-effect
-  import line in the marked block at the top of `apm-app.ts`. Its tag is already in the top bar and
-  renders nothing until it is registered.
+- A shell-level component that another feature provides gets ONE side-effect import line in the marked
+  block at the top of `apm-app.ts`; its tag can already be in the template and renders nothing until it
+  is registered. `apm-task-indicator` was added that way (see Task indicator).
 - The menu is built from the route table; the current page gets `menu-active` and
   `aria-current="page"`. Below the `lg` breakpoint it is a DaisyUI drawer (menu button, overlay,
   Escape, closes on navigation, focus returns to the menu button).
@@ -191,6 +191,8 @@ subscribing.
 - `toasts`: state behind `toast.*` (see Shared components). Use the `toast` facade, not the store.
 - `settings`: the server-wide settings document (`settings`, `loadSettings()`, `saveSettings(doc)`); see
   Settings below.
+- `tasks`: the server's background tasks (`tasks`, `aggregate`, `cancel(id)`, `dismiss(id)`); the shell
+  starts it and the top bar shows it. See Task indicator below.
 
 ## API client (`@/api/client`)
 `api.get/post/put/delete<T>(path, options?)`. `path` is the full `/api/...` path; `options` is
@@ -469,3 +471,65 @@ html`<apm-file-grid .request=${request} sort=${sort} order=${order} size=${size}
   `formatFileSize`, `formatDuration`. `cardBadges(item)` is the one place to add a card badge and
   `cardFrameClasses` documents the border precedence. `fileItem()` (`@/test/file-item`) builds a
   `FileItem` for tests.
+
+## Task indicator (`stores/tasks.ts`, `apm-task-indicator`, `apm-task-row`)
+Every background job (move, trash, index, plan execution, Immich) is a server task, and the shell top
+bar shows all of them in ONE place. **A tool view needs no progress UI of its own** (no bar, no spinner,
+no polling, no stream): submit the job (the request answers 202 with its `TaskDto`) and let the indicator
+show it; cancel and dismiss live there too. Refresh a pane from the `fs_change` events the runners
+emit, not from the task.
+- `stores/tasks.ts`: the shell calls `startTasks()` once, never call it yourself. Signals: `tasks`
+  (`ReadonlySignal<readonly TaskDto[]>`, the VISIBLE tasks in display order), `aggregate`
+  (`{ running, queued, failed, fraction }`: `fraction` is the mean `taskFraction` of the running tasks
+  that know their total, 0 to 1, `null` when none does) and `cancelling` (`ReadonlySet<number>` of ids).
+  Functions: `loadTasks()`, `cancel(id)`, `dismiss(id)`, `dismissFinished()`, `onTaskFinished(handler)`
+  (once per task that ends while the page is open; returns the unsubscribe function) and the pure
+  `isActive`, `isEnded`, `isFailure`, `taskFraction(task)` (bytes when the task has a byte total, else
+  items; `null` without a total). Constants: `FINISHED_LINGER_MS` (5000), `STALE_FAILURE_SECS` (24 h),
+  `DISMISSED_LIMIT` (200).
+- **Visibility.** Queued and running tasks always show. `done` and `cancelled` ones stay 5 s. `failed` and
+  `interrupted` ones stay until dismissed (the trigger gets a red badge); the dismissed ids are kept in
+  `localStorage['apm.v1.tasks.dismissed']` (the newest 200), so a reload does not bring them back.
+  `GET /api/tasks` also lists history: the first list adds only a failure that ended less than 24 h ago
+  and was not dismissed, never a finished task. Order: running (oldest start first), queued (by id),
+  finished (newest first). A late event never moves a task back to an earlier state.
+- `cancel(id)` never rejects: a failure is an error toast, 404 and 409 are ignored and the list is read
+  again. `cancelling` keeps the id until the task's TERMINAL state arrives (not just the 202), so the row
+  keeps saying "Cancelling…" without flicker: a running task stops only when its runner returns.
+- The title comes from the server and changes while a task runs: show it as text (never HTML), never cache
+  it, and keep it short and specific ("Move 120 files"): it is also the label in the top bar.
+- `<apm-task-row .task=${task} .cancelling=${false} compact>` (host `block`) shows one task: kind icon,
+  status dot, title, a bar (determinate with a total, indeterminate without, none while queued), the
+  counts, speed and time left, and the error text of a failure. It reads no store and fires bubbling
+  `task-cancel` and `task-dismiss` with `detail { id }`. `compact` (a narrow spot) drops the kind icon, the
+  speed and the time left and tightens the spacing.
+- `<apm-task-indicator>` has no properties and no events (host `contents`) and renders NOTHING while no
+  task is visible, so it takes no room in the bar. Otherwise it is one button: a bar (indeterminate until
+  a running task has a total; `w-16`, `md:w-28`, so it leaves room for the page heading on a phone), a
+  `w-9` tabular share, the label from `md` up, a red badge with the failed count and a grey one with the
+  queued count. Nothing in it changes width while a task progresses. Its accessible name says it in words
+  and contains the visible text ("2 tasks running, 62 percent, 1 failed").
+- The panel (one row per task and "Clear finished") opens on hover and on focus, pins on click, Enter and
+  Space (that is how touch opens it) and closes on a second click, an outside press, Escape or the focus
+  leaving. It is driven in JS (`dropdown-open`, `dropdown-close`), not by `dropdown-hover`: CSS alone can
+  neither be dismissed with Escape nor stay pinned. While open, Escape is handled on the document in the
+  capture phase and is then NOT passed on, so the page's own Escape does not also run (an open modal
+  `dialog` keeps its Escape). The trigger is a disclosure button (`aria-expanded`, `aria-controls`), not a
+  menu: no `aria-haspopup`. Never put a `tabindex` on a DaisyUI dropdown trigger (its `:first-child` rule
+  removes the pointer events) and never use `tooltip` inside the scrolling panel (a native `title` is
+  used).
+- The panel is `md:w-96` hung from the right edge of the trigger (`dropdown-end`). Below `md` it is
+  `max-md:fixed max-md:inset-x-2`: a sheet 0.5rem from each side, just under the trigger. A panel hung
+  from the trigger would stick out of a phone screen on the left, because the theme toggle follows the
+  trigger in the bar. Keep that in mind if the header grows (anything `fixed` needs an ancestor without
+  a `transform`).
+- ONE `aria-live="polite"` region announces only the END of a task ("Move 120 files finished", "Indexing
+  failed", "… was cancelled", "… was interrupted"), never its progress, and keeps the last 5.
+- `@/util/format`: `formatRate(perSecond, 'bytes' | 'items')` ("42 MB/s", "85 items/s") and
+  `formatEta(seconds)` ("under 1 min", "about 3 min", "about 2 h 10 min"). `@/api/tasks`: `listTasks`,
+  `cancelTask`. Icons added for the task kinds: `brush-cleaning`, `cloud-download`, `cloud-upload`,
+  `list-checks`.
+- Tests: `makeTask(overrides)` and `taskEvent(overrides)` (`@/test/task-fixtures`). After `startTasks()`,
+  feed the store with `events.emit(taskEvent({ ... }))`; mount the element FIRST and call
+  `vi.useFakeTimers()` after it; call `resetTasksForTests()` BEFORE `localStorage.clear()` in `beforeEach`
+  and `afterEach`. happy-dom has no hover: dispatch `pointerenter` and `focusin` yourself.

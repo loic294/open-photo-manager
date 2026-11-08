@@ -1,5 +1,12 @@
 import { afterEach, describe, expect, it, vi } from 'vitest';
-import { EM_DASH, formatCaptureDate, formatDuration, formatFileSize } from '@/util/format';
+import {
+  EM_DASH,
+  formatCaptureDate,
+  formatDuration,
+  formatEta,
+  formatFileSize,
+  formatRate,
+} from '@/util/format';
 
 describe('formatCaptureDate', () => {
   // 2023-11-14T22:13:20Z
@@ -107,5 +114,105 @@ describe('formatDuration', () => {
   it('shows an em dash for a missing value', () => {
     expect(formatDuration(null)).toBe(EM_DASH);
     expect(formatDuration(undefined)).toBe(EM_DASH);
+  });
+});
+
+describe('formatRate', () => {
+  const MB = 1024 * 1024;
+
+  it.each([
+    [0, '0 B/s'],
+    [0.4, '0 B/s'],
+    [512, '512 B/s'],
+    [1024, '1 KB/s'],
+    [1.5 * MB, '1.5 MB/s'],
+    [42 * MB, '42 MB/s'],
+    [MB - 1, '1 MB/s'],
+    [3 * 1024 ** 3, '3 GB/s'],
+    [5000 * 1024 ** 4, '5000 TB/s'],
+  ])('formats %d bytes per second as %s', (perSecond, text) => {
+    expect(formatRate(perSecond, 'bytes', 'en-US')).toBe(text);
+  });
+
+  it.each([
+    [0, '0 items/s'],
+    [0.04, '0 items/s'],
+    [0.4, '0.4 items/s'],
+    [0.96, '1 item/s'],
+    [1, '1 item/s'],
+    [1.04, '1 item/s'],
+    [1.5, '1.5 items/s'],
+    [9.94, '9.9 items/s'],
+    [9.96, '10 items/s'],
+    [10, '10 items/s'],
+    [85, '85 items/s'],
+    [85.4, '85 items/s'],
+    [999.6, '1,000 items/s'],
+    [2400, '2,400 items/s'],
+    [1_234_567, '1,234,567 items/s'],
+  ])('formats %d items per second as %s', (perSecond, text) => {
+    expect(formatRate(perSecond, 'items', 'en-US')).toBe(text);
+  });
+
+  it('follows the locale for the decimal separator', () => {
+    expect(formatRate(1536, 'bytes', 'fr-FR')).toMatch(/^1,5\s?KB\/s$/);
+    expect(formatRate(2.5, 'items', 'fr-FR')).toBe('2,5 items/s');
+  });
+
+  it('shows an em dash for a rate that is not usable', () => {
+    for (const unit of ['bytes', 'items'] as const) {
+      expect(formatRate(null, unit)).toBe(EM_DASH);
+      expect(formatRate(undefined, unit)).toBe(EM_DASH);
+      expect(formatRate(-1, unit)).toBe(EM_DASH);
+      expect(formatRate(Number.NaN, unit)).toBe(EM_DASH);
+      expect(formatRate(Number.POSITIVE_INFINITY, unit)).toBe(EM_DASH);
+    }
+  });
+});
+
+describe('formatEta', () => {
+  const MINUTE = 60;
+  const HOUR = 3600;
+
+  it.each([
+    [0, 'under 1 min'],
+    [0.4, 'under 1 min'],
+    [59, 'under 1 min'],
+    [59.9, 'under 1 min'],
+    [MINUTE, 'about 1 min'],
+    [89, 'about 1 min'],
+    [90, 'about 2 min'],
+    [3 * MINUTE, 'about 3 min'],
+    [3 * MINUTE + 29, 'about 3 min'],
+    [3 * MINUTE + 30, 'about 4 min'],
+    [59 * MINUTE + 29, 'about 59 min'],
+    [59 * MINUTE + 30, 'about 1 h'],
+    [HOUR, 'about 1 h'],
+    [HOUR + 5 * MINUTE, 'about 1 h 5 min'],
+    [2 * HOUR + 10 * MINUTE, 'about 2 h 10 min'],
+    [23 * HOUR + 59 * MINUTE, 'about 23 h 59 min'],
+    [23 * HOUR + 59 * MINUTE + 29, 'about 23 h 59 min'],
+    [23 * HOUR + 59 * MINUTE + 30, 'more than a day'],
+    [24 * HOUR, 'more than a day'],
+    [30 * 24 * HOUR, 'more than a day'],
+    [1e15, 'more than a day'],
+  ])('formats %d seconds as "%s"', (seconds, text) => {
+    expect(formatEta(seconds)).toBe(text);
+  });
+
+  it('never shows a negative time', () => {
+    expect(formatEta(-1)).toBe('under 1 min');
+    expect(formatEta(-3 * HOUR)).toBe('under 1 min');
+    expect(formatEta(Number.NEGATIVE_INFINITY)).toBe('under 1 min');
+  });
+
+  it('reads an infinite estimate as more than a day', () => {
+    expect(formatEta(Number.POSITIVE_INFINITY)).toBe('more than a day');
+  });
+
+  it('shows an em dash when there is no estimate', () => {
+    expect(formatEta(null)).toBe(EM_DASH);
+    expect(formatEta(undefined)).toBe(EM_DASH);
+    expect(formatEta(Number.NaN)).toBe(EM_DASH);
   });
 });
