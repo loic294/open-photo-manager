@@ -8,6 +8,10 @@
 //! - `POST /api/immich/exclude-trash`, `POST /api/immich/detect-prefix`
 //! - `POST /api/immich/sync` (queues a sync and answers 202 with its task; the body `{"full":
 //!   bool}` may be omitted)
+//! - `GET /api/immich/outbox` (the queued file changes, paged), `POST /api/immich/outbox/retry`
+//!   (the body `{"ids": [...]}` may be omitted: every change that needs attention or waits) and
+//!   `POST /api/immich/outbox/dismiss`; the logic belongs to `reflecting-file-ops-in-immich`
+//!   (`immich::outbox`)
 //!
 //! A request whose fields are invalid is answered with the detailed 422 `ValidationErrorBody`;
 //! every other [`ImmichError`] becomes the usual `ErrorBody` (see `immich::error` for the table).
@@ -17,7 +21,8 @@ use apm_core::dto::{
     FieldError, ImmichConnectRequest, ImmichConnectionDto, ImmichDetectPrefixRequest,
     ImmichDetectPrefixResponse, ImmichDisconnectResult, ImmichExcludeTrashResult,
     ImmichLibrariesResponse, ImmichMappingsRequest, ImmichMappingsResponse, ImmichStatusDto,
-    ImmichSyncRequest, TaskDto, ValidationErrorBody,
+    ImmichSyncRequest, OutboxDismissRequest, OutboxDismissResult, OutboxPage, OutboxRetryRequest,
+    OutboxRetryResult, OutboxState, TaskDto, ValidationErrorBody,
 };
 use axum::body::Bytes;
 use axum::extract::State;
@@ -26,6 +31,7 @@ use axum::response::{IntoResponse, Response};
 use axum::routing::{delete, get, post, put};
 use axum::{Json, Router};
 use serde::Deserialize;
+use serde::de::DeserializeOwned;
 
 use crate::api::extract::{ApiJson, ApiQuery};
 use crate::error::{AppError, AppResult};
@@ -40,6 +46,9 @@ pub fn routes() -> Router<AppState> {
         .route("/immich/exclude-trash", post(exclude_trash))
         .route("/immich/libraries", get(libraries))
         .route("/immich/mappings", put(mappings))
+        .route("/immich/outbox", get(outbox))
+        .route("/immich/outbox/dismiss", post(outbox_dismiss))
+        .route("/immich/outbox/retry", post(outbox_retry))
         .route("/immich/status", get(status))
         .route("/immich/sync", post(sync))
 }
@@ -49,6 +58,24 @@ struct StatusQuery {
     /// Also ask Immich whether it answers and still accepts the key.
     #[serde(default)]
     check: bool,
+}
+
+/// How many queued changes a page holds when the request does not say.
+const DEFAULT_OUTBOX_PAGE: i64 = 50;
+
+#[derive(Debug, Deserialize)]
+struct OutboxQuery {
+    /// Only the changes in this state; every change when omitted.
+    #[serde(default)]
+    state: Option<OutboxState>,
+    #[serde(default)]
+    offset: i64,
+    #[serde(default = "default_outbox_page")]
+    limit: i64,
+}
+
+fn default_outbox_page() -> i64 {
+    DEFAULT_OUTBOX_PAGE
 }
 
 async fn connect(
@@ -97,6 +124,39 @@ async fn status(
     Ok(Json(state.immich.status(query.check).await?))
 }
 
+/// One page of the queued file changes, oldest first; empty without a connection.
+async fn outbox(
+    State(state): State<AppState>,
+    ApiQuery(query): ApiQuery<OutboxQuery>,
+) -> AppResult<Json<OutboxPage>> {
+    let page = state
+        .immich_outbox
+        .list(query.state, query.offset, query.limit)
+        .await?;
+    Ok(Json(page))
+}
+
+/// Tries queued changes again (the named ones, or every one that needs attention or waits for its
+/// next try; the body may be omitted) and starts working on them without the quiet period. 409
+/// `immich_not_connected` without a connection.
+async fn outbox_retry(
+    State(state): State<AppState>,
+    body: Bytes,
+) -> AppResult<Json<OutboxRetryResult>> {
+    let request: OutboxRetryRequest = optional_json(&body)?;
+    let result = state.immich_outbox.retry(request.ids.as_deref()).await?;
+    Ok(Json(result))
+}
+
+/// Forgets queued changes without touching Immich. 409 `immich_not_connected` without a
+/// connection.
+async fn outbox_dismiss(
+    State(state): State<AppState>,
+    ApiJson(request): ApiJson<OutboxDismissRequest>,
+) -> AppResult<Json<OutboxDismissResult>> {
+    Ok(Json(state.immich_outbox.dismiss(&request.ids).await?))
+}
+
 /// Queues a sync of every mapped scope and answers 202 with its task. A request that arrives while
 /// a sync waits for its turn is merged into it and gets that task (see `immich::sync`). The body
 /// may be omitted or empty: an incremental sync. 409 `immich_not_connected`, 409
@@ -105,21 +165,25 @@ async fn sync(
     State(state): State<AppState>,
     body: Bytes,
 ) -> AppResult<(StatusCode, Json<TaskDto>)> {
-    let request = if body.iter().all(u8::is_ascii_whitespace) {
-        ImmichSyncRequest::default()
-    } else {
-        serde_json::from_slice(&body).map_err(|err| {
-            let status = if err.is_data() {
-                StatusCode::UNPROCESSABLE_ENTITY
-            } else {
-                StatusCode::BAD_REQUEST
-            };
-            AppError::new(status, "invalid_json", err.to_string())
-        })?
-    };
+    let request: ImmichSyncRequest = optional_json(&body)?;
     let submitted = state.immich_sync.submit(request.into()).await?;
     let task = state.tasks.get(submitted.task_id).await?;
     Ok((StatusCode::ACCEPTED, Json(task)))
+}
+
+/// A JSON body that may be omitted or blank, which means the default value of the request.
+fn optional_json<T: DeserializeOwned + Default>(body: &Bytes) -> AppResult<T> {
+    if body.iter().all(u8::is_ascii_whitespace) {
+        return Ok(T::default());
+    }
+    serde_json::from_slice(body).map_err(|err| {
+        let status = if err.is_data() {
+            StatusCode::UNPROCESSABLE_ENTITY
+        } else {
+            StatusCode::BAD_REQUEST
+        };
+        AppError::new(status, "invalid_json", err.to_string())
+    })
 }
 
 /// Why a request was refused: invalid fields get the detailed 422 body, everything else the usual

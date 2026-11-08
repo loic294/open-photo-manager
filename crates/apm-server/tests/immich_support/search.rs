@@ -355,7 +355,7 @@ impl State {
         )
     }
 
-    fn asset_json(&self, asset: &Asset) -> Value {
+    pub(super) fn asset_json(&self, asset: &Asset) -> Value {
         json!({
             "id": asset.id,
             "libraryId": asset.library_id,
@@ -365,7 +365,7 @@ impl State {
             "checksum": "AAAAAAAAAAAAAAAAAAAAAAAAAAA=",
             "isOffline": asset.is_offline,
             "isTrashed": asset.is_trashed,
-            "isFavorite": false,
+            "isFavorite": asset.is_favorite,
             "visibility": asset.visibility,
             "type": "IMAGE",
             "fileCreatedAt": TIMESTAMP,
@@ -393,6 +393,11 @@ impl FakeImmich {
             is_trashed: false,
             visibility: "timeline".to_owned(),
             updated_at_ms: state.search.clock_ms,
+            is_favorite: false,
+            rating: None,
+            description: None,
+            tags: Vec::new(),
+            has_metadata: true,
             seq: next_number(),
         };
         change(&mut asset);

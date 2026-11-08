@@ -37,6 +37,7 @@ async fn without_a_connection_the_status_says_so_and_asks_nobody() {
         "sync": null,
         "outbox_pending": 0,
         "needs_attention": 0,
+        "outbox": null,
     });
 
     assert_eq!(fx.status(false).await, expected);
@@ -65,6 +66,28 @@ async fn a_status_without_a_check_makes_no_request() {
     assert_eq!(status["sync"], Value::Null);
     assert_eq!(status["outbox_pending"], 0);
     assert_eq!(status["needs_attention"], 0);
+    assert_eq!(
+        status["outbox"],
+        json!({
+            "pending": 0,
+            "waiting_for_immich": 0,
+            "attention": 0,
+            "oldest_pending_at": null,
+            "last_run_at": null,
+            "last_error": null,
+            "scans_on_demand": true,
+        })
+    );
+}
+
+#[tokio::test]
+async fn a_status_of_a_limited_account_says_that_scans_wait_for_immich() {
+    let fx = Fixture::connected_limited().await;
+
+    let status = fx.status(false).await;
+
+    assert_eq!(status["mode"], "limited");
+    assert_eq!(status["outbox"]["scans_on_demand"], false);
 }
 
 #[tokio::test]

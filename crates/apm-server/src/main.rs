@@ -28,6 +28,7 @@ async fn main() -> anyhow::Result<()> {
     let state = AppState::new(config)
         .await
         .context("failed to initialise the application state")?;
+    state.immich_outbox.start_background(state.shutdown.clone());
     state.immich_sync.start_background(state.shutdown.clone());
     state.index_jobs.start_background();
     state.trash.start_background(state.shutdown.clone());

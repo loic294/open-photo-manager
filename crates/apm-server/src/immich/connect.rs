@@ -42,13 +42,14 @@ use apm_core::dto::{
     FieldError, ImmichConnectRequest, ImmichConnectionDto, ImmichDisconnectResult,
 };
 
-use crate::db::now_secs;
+use crate::db::{Db, DbError, now_secs};
 use crate::security::Redacted;
 
 use super::assets;
 use super::client::{API_KEY_NAME, ClientOptions, ImmichClient, KEY_PERMISSIONS};
 use super::crypto::SecretBox;
 use super::error::ImmichError;
+use super::outbox;
 use super::store::{self, NewConnection, StoredConnection};
 use super::{ImmichService, connection_dto};
 
@@ -278,15 +279,11 @@ impl ImmichService {
         // Another server or account owns other assets. The old key can no longer write (the sync
         // guards its writes by the key), so this ends with an empty store; the sync reads again.
         // The same account with a new key keeps its assets, and a scope that was backing off
-        // (a rejected key is why people connect again) tries at the next look of the loop.
+        // (a rejected key is why people connect again) tries at the next look of the loop. The
+        // queue of file changes follows the same rule.
         let other_account =
             previous.is_some_and(|old| old.server_url != keyed.base_url() || old.user_id != me.id);
-        let outcome = if other_account {
-            assets::clear(&self.inner.db).await
-        } else {
-            assets::retry_now(&self.inner.db).await
-        };
-        if let Err(err) = outcome {
+        if let Err(err) = forget_for_replaced(&self.inner.db, other_account).await {
             tracing::warn!(error = %err, "updating the Immich assets of the replaced connection failed");
         }
 
@@ -363,7 +360,22 @@ impl ImmichService {
         // Without its connection a running sync can no longer write (every write of the sync is
         // guarded by it), so what is cleared here stays cleared. The mappings stay on purpose.
         assets::clear(&self.inner.db).await?;
+        // The queue of file changes was made for the server that is gone.
+        outbox::clear(&self.inner.db).await?;
         Ok(result)
+    }
+}
+
+/// What a connection that replaces another makes of what the application kept for the old one: the
+/// assets and the queue of file changes of another server or account go, and a same-account
+/// connection only ends the back-off of the sync and of the passes of the queue.
+async fn forget_for_replaced(db: &Db, other_account: bool) -> Result<(), DbError> {
+    if other_account {
+        assets::clear(db).await?;
+        outbox::clear(db).await
+    } else {
+        assets::retry_now(db).await?;
+        outbox::reset_failures(db).await
     }
 }
 

@@ -2,6 +2,7 @@
 import type { ImmichConnectionDto } from "./ImmichConnectionDto";
 import type { ImmichMappingDto } from "./ImmichMappingDto";
 import type { ImmichMode } from "./ImmichMode";
+import type { OutboxSummary } from "./OutboxSummary";
 import type { SyncSummary } from "./SyncSummary";
 
 /**
@@ -45,12 +46,17 @@ last_sync_at: number | null,
  */
 sync: SyncSummary | null, 
 /**
- * File operations waiting to be mirrored to Immich. Filled by the Immich outbox; `0`
- * until then.
+ * File operations waiting to be mirrored to Immich (the same as `outbox.pending`; `0`
+ * when disconnected).
  */
 outbox_pending: number, 
 /**
- * Mirrored operations that need a decision from the user. Filled by the Immich outbox;
- * `0` until then.
+ * Mirrored operations that need a decision from the user (the same as
+ * `outbox.attention`; `0` when disconnected).
  */
-needs_attention: number, };
+needs_attention: number, 
+/**
+ * How the outbox of file operations stands, from stored data only. `null` when
+ * disconnected.
+ */
+outbox: OutboxSummary | null, };

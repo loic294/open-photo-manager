@@ -16,6 +16,8 @@ const DEFAULT_DATA_DIR: &str = "/data";
 const DEFAULT_LISTEN: &str = "0.0.0.0:8080";
 const DEFAULT_LOG: &str = "info";
 const DEFAULT_WEB_DIR: &str = "./web/dist";
+const DEFAULT_IMMICH_QUIET_SECS: u64 = 15;
+const MAX_IMMICH_QUIET_SECS: u64 = 600;
 
 /// An environment variable holds a value the server cannot use.
 #[derive(Debug, Error, PartialEq, Eq)]
@@ -52,6 +54,9 @@ pub struct Config {
     /// `host:port` or `*.domain` (see `security::host`). `localhost` and IP
     /// literals are always allowed.
     pub allowed_hosts: Vec<String>,
+    /// `APM_IMMICH_QUIET_SECS` (default 15, 1 to 600): how long file operations must have been
+    /// quiet before the changes they queued are mirrored into Immich (see `immich::outbox`).
+    pub immich_quiet_secs: u64,
     /// `APM_INDEX_CONCURRENCY` (default `min(2, cores)`, at least 1): files the
     /// indexer processes at once.
     pub index_concurrency: usize,
@@ -108,6 +113,21 @@ impl Config {
                 .map_err(|reason| ConfigError::new("APM_ALLOWED_HOSTS", &raw, reason))?,
         };
 
+        let immich_quiet_secs = match var("APM_IMMICH_QUIET_SECS") {
+            None => DEFAULT_IMMICH_QUIET_SECS,
+            Some(raw) => match raw.parse::<u64>() {
+                Ok(secs) if (1..=MAX_IMMICH_QUIET_SECS).contains(&secs) => secs,
+                Ok(_) => {
+                    return Err(ConfigError::new(
+                        "APM_IMMICH_QUIET_SECS",
+                        &raw,
+                        format!("must be between 1 and {MAX_IMMICH_QUIET_SECS}"),
+                    ));
+                }
+                Err(err) => return Err(ConfigError::new("APM_IMMICH_QUIET_SECS", &raw, err)),
+            },
+        };
+
         Ok(Self {
             volumes_dir: var("APM_VOLUMES_DIR")
                 .map_or_else(|| PathBuf::from(DEFAULT_VOLUMES_DIR), PathBuf::from),
@@ -115,6 +135,7 @@ impl Config {
                 .map_or_else(|| PathBuf::from(DEFAULT_DATA_DIR), PathBuf::from),
             listen,
             allowed_hosts,
+            immich_quiet_secs,
             index_concurrency,
             log: var("APM_LOG").unwrap_or_else(|| DEFAULT_LOG.to_owned()),
             web_dir: var("APM_WEB_DIR")
@@ -123,14 +144,16 @@ impl Config {
     }
 
     /// Configuration rooted in `dir` for tests: `volumes/`, `data/` and `web/`
-    /// below it, an ephemeral loopback port, `localhost` as the allowed host and
-    /// a single indexer worker. Does not create any directory.
+    /// below it, an ephemeral loopback port, `localhost` as the allowed host, a
+    /// single indexer worker and a one second quiet window for the Immich outbox.
+    /// Does not create any directory.
     pub fn for_tests(dir: &Path) -> Self {
         Self {
             volumes_dir: dir.join("volumes"),
             data_dir: dir.join("data"),
             listen: SocketAddr::from(([127, 0, 0, 1], 0)),
             allowed_hosts: vec!["localhost".to_owned()],
+            immich_quiet_secs: 1,
             index_concurrency: 1,
             log: "warn".to_owned(),
             web_dir: dir.join("web"),
@@ -159,6 +182,7 @@ mod tests {
         assert_eq!(config.data_dir, PathBuf::from("/data"));
         assert_eq!(config.listen, "0.0.0.0:8080".parse::<SocketAddr>().unwrap());
         assert!(config.allowed_hosts.is_empty());
+        assert_eq!(config.immich_quiet_secs, 15);
         assert_eq!(config.index_concurrency, 2);
         assert_eq!(config.log, "info");
         assert_eq!(config.web_dir, PathBuf::from("./web/dist"));
@@ -182,6 +206,7 @@ mod tests {
                 ("APM_DATA_DIR", "/var/lib/apm"),
                 ("APM_LISTEN", "127.0.0.1:9000"),
                 ("APM_ALLOWED_HOSTS", "nas.local"),
+                ("APM_IMMICH_QUIET_SECS", "45"),
                 ("APM_INDEX_CONCURRENCY", "6"),
                 ("APM_LOG", "debug,sqlx=warn"),
                 ("APM_WEB_DIR", "/app/web"),
@@ -196,6 +221,7 @@ mod tests {
             "127.0.0.1:9000".parse::<SocketAddr>().unwrap()
         );
         assert_eq!(config.allowed_hosts, vec!["nas.local".to_owned()]);
+        assert_eq!(config.immich_quiet_secs, 45);
         assert_eq!(config.index_concurrency, 6);
         assert_eq!(config.log, "debug,sqlx=warn");
         assert_eq!(config.web_dir, PathBuf::from("/app/web"));
@@ -207,6 +233,7 @@ mod tests {
             lookup(&[
                 ("APM_LISTEN", ""),
                 ("APM_LOG", "   "),
+                ("APM_IMMICH_QUIET_SECS", ""),
                 ("APM_INDEX_CONCURRENCY", ""),
                 ("APM_ALLOWED_HOSTS", " "),
             ]),
@@ -215,6 +242,7 @@ mod tests {
         .unwrap();
         assert_eq!(config.listen.port(), 8080);
         assert_eq!(config.log, "info");
+        assert_eq!(config.immich_quiet_secs, 15);
         assert_eq!(config.index_concurrency, 2);
         assert!(config.allowed_hosts.is_empty());
     }
@@ -289,6 +317,19 @@ mod tests {
         let zero = Config::from_lookup(lookup(&[("APM_INDEX_CONCURRENCY", "0")]), 4).unwrap_err();
         assert_eq!(zero.var, "APM_INDEX_CONCURRENCY");
         assert!(zero.to_string().contains("at least 1"));
+    }
+
+    #[test]
+    fn the_immich_quiet_window_is_between_one_and_six_hundred_seconds() {
+        for raw in ["1", "15", "600"] {
+            let config = Config::from_lookup(lookup(&[("APM_IMMICH_QUIET_SECS", raw)]), 4).unwrap();
+            assert_eq!(config.immich_quiet_secs, raw.parse::<u64>().unwrap());
+        }
+        for raw in ["0", "601", "-1", "soon", "1.5"] {
+            let err =
+                Config::from_lookup(lookup(&[("APM_IMMICH_QUIET_SECS", raw)]), 4).expect_err(raw);
+            assert_eq!(err.var, "APM_IMMICH_QUIET_SECS", "{raw}");
+        }
     }
 
     #[test]

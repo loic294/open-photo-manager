@@ -21,6 +21,7 @@ mod connection {
     use ts_rs::TS;
 
     use super::asset_sync::SyncSummary;
+    use super::outbox::OutboxSummary;
     use crate::paths::VolumeId;
 
     /// Body of `POST /api/immich/connect`.
@@ -133,12 +134,15 @@ mod connection {
         /// What the asset sync found, from stored data only (no network). `null` when
         /// disconnected and before the first sync attempt.
         pub sync: Option<SyncSummary>,
-        /// File operations waiting to be mirrored to Immich. Filled by the Immich outbox; `0`
-        /// until then.
+        /// File operations waiting to be mirrored to Immich (the same as `outbox.pending`; `0`
+        /// when disconnected).
         pub outbox_pending: u32,
-        /// Mirrored operations that need a decision from the user. Filled by the Immich outbox;
-        /// `0` until then.
+        /// Mirrored operations that need a decision from the user (the same as
+        /// `outbox.attention`; `0` when disconnected).
         pub needs_attention: u32,
+        /// How the outbox of file operations stands, from stored data only. `null` when
+        /// disconnected.
+        pub outbox: Option<OutboxSummary>,
     }
 
     /// Result of `DELETE /api/immich/connection`.
@@ -343,11 +347,21 @@ mod connection {
                 sync: None,
                 outbox_pending: 0,
                 needs_attention: 0,
+                outbox: Some(OutboxSummary {
+                    pending: 0,
+                    waiting_for_immich: 0,
+                    attention: 0,
+                    oldest_pending_at: None,
+                    last_run_at: None,
+                    last_error: None,
+                    scans_on_demand: true,
+                }),
             };
             let wire = roundtrip(&connected);
             assert_eq!(wire["mode"], "full");
             assert_eq!(wire["mappings"][0]["path_prefix"], "/mnt/photo");
             assert_eq!(wire["sync"], json!(null));
+            assert_eq!(wire["outbox"]["scans_on_demand"], json!(true));
 
             let disconnected = ImmichStatusDto {
                 connected: false,
@@ -362,8 +376,10 @@ mod connection {
                 sync: None,
                 outbox_pending: 0,
                 needs_attention: 0,
+                outbox: None,
             };
             assert_eq!(roundtrip(&disconnected)["mode"], "disconnected");
+            assert_eq!(roundtrip(&disconnected)["outbox"], json!(null));
             assert_eq!(
                 serde_json::to_value(ImmichMode::Limited).unwrap(),
                 json!("limited")
@@ -567,6 +583,243 @@ mod asset_sync {
             assert_eq!(wire["scopes"][1]["library_id"], json!(null));
             assert_eq!(wire["scopes"][1]["consecutive_failures"], 3);
             assert_eq!(wire["last_error"], "Immich is unreachable");
+        }
+    }
+}
+
+// ---- Outbox (todo `reflecting-file-ops-in-immich`) ----
+//
+// Own module, like the sections above: its imports and tests never collide with the other sections.
+
+pub use outbox::*;
+
+mod outbox {
+    use serde::{Deserialize, Serialize};
+    use ts_rs::TS;
+
+    /// The most ids one retry or dismiss request may name.
+    pub const OUTBOX_MAX_IDS: usize = 10_000;
+
+    /// Where the outbox of file operations stands: the moves, trashes, copies and restores that
+    /// still have to show up in Immich. Part of the Immich status as `outbox`.
+    #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, TS)]
+    #[ts(export)]
+    pub struct OutboxSummary {
+        /// Changes still to be mirrored: every pending one, including those that wait for Immich.
+        pub pending: i64,
+        /// Of `pending`, the changes whose library scan was requested: they wait for Immich to
+        /// notice the new state of the files.
+        pub waiting_for_immich: i64,
+        /// Changes that need a decision from the user (retry or dismiss).
+        pub attention: i64,
+        /// Epoch seconds of the oldest pending change (a change of a file that merged into a
+        /// waiting one counts from its own moment); `null` when none is pending.
+        pub oldest_pending_at: Option<i64>,
+        /// Epoch seconds of the end of the latest worker run, successful or not; `null` before
+        /// the first one.
+        pub last_run_at: Option<i64>,
+        /// Why the latest run failed as a whole (Immich unreachable, key rejected, ...); `null`
+        /// after a success.
+        pub last_error: Option<String>,
+        /// Whether the connected account may ask Immich to scan a library (an administrator).
+        /// When `false` the application waits for Immich's own scan schedule, which can take a
+        /// day.
+        pub scans_on_demand: bool,
+    }
+
+    /// What a queued change is about.
+    #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, TS)]
+    #[ts(export)]
+    #[serde(rename_all = "snake_case")]
+    pub enum OutboxKind {
+        /// A file moved or was renamed: `from` and `to` are both set.
+        Moved,
+        /// A file left the library, for instance into the trash: only `from` is set.
+        Removed,
+        /// A file appeared, for instance a copy or a restore: only `to` is set.
+        Added,
+    }
+
+    /// Whether a queued change is still being worked on or needs a decision.
+    #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, TS)]
+    #[ts(export)]
+    #[serde(rename_all = "snake_case")]
+    pub enum OutboxState {
+        Pending,
+        Attention,
+    }
+
+    /// One queued change, for the outbox card of the Immich page.
+    #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, TS)]
+    #[ts(export)]
+    pub struct OutboxItemDto {
+        pub id: i64,
+        pub kind: OutboxKind,
+        /// Where the file was, as `<volume name>/<folder>/<file name>`; `null` for an added file.
+        pub from: Option<String>,
+        /// Where the file is now, in the same form; `null` for a removed file.
+        pub to: Option<String>,
+        pub state: OutboxState,
+        /// How many times the worker tried this change.
+        pub attempts: i64,
+        /// Why the last try failed, or why the change needs attention: a short code. While the
+        /// change is pending only `unreadable` (the volume of the file could not be read) and
+        /// `immich_unavailable` (Immich failed or could not be reached) show. A change that needs
+        /// attention holds the reason it gave up: `not_offline` (Immich still shows the old asset
+        /// online), `scan_timeout` (Immich has not noticed the change), `carry_failed` (Immich
+        /// refused to take over the albums, favorite, rating or tags), `path_mismatch` (the asset
+        /// Immich holds is not at the path of the file), `immich_error` (Immich refused a request
+        /// for good), or `unreadable` or `immich_unavailable` after too many tries.
+        pub last_error: Option<String>,
+        /// Epoch seconds of the latest change recorded for this row.
+        pub created_at: i64,
+        /// Epoch seconds: the change is not tried before this instant.
+        pub next_attempt_at: i64,
+    }
+
+    /// Answer of `GET /api/immich/outbox`: one page of queued changes, oldest first.
+    #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, TS)]
+    #[ts(export)]
+    pub struct OutboxPage {
+        pub items: Vec<OutboxItemDto>,
+        /// Every change of the requested state, not only this page.
+        pub total: i64,
+    }
+
+    /// Body of `POST /api/immich/outbox/retry`.
+    #[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize, TS)]
+    #[ts(export)]
+    pub struct OutboxRetryRequest {
+        /// The changes to try again (at most 10,000); `null` or omitted means every change that
+        /// needs attention or waits for its next try.
+        #[serde(default)]
+        pub ids: Option<Vec<i64>>,
+    }
+
+    /// Answer of `POST /api/immich/outbox/retry`.
+    #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, TS)]
+    #[ts(export)]
+    pub struct OutboxRetryResult {
+        /// How many changes the call changed: those that needed attention or waited for their next
+        /// try are due now, with a fresh count of tries. A change that is due already is not
+        /// counted. Whatever the number, the call also ends the back-off of failed runs and lets
+        /// the next run ask Immich to scan again even if it did so a minute ago.
+        pub retried: i64,
+    }
+
+    /// Body of `POST /api/immich/outbox/dismiss`.
+    #[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize, TS)]
+    #[ts(export)]
+    pub struct OutboxDismissRequest {
+        /// The changes to forget (at most 10,000). Immich is not touched.
+        pub ids: Vec<i64>,
+    }
+
+    /// Answer of `POST /api/immich/outbox/dismiss`.
+    #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, TS)]
+    #[ts(export)]
+    pub struct OutboxDismissResult {
+        /// How many changes were dropped.
+        pub dismissed: i64,
+    }
+
+    #[cfg(test)]
+    mod tests {
+        use serde_json::json;
+
+        use super::*;
+        use crate::dto::testing::roundtrip;
+
+        fn item(kind: OutboxKind, state: OutboxState) -> OutboxItemDto {
+            OutboxItemDto {
+                id: 7,
+                kind,
+                from: (kind != OutboxKind::Added).then(|| "photos/2019/a.jpg".to_owned()),
+                to: (kind != OutboxKind::Removed).then(|| "archive/b.jpg".to_owned()),
+                state,
+                attempts: 2,
+                last_error: Some("not_offline".to_owned()),
+                created_at: 1_700_000_000,
+                next_attempt_at: 1_700_000_900,
+            }
+        }
+
+        #[test]
+        fn the_summary_round_trips() {
+            let summary = OutboxSummary {
+                pending: 12,
+                waiting_for_immich: 5,
+                attention: 1,
+                oldest_pending_at: Some(1_700_000_000),
+                last_run_at: Some(1_700_000_100),
+                last_error: Some("Immich is unreachable".to_owned()),
+                scans_on_demand: false,
+            };
+            let wire = roundtrip(&summary);
+            assert_eq!(wire["waiting_for_immich"], 5);
+            assert_eq!(wire["scans_on_demand"], json!(false));
+
+            let idle = OutboxSummary {
+                pending: 0,
+                waiting_for_immich: 0,
+                attention: 0,
+                oldest_pending_at: None,
+                last_run_at: None,
+                last_error: None,
+                scans_on_demand: true,
+            };
+            assert_eq!(roundtrip(&idle)["oldest_pending_at"], json!(null));
+        }
+
+        #[test]
+        fn kinds_and_states_are_snake_case_words() {
+            assert_eq!(serde_json::to_value(OutboxKind::Moved).unwrap(), "moved");
+            assert_eq!(
+                serde_json::to_value(OutboxKind::Removed).unwrap(),
+                "removed"
+            );
+            assert_eq!(serde_json::to_value(OutboxKind::Added).unwrap(), "added");
+            assert_eq!(
+                serde_json::to_value(OutboxState::Attention).unwrap(),
+                "attention"
+            );
+            assert_eq!(
+                serde_json::from_value::<OutboxState>(json!("pending")).unwrap(),
+                OutboxState::Pending
+            );
+        }
+
+        #[test]
+        fn a_page_round_trips_with_every_kind_of_item() {
+            let page = OutboxPage {
+                items: vec![
+                    item(OutboxKind::Moved, OutboxState::Pending),
+                    item(OutboxKind::Removed, OutboxState::Attention),
+                    item(OutboxKind::Added, OutboxState::Pending),
+                ],
+                total: 3,
+            };
+            let wire = roundtrip(&page);
+            assert_eq!(wire["items"][0]["kind"], "moved");
+            assert_eq!(wire["items"][1]["to"], json!(null));
+            assert_eq!(wire["items"][2]["from"], json!(null));
+            assert_eq!(wire["items"][1]["state"], "attention");
+        }
+
+        #[test]
+        fn retry_and_dismiss_requests_parse_their_bodies() {
+            let everything: OutboxRetryRequest = serde_json::from_value(json!({})).unwrap();
+            assert_eq!(everything.ids, None);
+            let some: OutboxRetryRequest = serde_json::from_value(json!({"ids": [1, 2]})).unwrap();
+            assert_eq!(some.ids, Some(vec![1, 2]));
+            roundtrip(&some);
+            roundtrip(&OutboxDismissRequest { ids: vec![3] });
+            assert!(serde_json::from_value::<OutboxDismissRequest>(json!({})).is_err());
+            assert_eq!(roundtrip(&OutboxRetryResult { retried: 4 })["retried"], 4);
+            assert_eq!(
+                roundtrip(&OutboxDismissResult { dismissed: 2 })["dismissed"],
+                2
+            );
         }
     }
 }

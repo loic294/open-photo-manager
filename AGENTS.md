@@ -161,7 +161,7 @@ the parallel work protocol at the end of this file). Never edit a merged migrati
   `implementing-move-planner`: `plans/moves.rs`, `api/format.rs`.
   `implementing-empty-folder-cleanup`: `plans/cleanup.rs`.
 - `building-immich-client`: `immich/{client,crypto,models}.rs`, `api/immich.rs`.
-  `syncing-immich-assets`: `immich/sync.rs`. `reflecting-file-ops-in-immich`: `immich/outbox.rs`.
+  `syncing-immich-assets`: `immich/sync.rs`. `reflecting-file-ops-in-immich`: `immich/outbox/**`.
 - DTO files (`apm-core/src/dto/`): each owner edits only the file of their area; `common.rs` is
   shared, change it additively. The `plans.rs` and `immich.rs` files have one marked section per todo.
 - Server paths are under `crates/apm-server/src/`, core paths under `crates/apm-core/src/`.
@@ -299,3 +299,26 @@ move keeps) is one deletion on one volume. `reason` is `user`, `replaced`, `junk
 - Task outcomes: the title says what happened, a run with a failure ends `failed` and its `error`
   names the first three items with their `FsOpError` code, and a skip never fails a task. A
   client derives its toast from the title and the error (`TaskDto` has no result).
+
+## Immich outbox (`immich/outbox/`; module docs hold rules, limits and measurements)
+
+Moves, trashes, copies and restores of photos and videos reach Immich through an outbox, never a
+direct call: the `OutboxHook` (an `FsOps` hook, registered before `reconcile_at_startup`) writes an
+`immich_outbox` row in the finalising transaction, and `ImmichOutbox` (in `AppState.immich_outbox`)
+submits ONE `ImmichCleanup` task on the `immich` lane once file operations were quiet for
+`APM_IMMICH_QUIET_SECS` (default 15, 1 to 600). `ImmichOutbox::submit_now` starts a pass at once.
+- Only the outbox deletes in Immich, and only an asset that a FRESH `GET /assets/{id}` showed
+  offline (`OfflineAssetId::confirm`), whose `originalPath` is the old place of the row and whose
+  file is absent from the volume. Keep every new Immich write behind the same rules.
+- Routes: `GET /api/immich/outbox`, `POST /api/immich/outbox/retry` and `/dismiss`; the counts are
+  `ImmichStatusDto.outbox`.
+- Tests: `tests/immich_outbox_{flow,faults,api,loop}.rs` use the helpers of `tests/immich_support`
+  (`Fixture::connected_with(tweak)`, `photos_in`, `move_file`, `make_due` between two passes, since
+  a pass never looks at a row twice within the 15 s settle time; `FakeImmich::set_latency`,
+  `call_count` and `assert_no_violations`). `tests/immich_outbox_perf.rs` is `#[ignore]`d: run it
+  with `CARGO_PROFILE_RELEASE_STRIP=none CARGO_PROFILE_RELEASE_LTO=off cargo test --release -p
+  apm-server --test immich_outbox_perf -- --ignored --nocapture --test-threads=1` (a stripped
+  release build cannot load the proc-macro dylibs on macOS). wiremock keeps every request it
+  serves (about 9 KiB each), so long runs through the fake grow the test process.
+- Operating it: on-demand library scans need an administrator account (otherwise Immich's own
+  schedule), and Immich must exclude `**/.apm-trash/**` from its libraries.

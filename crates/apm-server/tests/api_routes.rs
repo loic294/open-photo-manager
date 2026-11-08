@@ -55,6 +55,9 @@ const ROUTES: &[(&str, &str)] = &[
     ("GET", "/api/immich/status"),
     ("POST", "/api/immich/exclude-trash"),
     ("POST", "/api/immich/detect-prefix"),
+    ("GET", "/api/immich/outbox"),
+    ("POST", "/api/immich/outbox/retry"),
+    ("POST", "/api/immich/outbox/dismiss"),
 ];
 
 fn error_code(body: &Value) -> &Value {

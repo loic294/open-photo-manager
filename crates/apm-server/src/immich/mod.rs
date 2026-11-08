@@ -69,13 +69,15 @@
 //!
 //! # Seams for the outbox
 //!
-//! `reflecting-file-ops-in-immich` (migration block 0120-0139):
+//! `reflecting-file-ops-in-immich` (migration block 0120-0139, module `outbox`):
 //! - same client and `PathMap` rules; it calls `OfflineAssetId::confirm` on a fresh `get_asset`
 //!   right before any delete;
 //! - `assets::find_by_location` tells which assets stand for a file and `assets::forget` drops the
-//!   ones it removed; the rows are what the last pass saw, so it asks [`ImmichSync::submit`] for a
-//!   sync after it changed Immich (the docs of `assets` list the rest);
-//! - fill `outbox_pending` and `needs_attention` of the status in [`ImmichService::status`];
+//!   ones it removed; the rows are what the last pass saw, so it reads the affected scopes again
+//!   with [`ImmichSync::refresh`] before it looks, and asks [`ImmichSync::submit`] for a sync after
+//!   it changed Immich (the docs of `assets` list the rest);
+//! - [`ImmichService::status`] fills `outbox_pending`, `needs_attention` and `outbox` from
+//!   `outbox::summary`, and `disconnect` empties the queue with `outbox::clear`;
 //! - the Immich page of Settings lists the mappings from `GET /api/immich/status`.
 
 pub mod assets;
@@ -109,8 +111,9 @@ use crate::security::Redacted;
 pub use client::ImmichClient;
 pub use connect::ConnectInput;
 pub use error::ImmichError;
+pub use outbox::ImmichOutbox;
 pub use paths::PathMap;
-pub use sync::{ImmichSync, SyncRequest, SyncSubmitted};
+pub use sync::{ImmichSync, RefreshError, RefreshStats, SyncRequest, SyncSubmitted};
 
 use client::{API_KEY_NAME, ClientOptions, Health};
 use connect::Timing;
@@ -259,6 +262,7 @@ impl ImmichService {
                 sync: None,
                 outbox_pending: 0,
                 needs_attention: 0,
+                outbox: None,
             });
         };
 
@@ -277,6 +281,7 @@ impl ImmichService {
         let reachable = (!key_unreadable)
             .then(|| server_answered(stored.last_error.as_deref(), stored.key_rejected));
         let sync = assets::status_summary(db, &stored, &mappings).await?;
+        let outbox = outbox::summary(db, stored.is_admin).await?;
         Ok(ImmichStatusDto {
             connected: true,
             mode: if stored.is_admin {
@@ -292,9 +297,9 @@ impl ImmichService {
             mappings,
             last_sync_at: sync.as_ref().and_then(|summary| summary.last_sync_at),
             sync,
-            // Filled by `reflecting-file-ops-in-immich`: the pending and the stuck outbox rows.
-            outbox_pending: 0,
-            needs_attention: 0,
+            outbox_pending: u32::try_from(outbox.pending).unwrap_or(u32::MAX),
+            needs_attention: u32::try_from(outbox.attention).unwrap_or(u32::MAX),
+            outbox: Some(outbox),
         })
     }
 

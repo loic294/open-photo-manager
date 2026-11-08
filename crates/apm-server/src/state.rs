@@ -27,6 +27,7 @@ pub struct AppState {
     pub db: db::Db,
     pub fsops: fsops::FsOps,
     pub immich: immich::ImmichService,
+    pub immich_outbox: immich::ImmichOutbox,
     pub immich_sync: immich::ImmichSync,
     pub index_jobs: indexer::IndexJobs,
     pub indexer: indexer::Indexer,
@@ -72,12 +73,17 @@ impl AppState {
             )))
             .with_thumbnailer(Arc::new(media.clone()));
 
+        let outbox_signal = immich::outbox::OutboxSignal::new();
+
         let fsops = fsops::FsOps::new(
             db.clone(),
             volumes.clone(),
             settings.clone(),
             indexer.clone(),
-        );
+        )
+        .with_hook(Arc::new(immich::outbox::OutboxHook::new(
+            outbox_signal.clone(),
+        )));
         fsops.reconcile_at_startup(shutdown.clone()).await;
 
         let index_jobs = indexer::IndexJobs::new(
@@ -100,6 +106,16 @@ impl AppState {
 
         let immich_sync = immich::ImmichSync::new(db.clone(), immich.clone(), tasks.clone());
 
+        let immich_outbox = immich::ImmichOutbox::new(
+            db.clone(),
+            immich.clone(),
+            immich_sync.clone(),
+            tasks.clone(),
+            volumes.clone(),
+            outbox_signal,
+            config.immich_quiet_secs,
+        );
+
         let trash = trash::TrashService::new(
             db.clone(),
             settings.clone(),
@@ -113,6 +129,7 @@ impl AppState {
             db,
             fsops,
             immich,
+            immich_outbox,
             immich_sync,
             index_jobs,
             indexer,

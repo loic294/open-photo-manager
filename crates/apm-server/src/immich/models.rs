@@ -200,10 +200,12 @@ pub struct ImmichTag {
 }
 
 /// The part of `exifInfo` the application uses.
-#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+#[derive(Clone, Debug, Default, PartialEq, Eq)]
 pub struct ExifInfo {
     /// Star rating as Immich stores it: 1 to 5, -1 for "rejected", `None` for unrated.
     pub rating: Option<i32>,
+    /// The image description, as written; `None` when the asset has none.
+    pub description: Option<String>,
 }
 
 /// A trimmed view of Immich's `AssetResponseDto`: what the sync and the outbox
@@ -235,6 +237,10 @@ pub struct ImmichAsset {
     pub visibility: AssetVisibility,
     pub tags: Vec<ImmichTag>,
     pub exif_info: Option<ExifInfo>,
+    /// Immich finished reading the file's metadata (its import job ran). A server that does not
+    /// report the flag counts as done, so only a server that says otherwise makes callers wait;
+    /// an asset built by hand (`Default`) has none yet.
+    pub has_metadata: bool,
 }
 
 impl ImmichAsset {
@@ -251,10 +257,18 @@ impl ImmichAsset {
     /// The star rating in the application's terms: 1 to 5, or 0 for unrated
     /// (no rating, "rejected" or an out-of-range value).
     pub fn rating(&self) -> u8 {
-        match self.exif_info.and_then(|exif| exif.rating) {
+        match self.exif_info.as_ref().and_then(|exif| exif.rating) {
             Some(stars @ 1..=5) => u8::try_from(stars).unwrap_or(0),
             _ => 0,
         }
+    }
+
+    /// The description, `None` when there is none or it is blank.
+    pub fn description(&self) -> Option<&str> {
+        self.exif_info
+            .as_ref()
+            .and_then(|exif| exif.description.as_deref())
+            .filter(|text| !text.trim().is_empty())
     }
 }
 
@@ -277,11 +291,13 @@ struct RawAsset {
     visibility: Option<AssetVisibility>,
     tags: Option<Vec<ImmichTag>>,
     exif_info: Option<RawExif>,
+    has_metadata: Option<bool>,
 }
 
 #[derive(Deserialize)]
 struct RawExif {
     rating: Option<Value>,
+    description: Option<Value>,
 }
 
 impl From<RawAsset> for ImmichAsset {
@@ -306,7 +322,12 @@ impl From<RawAsset> for ImmichAsset {
                     .rating
                     .and_then(|rating| rating.as_i64())
                     .and_then(|rating| i32::try_from(rating).ok()),
+                description: match exif.description {
+                    Some(Value::String(text)) => Some(text),
+                    _ => None,
+                },
             }),
+            has_metadata: raw.has_metadata.unwrap_or(true),
         }
     }
 }
@@ -764,7 +785,33 @@ mod tests {
         assert_eq!(parsed.updated_at_ms, None);
         assert_eq!(parsed.file_created_at_ms, None);
         assert_eq!(parsed.deleted_at_ms, None);
-        assert_eq!(parsed.exif_info, Some(ExifInfo { rating: None }));
+        assert_eq!(parsed.exif_info, Some(ExifInfo::default()));
+    }
+
+    #[test]
+    fn the_import_state_and_the_description_are_read() {
+        let imported = asset(json!({
+            "id": "a",
+            "hasMetadata": true,
+            "exifInfo": {"rating": 3, "description": "Sunset at the pier"}
+        }));
+        assert!(imported.has_metadata);
+        assert_eq!(imported.description(), Some("Sunset at the pier"));
+        assert_eq!(imported.rating(), 3);
+
+        let importing = asset(json!({"id": "a", "hasMetadata": false}));
+        assert!(!importing.has_metadata);
+        assert_eq!(importing.description(), None);
+
+        assert!(
+            asset(json!({"id": "a"})).has_metadata,
+            "a server that does not report the flag has nothing to wait for"
+        );
+        assert!(!ImmichAsset::default().has_metadata);
+        for odd in [json!(""), json!("  \n"), json!(null), json!(12)] {
+            let parsed = asset(json!({"id": "a", "exifInfo": {"description": odd}}));
+            assert_eq!(parsed.description(), None);
+        }
     }
 
     #[test]

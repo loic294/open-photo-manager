@@ -119,7 +119,7 @@ use std::sync::Arc;
 use std::time::{Duration, Instant};
 
 use apm_core::dto::{ImmichSyncRequest, TaskKind, TaskState};
-use apm_core::paths::TaskId;
+use apm_core::paths::{TaskId, VolumeId};
 use serde_json::Value;
 use tokio::sync::Mutex;
 use tokio::time::MissedTickBehavior;
@@ -182,6 +182,24 @@ pub struct SyncSubmitted {
     pub task_id: TaskId,
     /// The request was merged into a sync that had not started yet.
     pub coalesced: bool,
+}
+
+/// What [`ImmichSync::refresh`] read.
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+pub struct RefreshStats {
+    /// The scopes that were read.
+    pub scopes: usize,
+    /// The assets that were read.
+    pub read: i64,
+}
+
+/// Why [`ImmichSync::refresh`] did not complete.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub enum RefreshError {
+    /// The task was cancelled or the connection is gone; what was stored is valid anyway.
+    Stopped,
+    /// Immich (or the database) failed. The message is fit for a person: no secret, no path.
+    Failed(String),
 }
 
 /// The asset sync. Cheap to clone; every clone is the same sync.
@@ -309,6 +327,80 @@ impl ImmichSync {
                 }
             }
         });
+    }
+
+    /// Reads the scopes that feed any of `volumes` now, inside the task of the caller, so the
+    /// stored assets are as fresh as Immich is: what the outbox needs before it looks assets up by
+    /// the place of a file. A scope is read like the loop reads it (incrementally when it can be,
+    /// in full the first time and once a day), whether it is due or not.
+    ///
+    /// Takes the turn of the sync (one read of Immich at a time), so it waits for a running sync
+    /// and holds the regular sync back while it reads. Nothing is queued and no sync task shows.
+    pub async fn refresh(
+        &self,
+        ctx: &TaskCtx,
+        volumes: &[VolumeId],
+    ) -> Result<RefreshStats, RefreshError> {
+        let inner = &self.inner;
+        let _turn = tokio::select! {
+            biased;
+            () = ctx.cancel.cancelled() => return Err(RefreshError::Stopped),
+            turn = inner.running.lock() => turn,
+        };
+        let db = &inner.db;
+        let stored = match inner.immich.stored().await {
+            Ok(stored) => stored,
+            Err(ImmichError::NotConnected) => return Err(RefreshError::Stopped),
+            Err(err) => return Err(RefreshError::Failed(err.summary())),
+        };
+        let mappings = inner.immich.mappings().await.map_err(refresh_failed)?;
+        let scopes = assets::plan(&stored, &mappings);
+        let wanted: Vec<&Scope> = scopes
+            .iter()
+            .filter(|scope| scope.volumes.iter().any(|volume| volumes.contains(volume)))
+            .collect();
+        if wanted.is_empty() {
+            return Ok(RefreshStats::default());
+        }
+        let map = inner.immich.path_map().await.map_err(refresh_failed)?;
+        let client = match inner.immich.client().await {
+            Ok(client) => client,
+            Err(ImmichError::NotConnected) => return Err(RefreshError::Stopped),
+            Err(err) => return Err(RefreshError::Failed(err.summary())),
+        };
+        let states = assets::states(db).await.map_err(refresh_storage_failed)?;
+        let env = PassEnv {
+            db,
+            client: &client,
+            api_key_id: stored.api_key_id.as_str(),
+            ctx,
+            map: &map,
+        };
+        let libraries = Libraries::read(&client, &wanted).await;
+        let mut stats = RefreshStats::default();
+        for scope in wanted {
+            let outcome = match libraries.check(scope) {
+                Ok(()) => pass(&env, scope, states.get(&scope.key), false).await,
+                Err(err) => Err(err),
+            };
+            match outcome {
+                Ok(read) => {
+                    stats.scopes += 1;
+                    stats.read = stats.read.saturating_add(read);
+                }
+                Err(PassError::Stopped) => return Err(RefreshError::Stopped),
+                Err(PassError::Immich { message, .. }) => {
+                    env.record_failure(scope, &message).await;
+                    return Err(RefreshError::Failed(message));
+                }
+                Err(PassError::Db(err)) => {
+                    tracing::error!(error = %err, scope = %scope.key, "the Immich refresh could not store its data");
+                    env.record_failure(scope, STORAGE_FAILURE).await;
+                    return Err(RefreshError::Failed(STORAGE_FAILURE.to_owned()));
+                }
+            }
+        }
+        Ok(stats)
     }
 
     /// Queues a sync, or merges the request into the one that waits.
@@ -512,6 +604,18 @@ fn immich_failed(err: &ImmichError) -> TaskError {
 fn storage_failed(err: DbError) -> TaskError {
     tracing::error!(error = %err, "the Immich sync could not store its data");
     TaskError::failed(STORAGE_FAILURE)
+}
+
+fn refresh_failed(err: ImmichError) -> RefreshError {
+    match err {
+        ImmichError::NotConnected => RefreshError::Stopped,
+        other => RefreshError::Failed(other.summary()),
+    }
+}
+
+fn refresh_storage_failed(err: DbError) -> RefreshError {
+    tracing::error!(error = %err, "the Immich refresh could not store its data");
+    RefreshError::Failed(STORAGE_FAILURE.to_owned())
 }
 
 // ----- deciding what to read -------------------------------------------------------------------

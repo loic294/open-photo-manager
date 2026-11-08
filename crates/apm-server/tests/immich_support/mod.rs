@@ -22,9 +22,14 @@
 //! has; see `search.rs` for what a test can shape: flags, `updatedAt`, short, empty, slow and
 //! failing pages.
 //!
+//! `assets.rs` adds what the outbox of file operations calls: one asset, bulk changes and deletes,
+//! albums, tags and the scan of a library over real directories (mounted with
+//! [`FakeImmich::mount`]). A forced delete of an asset that is online is recorded as a
+//! [`Violation`]: every test that drives the application asserts there is none.
+//!
 //! [`Fixture`] adds a `TestApp`, the capture of the log of the test and the checks that no secret
 //! reaches a response, the log or a file of the data directory; `sync.rs` adds what the tests of
-//! the asset sync need on top of it.
+//! the asset sync need on top of it and `outbox.rs` what the tests of the outbox need.
 
 #![allow(dead_code, unused_imports, clippy::unwrap_used, clippy::expect_used)]
 
@@ -36,6 +41,7 @@ use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::{Arc, Mutex, MutexGuard, Once};
 use std::time::{Duration, Instant};
 
+use apm_server::config::Config;
 use axum::http::{Method, StatusCode};
 use serde_json::{Value, json};
 use wiremock::matchers::any;
@@ -44,9 +50,16 @@ use wiremock::{Mock, MockServer, Request, Respond, ResponseTemplate};
 use crate::common::TestApp;
 use crate::common::seed::Seed;
 
+mod assets;
+mod outbox;
 mod search;
 mod sync;
 
+pub use assets::{Album, Tag, Violation};
+pub use outbox::{
+    OutboxRow, PassState, SHORT, Site, delete_of, first_pass, id_of, many_photos, moved_photo,
+    next_pass, one_photo, one_photo_limited, photos_in,
+};
 pub use search::{START_MS, rfc3339};
 pub use sync::{StoredAsset, StoredScope, eventually, updated_after};
 
@@ -105,6 +118,14 @@ pub struct Asset {
     pub visibility: String,
     /// Epoch milliseconds.
     pub updated_at_ms: i64,
+    pub is_favorite: bool,
+    /// Stars, 1 to 5; `None` is no rating.
+    pub rating: Option<i32>,
+    pub description: Option<String>,
+    /// The ids of the tags the asset has.
+    pub tags: Vec<String>,
+    /// Immich has read the metadata; an asset that was just imported may not have it yet.
+    pub has_metadata: bool,
     /// The order the assets were added in, which is the order of a search.
     seq: u64,
 }
@@ -173,9 +194,14 @@ pub struct State {
     pub calls: Vec<Call>,
     /// The password and every credential this server ever handed out, for the leak checks.
     pub issued: Vec<String>,
+    /// How long every answer is held back: a network that is not the loopback. See
+    /// [`FakeImmich::set_latency`].
+    pub latency: Duration,
     faults: Vec<Fault>,
     /// How the searches behave on top of the data; see `search.rs`.
     search: search::Behaviour,
+    /// The albums, the tags, the mounts and the forced deletes; see `assets.rs`.
+    world: assets::World,
 }
 
 type Reply = (u16, Option<Value>);
@@ -257,8 +283,10 @@ impl State {
             assets: Vec::new(),
             calls: Vec::new(),
             issued: vec![password],
+            latency: Duration::ZERO,
             faults: Vec::new(),
             search: search::Behaviour::default(),
+            world: assets::World::default(),
         }
     }
 
@@ -277,7 +305,12 @@ impl State {
         let body = serde_json::from_slice::<Value>(&request.body).ok();
         let method = request.method.as_str().to_owned();
         let path = request.url.path().to_owned();
-        let reply = self.answer(&method, &path, &credentials, body.as_ref());
+        let query: Vec<(String, String)> = request
+            .url
+            .query_pairs()
+            .map(|(key, value)| (key.into_owned(), value.into_owned()))
+            .collect();
+        let reply = self.answer(&method, &path, &query, &credentials, body.as_ref());
         self.calls.push(Call {
             method,
             path,
@@ -293,6 +326,7 @@ impl State {
         &mut self,
         method: &str,
         path: &str,
+        query: &[(String, String)],
         credentials: &Credentials,
         body: Option<&Value>,
     ) -> Reply {
@@ -375,7 +409,15 @@ impl State {
                 }
             }
             ("PUT", ["libraries", id]) => self.update_library(&who, id, body),
+            ("POST", ["libraries", id, "scan"]) => self.request_scan(&who, id),
             ("POST", ["search", "metadata"]) => self.search(&who, body),
+            ("GET", ["assets", id]) => self.get_asset(&who, id),
+            ("PUT", ["assets"]) => self.update_assets(&who, body),
+            ("DELETE", ["assets"]) => self.delete_assets(&who, body),
+            ("GET", ["albums"]) => self.list_albums(&who, query),
+            ("PUT", ["albums", id, "assets"]) => self.add_to_album(&who, id, body),
+            ("GET", ["tags"]) => self.list_tags(&who),
+            ("PUT", ["tags", "assets"]) => self.tag_assets(&who, body),
             _ => failure(404, "Not Found", &format!("Cannot {method} {path}")),
         }
     }
@@ -538,7 +580,7 @@ impl Respond for Responder {
     fn respond(&self, request: &Request) -> ResponseTemplate {
         let mut state = self.0.lock().unwrap();
         let (status, body) = state.handle(request);
-        let delay = state.search.delay_for(request);
+        let delay = state.search.delay_for(request) + state.latency;
         drop(state);
         let mut template = ResponseTemplate::new(status);
         if !delay.is_zero() {
@@ -642,6 +684,13 @@ impl FakeImmich {
         });
     }
 
+    /// Holds every answer back by `latency` (the time a request takes on a real network), until
+    /// it is set to zero. Not a fault: [`FakeImmich::heal`] leaves it alone. The delay does not
+    /// hold the others back, so requests that overlap wait together.
+    pub fn set_latency(&self, latency: Duration) {
+        self.state().latency = latency;
+    }
+
     pub fn heal(&self) {
         let mut state = self.state();
         state.faults.clear();
@@ -651,6 +700,11 @@ impl FakeImmich {
 
     pub fn calls(&self) -> Vec<Call> {
         self.state().calls.clone()
+    }
+
+    /// How many requests arrived since the last `clear_calls`, without copying them.
+    pub fn call_count(&self) -> usize {
+        self.state().calls.len()
     }
 
     pub fn calls_to(&self, method: &str, path: &str) -> Vec<Call> {
@@ -818,17 +872,24 @@ pub struct Fixture {
 impl Fixture {
     /// An application and a fake whose account is an administrator, not connected yet.
     pub async fn new() -> Self {
-        Self::start(true).await
+        Self::start(true, |_| {}).await
     }
 
     /// Like [`Fixture::new`] with an account that is not an administrator.
     pub async fn limited() -> Self {
-        Self::start(false).await
+        Self::start(false, |_| {}).await
     }
 
     /// An administrator connection, made through the endpoint.
     pub async fn connected() -> Self {
         let fixture = Self::new().await;
+        fixture.connect_ok().await;
+        fixture
+    }
+
+    /// [`Fixture::connected`] on an application whose test `Config` `tweak` adjusted first.
+    pub async fn connected_with(tweak: impl FnOnce(&mut Config)) -> Self {
+        let fixture = Self::start(true, tweak).await;
         fixture.connect_ok().await;
         fixture
     }
@@ -840,10 +901,10 @@ impl Fixture {
         fixture
     }
 
-    async fn start(is_admin: bool) -> Self {
+    async fn start(is_admin: bool, tweak: impl FnOnce(&mut Config)) -> Self {
         let logs = LogBuffer::default();
         let capture = logs.capture();
-        let app = TestApp::new().await;
+        let app = TestApp::with_config(tweak).await;
         let fake = FakeImmich::start(is_admin).await;
         Self {
             app,
