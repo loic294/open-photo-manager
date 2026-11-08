@@ -27,15 +27,11 @@ async function diskHash(path: string) {
 }
 test.describe.configure({ mode: 'default' });
 test.use({
-  // Reload and intentionally stopped backend: only this recovery scenario permits network failures.
+  // Full reload cancels the previous page's SSE and media preloads.
   allowedErrors: [
     [
-      /requestfailed: .*\/api\/(?:events|tasks|index\/status|volumes|browse\/\w+|facets|settings|immich\/status).* net::ERR_(?:ABORTED|CONNECTION_REFUSED|EMPTY_RESPONSE|CONNECTION_RESET)/,
+      /requestfailed: .*\/api\/events net::ERR_ABORTED/,
       /requestfailed: .*\/api\/files\/\d+\/(?:thumb|preview).* net::ERR_ABORTED/,
-      // SIGKILL truncates the live chunked event stream before it can finish.
-      /requestfailed: .*\/api\/events net::ERR_INCOMPLETE_CHUNKED_ENCODING/,
-      /^console.error: Failed to load resource: net::ERR_INCOMPLETE_CHUNKED_ENCODING$/,
-      /^console.error: (?:Failed to load resource: net::ERR_(?:CONNECTION_REFUSED|EMPTY_RESPONSE|CONNECTION_RESET)|EventSource's response has a MIME type)/,
     ],
     { scope: 'test' },
   ],
@@ -314,6 +310,7 @@ test('SIGKILL during a real copy reconciles the journal and reconnects without r
   app,
   page,
   shell,
+  allowedErrors,
 }) => {
   test.setTimeout(300_000);
   test.skip(
@@ -341,10 +338,20 @@ test('SIGKILL during a real copy reconciles the journal and reconnects without r
         timeout: 30_000,
       })
       .toBeGreaterThan(0);
-    await app.kill();
-    await expect(shell.connectionBanner()).toBeVisible({ timeout: 30_000 });
-    await app.restart();
-    await expect(shell.connectionBanner()).not.toBeVisible({ timeout: 45_000 });
+    // Permit truncated SSE only for this exact private origin during the intentional outage.
+    const allowanceStart = allowedErrors.length;
+    allowedErrors.push(
+      `requestfailed: ${app.url}/api/events net::ERR_INCOMPLETE_CHUNKED_ENCODING`,
+      /^console.error: Failed to load resource: net::ERR_INCOMPLETE_CHUNKED_ENCODING$/,
+    );
+    try {
+      await app.kill();
+      await expect(shell.connectionBanner()).toBeVisible({ timeout: 30_000 });
+      await app.restart();
+      await expect(shell.connectionBanner()).not.toBeVisible({ timeout: 45_000 });
+    } finally {
+      allowedErrors.splice(allowanceStart);
+    }
     const interrupted = (await app.api.tasks()).find((entry) => entry.id === task.id);
     expect(interrupted?.state).toBe('interrupted');
     await shell.hoverTasks();
