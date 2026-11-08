@@ -237,7 +237,7 @@ Set these as environment variables. An empty value counts as not set.
 | `APM_ALLOWED_HOSTS` | (empty) | Names you type in the browser to reach the app, comma separated: `diskstation`, `diskstation:8080`, `*.example.com`. `localhost` and IP addresses always work. **Set this when you use a name**, otherwise the app answers 403 "host not allowed". |
 | `APM_IMMICH_QUIET_SECS` | `15` | Seconds of quiet file operations before queued changes are mirrored to Immich; accepts 1 through 600. An invalid value refuses startup. This is not an import-completion deadline. |
 | `APM_INDEX_CONCURRENCY` | (empty: the smaller of 2 and the CPU count) | How many files are analysed at once. Use `1` on a NAS with little memory. |
-| `TZ` | `UTC` | Time zone name, e.g. `Europe/Paris`. Used for log times and for photos that carry no time zone. |
+| `TZ` | `UTC` | Time zone name, e.g. `Europe/Paris`. Used for filesystem fallback dates and UTC-defined video dates. Embedded wall-clock dates are preserved; application log timestamps remain UTC. |
 | `LANG` | `C.UTF-8` | Keeps accented file names intact in the media tools. Leave it alone. |
 | `TMPDIR`, `HOME` | `/data/tmp` | Scratch space for `ffmpeg`, `exiftool` and `vips`. See below. |
 
@@ -356,7 +356,7 @@ It takes about half a minute with a warm cache and removes everything it creates
 | Folders look empty, or changes are refused | The `user:` has no permission on the share. Check the DSM permissions for that user. |
 | HEIC/AVIF photos have no thumbnails | `docker run --rm IMAGE vips --vips-config` must say `HEIC/AVIF load/save with libheif: true`. If it does not, rebuild the image with `make docker-build`. |
 | The NAS runs out of memory while indexing | Set `APM_INDEX_CONCURRENCY: 1` and, in `compose.yml`, enable `mem_limit`. |
-| Log times or photo dates are off by hours | Set `TZ` to your time zone. |
+| Photo fallback dates are off by hours | Set `TZ` to your time zone and re-index affected files. Application logs use UTC even when `TZ` is set. |
 | `read-only file system` errors in the log | Keep `tmpfs: [/tmp]` next to `read_only: true`. |
 | `docker load` says the file is not an image, or the image will not start | The tarball was built for another architecture. Check `uname -m` on the NAS and rebuild with the matching `--platform`. |
 | An image build is killed or the machine freezes | Not enough memory for the Rust compile: `-- --build-arg CARGO_BUILD_JOBS=2`, or give Docker more RAM. |

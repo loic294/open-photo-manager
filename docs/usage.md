@@ -1,7 +1,7 @@
 # Browse, settings and recovery
 
 For someone checking a newly indexed library before making changes.
-This is an intentionally partial guide: the four tool walkthroughs, pattern-token table and complete
+This is an intentionally partial guide: the four tool walkthroughs and complete
 screen tour will be added after their implementation contracts land and are verified.
 No planned tool labels or actions are described here as shipped.
 
@@ -86,3 +86,46 @@ No planned tool labels or actions are described here as shipped.
    Shortening retention can take effect as soon as you save. Leave it off if you want manual control.
 
    You should see: automatic deletion remains disabled unless you explicitly enable and save it.
+
+## Pattern language reference
+
+This is the implemented core formatter, not a claim that the pending pattern editor UI is shipped.
+Tokens are case-sensitive; unknown names are errors. `{mm}` and `{MM}` both mean month;
+minutes use `{min}`. Month names are English. The sample is `IMG_0042.CR3`, captured at
+2026-10-05 14:07:09, with camera `Canon EOS R5`, in folder `Holiday`.
+
+<!-- tokens:start -->
+| Group | Token | Meaning | Sample value |
+|---|---|---|---|
+| Date | `{YYYY}` | Year, 4 digits | `2026` |
+| Date | `{YY}` | Year, last 2 digits | `26` |
+| Date | `{mm}`, `{MM}` | Month number, 2 digits | `10` |
+| Date | `{MMM}` | Month name, abbreviated (English) | `Oct` |
+| Date | `{MMMM}` | Month name, in full (English) | `October` |
+| Date | `{dd}` | Day of the month, 2 digits | `05` |
+| Date | `{HH}` | Hour on the 24-hour clock, 2 digits | `14` |
+| Date | `{min}` | Minute, 2 digits | `07` |
+| Date | `{sec}` | Second, 2 digits | `09` |
+| File | `{filename}` | Original file name, with its extension | `IMG_0042.CR3` |
+| File | `{name}` | Original file name, without its extension | `IMG_0042` |
+| File | `{ext}` | File extension without the dot, in its original case | `CR3` |
+| Other | `{camera}` | Camera make and model, or a placeholder when unknown | `Canon EOS R5` |
+| Other | `{folder}` | Name of the folder the file is in now | `Holiday` |
+<!-- tokens:end -->
+
+1. Date group: `{YYYY}/{mm}` produces `2026/10/IMG_0042.CR3`.
+   When the last component contains no `{name}` or `{filename}`, the original filename is appended.
+
+   You should see: the original filename below the generated date folders.
+
+2. File group: `{name}_copy.{ext}` produces `IMG_0042_copy.CR3`.
+   `{name}` omits the extension, while `{filename}` includes it; `{ext}` preserves its original case.
+
+   You should see: one renamed file component, with no duplicate appended filename.
+
+3. Other group: `{camera}/{folder}/{filename}` produces `Canon EOS R5/Holiday/IMG_0042.CR3`.
+   A missing camera uses `Unknown camera`; folder means the current containing folder's name.
+   A trailing slash forces the original filename to be appended, and token-generated names are sanitised
+   and limited by the configured generated-name byte limit.
+
+   You should see: camera and current-folder names used as folder components.

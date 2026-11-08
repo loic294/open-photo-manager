@@ -4,8 +4,11 @@ For the NAS owner preparing a private, LAN-only deployment. Read the [Docker ref
 for environment defaults, mount layout and hardening; the installation commands live in the
 [README](../README.md#install-on-synology), not here.
 
-Status: source-verified operations guidance. The complete isolated local walkthrough is pending
-final integration. No NAS deployment or DSM verification has occurred. DSM menu names differ between
+Status: source-verified operations guidance. An isolated local Compose start with the existing
+`apm-coordinator:94ed02fb` image reached healthy status and browsed an indexed fixture library via the API,
+with a non-root user, read-only root and read-only archive. This does not verify the newer UIs or watcher;
+the complete walkthrough is pending final integration. No NAS deployment or DSM verification has occurred.
+DSM menu names differ between
 versions; all DSM UI procedures below are not verified on a DSM device.
 
 ## Access safety
@@ -140,6 +143,7 @@ versions; all DSM UI procedures below are not verified on a DSM device.
 2. Set `TZ` before the first index. Capture dates preserve the photographer's wall-clock time;
    timezone conversion applies to UTC-defined video timestamps and filesystem fallback dates.
    Ordinary embedded EXIF wall-clock dates are not shifted to the NAS timezone.
+   Application log timestamps remain UTC even when `TZ` is set.
    If you correct `TZ` later, recreate the container and re-index affected assets.
 
    You should see: dates without usable camera metadata use the intended local calendar date.
