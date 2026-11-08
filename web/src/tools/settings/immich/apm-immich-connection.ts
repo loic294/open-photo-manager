@@ -134,7 +134,7 @@ export class ApmImmichConnection extends ApmElement {
             }}>
               ${this.reconnect ? 'Cancel reconnect' : 'Connect again'}
             </button>
-            <button class="btn btn-outline btn-sm" ?disabled=${this.busy} @click=${this.disconnect}>Disconnect</button>
+            <button class="btn btn-sm" ?disabled=${this.busy} @click=${this.disconnect}>Disconnect</button>
           </div>`
             : nothing
         }

@@ -27,6 +27,7 @@ it('shows account, version, safe external link and Full mode', async () => {
   expect(el.querySelector('a')?.rel).toBe('noopener noreferrer');
   expect(el.querySelector('a')?.target).toBe('_blank');
   expect(button(el, 'Disconnect')?.classList.contains('btn-error')).toBe(false);
+  expect(button(el, 'Disconnect')?.classList.contains('btn-outline')).toBe(false);
 });
 
 it('shows regular limited accounts, reachability recovery and explicit connection checks', async () => {
