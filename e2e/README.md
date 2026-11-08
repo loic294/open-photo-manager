@@ -49,6 +49,7 @@ Paths, port, timezone and production web directory cannot be overridden through 
 | Real process | `AppInstance.start({ env?, settings?, watcher?, cold? })`, `url`, `outDir`, `volumesDir`, `dataDir`, `logs()` |
 | Readiness/indexing | `waitForIdle()`, `rescan(targets?: Scope[])` returns the generated `TaskDto`; `waitForTasksIdle`, `waitForFile`, `waitForIndexed` |
 | Recovery | `suspend()` / `resume()` retain private directories and port; `kill()` sends SIGKILL; `restart({ newPort? })`; `stop()` always tears down |
+| Mounted private fixtures | `CrossDevice.create(app, copyBytes)` (macOS, at most 4 GiB) stops the backend, mounts/discovers a new writable `.volume`, and proves distinct device IDs plus `EXDEV`; `.evidence`, `.mount`, `.image`, `close()` |
 | API/disk | `api` uses generated DTOs with matching Host/Origin and `x-apm-request: 1`; `sql(query)` is read-only SQLite; `applyFixtureMutations()` runs the shared script and parses TSV |
 | Fixture catalog | `Manifest.load(outDir)`, `filesOf(key)`, `file(volume,path)`, `scenario(key)`, `duplicateGroups(mode)`, `emptyDirs()` |
 | Disk helpers | `snapshotTree(dir,{hash?})`, `diffTrees`, `expectTree`, `trashEntries`, `writeFile`, `touch`, `removeFile`, `makeDir`, `makeSparseFile` (maximum 4 GiB) |
@@ -60,6 +61,29 @@ Paths, port, timezone and production web directory cannot be overridden through 
 `/mnt/photos` and `/mnt/archive` on that test's private volumes. It exposes `url`, `control` and
 `state`; teardown stops it and asserts that its violation list is empty. Only this external
 server is fake. The connect acceptance case goes through the real Settings UI, then verifies the API.
+
+## Private separate-device fixtures
+
+Ordinary `photos` and `archive` fixture directories share a filesystem on macOS; logical-volume
+moves there rename rather than copy. The shared `CrossDevice` helper creates a **private sparse APFS
+image** under the app's directory and mounts it inside that app's private volumes before discovery.
+It preflights host free space (copy size plus 1 GiB), verifies actual `st_dev` and an `EXDEV` rename,
+and exposes the discovered destination volume name. Use it before creating the source/plan.
+Always `await device.close()` in `finally`: stop/quiesce the app before detach. The
+`AppInstance.beforeCleanup()` hook detaches after process shutdown and **before any permission walk
+or recursive cleanup**. A busy/failed detach throws with the exact mount/image/directory paths and
+preserves them; never force detach or remove a still-mounted tree.
+
+Calibration on this contended macOS host measured 1 GiB at 12 seconds (below acceptance), and
+3 GiB at 34 then 35 seconds for the actual file task. Copy tests must retain a measured
+**at least 15 seconds** gate, not a sleep or forced throttle. Use one worker for copy/mount
+validation. Compare pre-existing `.apm-part` paths because a deliberate junk fixture already has
+that suffix: copy/cancel/recovery must introduce no leftover parts.
+
+`specs/system/cross-device.spec.ts` tests discovery, shutdown/detach and busy-mount fail-closed
+cleanup. These are host-binary checks, not Docker or actual Windows evidence. This APFS helper
+requires macOS `hdiutil`; tests must explicitly report unsupported platforms without claiming copy
+coverage. Never add a production EXDEV knob, symlink volume or force-detach workaround.
 
 ## Adding coverage
 

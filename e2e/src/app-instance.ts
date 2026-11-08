@@ -52,6 +52,7 @@ export class AppInstance {
   private reservation?: Server;
   private output = '';
   private startupAfter = -1;
+  private cleanupHooks: (() => Promise<void>)[] = [];
 
   private constructor(
     readonly directory: string,
@@ -227,6 +228,8 @@ export class AppInstance {
     if (this.reservation)
       await new Promise<void>((resolve) => this.reservation?.close(() => resolve()));
     this.reservation = undefined;
+    for (const cleanup of this.cleanupHooks) await cleanup();
+    this.cleanupHooks = [];
     if (process.env.E2E_KEEP !== '1') {
       try {
         await fixturePermissions(this.outDir, true);
@@ -235,6 +238,10 @@ export class AppInstance {
       }
       await rm(this.directory, { recursive: true, force: true });
     }
+  }
+  /** Private mounted fixtures must detach after shutdown and before recursive cleanup. */
+  beforeCleanup(cleanup: () => Promise<void>) {
+    this.cleanupHooks.push(cleanup);
   }
   logs() {
     return this.output;
