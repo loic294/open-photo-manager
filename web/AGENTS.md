@@ -584,3 +584,83 @@ this.addEventListener(ITEM_OPEN_EVENT, (event) => {
   `vi.stubGlobal('Image', FakeImage)`) and `fileDetail()` (`@/test/file-item`); mock `api.get` for
   `/api/files/{id}`. happy-dom has no layout and does not focus a dialog it opens, so check the layout,
   the focus and the Range requests in a browser.
+
+## Filter bar
+`<apm-filter-bar>` (`@/components/apm-filter-bar`, host `block`) is the filter row of every tool: cameras,
+rating, flags, tags, a chip while a selection restricts the listing, "Clear filters" and the "Hide
+folders without matches" switch, plus an optional "Apply to" selector. It is CONTROLLED and reads no
+store: properties in, bubbling events out; the host stores the change and feeds it back.
+```ts
+html`<apm-filter-bar .filter=${filterFor(tool)} .contexts=${contexts} .scope=${scope}
+  .hideUnmatched=${hideUnmatchedFolders.value} .selectionLabel=${label}
+  @filter-change=${(e: FilterChangeEvent) => setFilter(tool, e.detail)}
+  @scope-change=${(e: ScopeChangeEvent) => setScope(tool, e.detail)}
+  @hide-unmatched-change=${(e: HideUnmatchedChangeEvent) => { hideUnmatchedFolders.value = e.detail; }}
+  @selection-clear=${() => setFilter(tool, { ...filterFor(tool), selection_id: null })}
+></apm-filter-bar>`;
+```
+- Properties: `filter`, `contexts` (`BrowseRequest[]`, one per pane the filter applies to; only
+  `volume_id` and `dir` are read, the bar adds its own filter and no plan, and equal locations count
+  once), `scope` (`'both' | 'source' | 'comparison' | null`; `null` hides "Apply to"), `scopeLabels`
+  (partial `ScopeLabels` over Both/Source/Comparison), `hideUnmatched` (attribute `hide-unmatched`),
+  `selectionLabel` (attribute `selection-label`; names `filter.selection_id` on the chip, fallback
+  "Selection"), `disabled` and `disabledReason` (attribute `disabled-reason`; every control is off, the
+  reason shows and is linked with `aria-describedby`).
+- Events, all bubbling, `detail` is the VALUE itself: `filter-change` (the normalised `Filter`),
+  `scope-change` (`FilterScope`), `hide-unmatched-change` (`boolean`), `selection-clear` (`null`). They
+  fire on a choice of the user, never while typing in a search box, and a disabled bar emits nothing.
+  "Clear filters" emits `filter-change` with the empty filter and, when a selection was set,
+  `selection-clear` too. The events of the inner controls never leave the bar.
+- Facets: `fetchFacets(request, { signal })` and `mergeFacets(parts)` (`@/api/facets`, `POST
+  /api/facets`). The bar asks once per distinct location of `contexts`. One location gives the server's
+  lists WITH counts (the rating buttons show them); several give the union by name (case-insensitive,
+  first spelling wins, sorted) WITHOUT counts, because adding counts up would lie. The whole library
+  takes about 0.5 s and a folder under 40 ms, so the bar NEVER waits: the controls work at once, the
+  lists show "Loading…" and keep the values they had. A new filter or location asks 250 ms later and
+  aborts the request in flight (a late answer is dropped); an `fs_change` at or below a location asks
+  2 s after the last event of a burst (at most 10 s after the first); a stream resync and the end of an
+  `index` task ask at once. A failure (one location failing fails all) keeps the old values and shows
+  "Filter options unavailable" with a Retry. A chosen value the facets do not list stays visible and
+  removable.
+- `stores/filters.ts`: `filterFor(tool)` (`EMPTY_FILTER` until set; read it where signals are tracked),
+  `setFilter(tool, filter)` (normalises; a filter that selects the same files is a no-op),
+  `resetFilters(tool?)` (also drops `selection_id`, keeps the scope), `scopeFor(tool, initial = 'both')`,
+  `setScope(tool, scope)` and the persisted signal `filterScopes` (`apm.v1.filterScope`). Filters are in
+  memory only, so a reload clears them on purpose. `hideUnmatchedFolders` stays in `prefs`.
+- `@/util/filter`: `EMPTY_FILTER` (frozen), `normalizeFilter` (trims, de-duplicates by `textKey`
+  keeping the first spelling, sorts, drops ratings outside 0 to 5, puts flags in a fixed order; like
+  `Filter::normalise`), `activeFilterCount` (the DIMENSIONS in use, a selection counts one),
+  `isFilterActive`, `filterKey` and `sameFilter` (equal for filters that select the same files, like
+  `Filter::cache_key`), `textKey` and `sameText` (the server's name comparison: NFC, lower case),
+  `toggleIn`, `FLAGS`, `FILTER_SCOPES`, `DEFAULT_SCOPE_LABELS`, `MAX_RATING`.
+- In a tool view: `contexts` are the `ctx.request(pane)` of the panes the filter applies to (skip the
+  `null`s); `scope` is set only for `applies: 'choice'` (else `null`), `disabled` and `disabledReason`
+  for `'none'`; `selection-clear` also clears the selection's hand-off entry. A hand-off sets a
+  selection with `setFilter(tool, { ...EMPTY_FILTER, selection_id })`. Never wrap the bar in a container
+  of its own that clips or scrolls (`overflow-hidden`, `overflow-x-auto`): the panels of the
+  multi-selects are absolutely positioned dropdowns that overlay what follows the bar. The shell's
+  `<main>` is fine, the panels stay inside it.
+- `apm-segmented` (`@/components/apm-segmented`): `mode` (`'single'`: a radio group, one tab stop,
+  arrows move and choose; `'multi'`: toggle buttons with `aria-pressed`), `options`
+  (`SegmentOption { value; label; name?; icon?; title?; count?; disabled? }`: `name` is the accessible
+  name when it differs from the short `label`, "3 stars" for "3"; a `count` shows as a small number and
+  is added to the accessible name), `value` (a string, a `string[]` in `multi`), `label` (the group's
+  accessible name),
+  `disabled`. Event `segmented-change`, `detail` is the new value (a `string`, a `string[]` in
+  `multi`). Controlled: nothing changes until the host feeds `value` back. The host is `inline-flex
+  max-w-full` and a row that does not fit scrolls sideways below `sm` (the rating strip with counts is
+  wider than a phone).
+- `apm-multi-select` (`@/components/apm-multi-select`): a button that opens a searchable checklist.
+  `options` (`{ value; count? }`), `selected`, `label`, `placeholder`, `icon`, `allow-custom` (an
+  `Add "text"` row, and Enter adds the typed text), `loading` (a "Loading…" row; the values known stay),
+  `disabled`, `max-visible` (default 100; more rows ask to type). The chosen values also show as chips
+  beside the button, each with a "Remove X" button. Event `multi-select-change`, `detail` is the new
+  `string[]`; typing alone never fires it. Values compare with `sameText`, so "canon eos r5" ticks
+  "Canon EOS R5". It closes on Esc, on a press outside and when the focus leaves. The panel opens
+  under the button (`sm:w-72`), flips to `dropdown-end` when it would stick out on the right (measured
+  from the start-aligned state on every update and on window `resize` while open, because choosing a
+  value can reflow the bar and move the button) and spans the window (`max-sm:fixed max-sm:inset-x-2`)
+  below `sm`.
+- Tests: `mount('apm-filter-bar', props)`, stub `api.post` for `/api/facets` and switch to
+  `vi.useFakeTimers()` AFTER mounting; `vi.advanceTimersByTimeAsync(250)` passes the debounce. Call
+  `events.stop()` in `afterEach`: the first connection after a `stop()` also runs the resync handlers.
