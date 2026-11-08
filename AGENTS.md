@@ -261,6 +261,18 @@ binary, browser checks, end-to-end and load tests. Never write a throwaway Immic
 - `make check-tools` (Biome, `tsc`, `node --test`; `scripts/wt-land.sh` runs it when a path under
   `tools/` or `e2e/` changes). Other todos add their own `check-*` prerequisite to it.
 
+## Batch rename engine
+- `apm_core::rename` is the pure implementation of batch-rename matching and naming.
+- Compile `RenameRules` once, then use `new_name` and `assign_counts` for each folder.
+- The planner, the preview and the execution re-check call this engine.
+- Never reimplement a rename matcher, clean rule, rewrite or name-pattern rule elsewhere.
+- Rename name patterns reuse `pattern::scan` through its rename-only dialect.
+- `{count}` is accepted only by that dialect and is not part of `Token::ALL`.
+- Rename patterns represent one filename component; `/` is rejected.
+- The folder-pattern dialect and its token catalogue remain unchanged.
+- The generated name keeps the source extension byte for byte.
+- Counter ordering and grouping are deterministic and folder-local.
+
 ## Duplicate plans
 
 - `DuplicateParams`: `{mode, strict_prefix, source, comparison}`; each side is

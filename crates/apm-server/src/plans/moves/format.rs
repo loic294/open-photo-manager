@@ -1,5 +1,5 @@
 use apm_core::dto::*;
-use apm_core::pattern::{self, TokenGroup};
+use apm_core::pattern;
 
 use super::build::source_statement;
 use super::dest::{Source, destination_for};
@@ -24,13 +24,7 @@ pub async fn preview(
         Ok(p) => p,
         Err(e) => {
             return Ok(FormatPreviewResponse {
-                error: Some(PatternIssue {
-                    code: e.code().into(),
-                    message: e.to_string(),
-                    suggestion: e.suggestion(),
-                    start: e.span.start as u32,
-                    end: e.span.end as u32,
-                }),
+                error: Some(PatternIssue::from(e)),
                 has_filename_token: false,
                 appends_filename: false,
                 samples: Vec::new(),
@@ -99,26 +93,11 @@ pub fn tokens() -> FormatTokensResponse {
     FormatTokensResponse {
         tokens: pattern::describe()
             .into_iter()
-            .map(|t| FormatToken {
-                name: t.name.into(),
-                aliases: t.aliases.iter().map(|s| (*s).into()).collect(),
-                group: match t.group {
-                    TokenGroup::Date => "date",
-                    TokenGroup::File => "file",
-                    TokenGroup::Other => "other",
-                }
-                .into(),
-                description: t.description.into(),
-                example: t.example,
-            })
+            .map(FormatToken::from)
             .collect(),
         examples: pattern::examples()
             .into_iter()
-            .map(|e| FormatExample {
-                pattern: e.pattern.into(),
-                description: e.description.into(),
-                result: e.result,
-            })
+            .map(FormatExample::from)
             .collect(),
         sample: FormatSampleFile {
             file_name: file.file_name,

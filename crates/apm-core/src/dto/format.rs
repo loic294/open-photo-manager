@@ -5,6 +5,7 @@ use ts_rs::TS;
 
 use super::{CaptureSource, SideParams};
 use crate::paths::FileId;
+use crate::pattern::{PatternError, PatternExample, TokenGroup, TokenInfo};
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, TS)]
 #[serde(deny_unknown_fields)]
@@ -80,6 +81,49 @@ pub struct FormatTokensResponse {
     pub sample: FormatSampleFile,
 }
 
+impl From<PatternError> for PatternIssue {
+    fn from(error: PatternError) -> Self {
+        Self {
+            code: error.code().to_owned(),
+            message: error.to_string(),
+            suggestion: error.suggestion(),
+            start: error.span.start as u32,
+            end: error.span.end as u32,
+        }
+    }
+}
+
+impl From<TokenInfo> for FormatToken {
+    fn from(token: TokenInfo) -> Self {
+        Self {
+            name: token.name.to_owned(),
+            aliases: token
+                .aliases
+                .iter()
+                .map(|alias| (*alias).to_owned())
+                .collect(),
+            group: match token.group {
+                TokenGroup::Date => "date",
+                TokenGroup::File => "file",
+                TokenGroup::Other => "other",
+            }
+            .to_owned(),
+            description: token.description.to_owned(),
+            example: token.example,
+        }
+    }
+}
+
+impl From<PatternExample> for FormatExample {
+    fn from(example: PatternExample) -> Self {
+        Self {
+            pattern: example.pattern.to_owned(),
+            description: example.description.to_owned(),
+            result: example.result,
+        }
+    }
+}
+
 #[cfg(test)]
 mod tests {
     #[test]
@@ -137,5 +181,32 @@ mod tests {
             response,
             serde_json::from_value(serde_json::to_value(&response).unwrap()).unwrap()
         );
+    }
+
+    #[test]
+    fn shared_pattern_conversions_preserve_the_format_catalogue() {
+        use super::*;
+        let error = crate::pattern::parse("{yyyy}").expect_err("unknown token");
+        let issue = PatternIssue::from(error);
+        assert_eq!(issue.code, "unknown_token");
+        assert_eq!(issue.suggestion.as_deref(), Some("{YYYY}"));
+        assert_eq!((issue.start, issue.end), (0, 6));
+
+        let token = crate::pattern::describe()
+            .into_iter()
+            .find(|token| token.name == "mm")
+            .map(FormatToken::from)
+            .expect("month token");
+        assert_eq!(token.group, "date");
+        assert_eq!(token.aliases, ["MM"]);
+        assert_eq!(token.example, "10");
+
+        let example = crate::pattern::examples()
+            .into_iter()
+            .next()
+            .map(FormatExample::from)
+            .expect("first pattern example");
+        assert_eq!(example.pattern, "{YYYY}/{mm}");
+        assert_eq!(example.result, "2026/10/IMG_0042.CR3");
     }
 }

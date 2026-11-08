@@ -3,6 +3,8 @@
 use serde::{Deserialize, Serialize};
 use ts_rs::TS;
 
+use super::{ConflictPolicy, SideParams};
+
 /// How a rename rule selects source file names.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, TS)]
 #[serde(rename_all = "snake_case")]
@@ -59,6 +61,16 @@ impl Default for RenameRules {
             count_digits: 0,
         }
     }
+}
+
+/// Parameters for a batch-rename plan.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, TS)]
+#[serde(deny_unknown_fields)]
+#[ts(export)]
+pub struct RenameParams {
+    pub source: SideParams,
+    pub rules: RenameRules,
+    pub conflict_policy: Option<ConflictPolicy>,
 }
 
 /// The rule field that contains a validation issue.
@@ -131,5 +143,24 @@ mod tests {
             }))
             .is_err()
         );
+    }
+
+    #[test]
+    fn rename_params_roundtrip_the_contract_json() {
+        let value: serde_json::Value = serde_json::from_str(
+            r#"{"source":{"scope":{"volume_id":1,"dir":"","recursive":true},"filter":{}},"rules":{"matcher":{"mode":"glob","pattern":"*.jpg","ignore_case":true},"clean":true,"rewrite":{"find":"^IMG_","replace":"Photo_","ignore_case":true},"pattern":"{name}","count_digits":0},"conflict_policy":null}"#,
+        )
+        .expect("contract JSON");
+        let params: RenameParams = serde_json::from_value(value.clone()).expect("valid params");
+        assert_eq!(params.source.scope.volume_id, Some(1));
+        assert_eq!(params.rules.matcher.pattern, "*.jpg");
+        let serialized = roundtrip(&params);
+        assert_eq!(
+            serde_json::from_value::<RenameParams>(serialized).expect("round trip"),
+            params
+        );
+        let mut unknown = value;
+        unknown["future"] = json!(true);
+        assert!(serde_json::from_value::<RenameParams>(unknown).is_err());
     }
 }

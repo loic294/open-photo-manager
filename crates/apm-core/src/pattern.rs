@@ -828,10 +828,6 @@ impl Pattern {
             }
         }
 
-        /// Finishes one rendered file-name component using the folder formatter's exact component rules.
-        pub(crate) fn finish_name_component(raw: &str, original: &str, max: usize) -> String {
-            finish_component(raw, true, original, max.max(MIN_COMPONENT_BYTES))
-        }
         let file = file.unwrap_or_else(|| {
             finish_component(
                 &file_text(&ctx.file_name),
@@ -844,6 +840,11 @@ impl Pattern {
         folders.push(file);
         RelPath::new(&folders.join("/")).unwrap_or_default()
     }
+}
+
+/// Finishes one rendered file-name component using the folder formatter's exact component rules.
+pub(crate) fn finish_name_component(raw: &str, original: &str, max: usize) -> String {
+    finish_component(raw, true, original, max.max(MIN_COMPONENT_BYTES))
 }
 
 fn names_file(token: Token) -> bool {
