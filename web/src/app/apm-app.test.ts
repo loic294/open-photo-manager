@@ -68,6 +68,12 @@ beforeEach(() => {
   FakeEventSource.reset();
   vi.stubGlobal('EventSource', FakeEventSource);
   vi.spyOn(api, 'get').mockResolvedValue([]);
+  // The Browse page is the real one: its panes ask for the folders, and no server is there.
+  const nothing = { folders: [], counts: { in_folder: 0, in_subfolders: 0 } };
+  vi.stubGlobal(
+    'fetch',
+    vi.fn(async () => new Response(JSON.stringify(nothing))),
+  );
   clearToasts();
 });
 

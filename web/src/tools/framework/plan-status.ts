@@ -1,0 +1,99 @@
+import { html, nothing, type TemplateResult } from 'lit';
+import '@/components/apm-icon';
+import type { ToolContext } from '@/tools/framework/tool-context';
+
+/**
+ * The tool bar's status area for the plan (`renderPlanStatus`): what the matching is doing, why a
+ * tool has nothing to match yet and the plan's warnings. It sits at the right end of the row that
+ * holds the summary, a row of a fixed height, so that the status changing never moves the panes
+ * (only the error alert is taller than the row). It always renders its live region, so a screen
+ * reader hears each change.
+ *
+ * - `building`: a spinner and "Matching...", `executing`: a spinner and "Working...".
+ * - `error`: an inline alert with the message and a Retry button (`ctx.plan.retry()`).
+ * - Nothing to match yet (status `none` or `idle` on a tool that has a plan): the reason from
+ *   `config.plan.params(ctx)` as quiet text, never an error.
+ * - Warnings: a compact "N warnings" dropdown listing each message with its count.
+ */
+
+/** DaisyUI's focus dropdown has no Escape: take the focus off the trigger, which closes it. */
+function closeOnEscape(event: KeyboardEvent): void {
+  if (event.key !== 'Escape') return;
+  const active = document.activeElement;
+  const area = event.currentTarget;
+  if (active instanceof HTMLElement && area instanceof Node && area.contains(active)) {
+    event.preventDefault();
+    event.stopPropagation();
+    active.blur();
+  }
+}
+
+/** Why the tool has no plan to build yet, `null` when it is building, has one or needs nothing. */
+function notReadyReason(ctx: ToolContext): string | null {
+  const spec = ctx.config.plan;
+  const { status } = ctx.plan;
+  if (!spec || (status !== 'none' && status !== 'idle')) return null;
+  const result = spec.params(ctx);
+  return result.ready ? null : result.reason;
+}
+
+function renderProgress(ctx: ToolContext): TemplateResult | null {
+  switch (ctx.plan.status) {
+    case 'building':
+    case 'executing':
+      return html`<span class="loading loading-spinner loading-xs shrink-0" aria-hidden="true"></span>
+        <span class="truncate">${ctx.plan.status === 'building' ? 'Matching...' : 'Working...'}</span>`;
+    default: {
+      const reason = notReadyReason(ctx);
+      return reason === null ? null : html`<span class="truncate" title=${reason}>${reason}</span>`;
+    }
+  }
+}
+
+function renderError(ctx: ToolContext) {
+  if (ctx.plan.status !== 'error') return nothing;
+  return html`
+    <div role="alert" class="alert alert-error min-w-0 py-1 text-sm">
+      <apm-icon name="circle-alert" size="sm"></apm-icon>
+      <span class="min-w-0 break-words">${ctx.plan.error ?? 'The plan could not be built.'}</span>
+      <button type="button" class="btn btn-xs" @click=${() => ctx.plan.retry()}>Retry</button>
+    </div>
+  `;
+}
+
+function renderWarnings(ctx: ToolContext) {
+  const { warnings } = ctx.plan;
+  if (warnings.length === 0) return nothing;
+  return html`
+    <div class="dropdown dropdown-end" @keydown=${closeOnEscape}>
+      <div tabindex="0" role="button" class="btn btn-ghost btn-xs gap-1 text-warning">
+        <apm-icon name="triangle-alert" size="sm"></apm-icon>
+        <span>${warnings.length === 1 ? '1 warning' : `${warnings.length} warnings`}</span>
+      </div>
+      <ul
+        tabindex="0"
+        class="dropdown-content z-10 mt-1 flex w-72 max-w-[calc(100vw-1rem)] flex-col gap-2 rounded-box border border-base-300 bg-base-100 p-3 text-sm shadow-lg"
+      >
+        ${warnings.map(
+          (warning) => html`
+            <li class="flex items-start gap-2">
+              <span class="badge badge-warning badge-sm mt-0.5 shrink-0">${warning.count}</span>
+              <span class="min-w-0 break-words">${warning.message}</span>
+            </li>
+          `,
+        )}
+      </ul>
+    </div>
+  `;
+}
+
+export function renderPlanStatus(ctx: ToolContext): TemplateResult {
+  return html`
+    <div class="flex min-w-0 max-w-full items-center justify-end gap-x-3">
+      <span role="status" class="flex min-w-0 items-center gap-2 text-sm text-base-content/70">
+        ${renderProgress(ctx)}
+      </span>
+      ${renderError(ctx)} ${renderWarnings(ctx)}
+    </div>
+  `;
+}

@@ -41,7 +41,14 @@ function comingSoon(path: string, label: string, icon: IconName, menu?: MenuGrou
 
 /** The pages of the app, in menu order. One line each. */
 export const routes: readonly AppRoute[] = [
-  comingSoon('/browse', 'Browse', 'images', 'tools'),
+  {
+    path: '/browse',
+    tag: 'apm-browse-page',
+    load: () => import('@/tools/browse/apm-browse-page'),
+    label: 'Browse',
+    icon: 'images',
+    menu: 'tools',
+  },
   comingSoon('/duplicates', 'Duplicate finder', 'copy', 'tools'),
   comingSoon('/move', 'Asset move', 'folder-input', 'tools'),
   comingSoon('/format', 'Folder formatting', 'folder-tree', 'tools'),

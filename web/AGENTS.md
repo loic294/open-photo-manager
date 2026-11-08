@@ -74,7 +74,8 @@ declare global {
 - `api/` `client.ts` (fetch wrapper), `errors.ts` (`ApiError`), `sse.ts` (EventSource wrapper),
   `generated/` (DTO types).
 - `stores/` signals, one file per store. `components/` shared reusable components.
-- `tools/` one declarative `ToolConfig` per tool. `test/` `helpers.ts`, `fake-event-source.ts`.
+- `tools/` one declarative `ToolConfig` per tool, in `tools/<tool>/`; `tools/framework/` is the tool view
+  they all share (see Tool view). `test/` `helpers.ts`, `fake-event-source.ts`.
 
 ## Types and API
 - DTOs: `import type { X } from '@/api/generated/X'`: one file per type, no barrel. Never hand-write
@@ -156,6 +157,8 @@ Every page starts as a `comingSoon(...)` line that renders `apm-route-placeholde
 - In-app links are plain anchors, `<a href=${linkTo('/trash')}>`, handled by the router (Back/Forward
   too). A link to a server resource (download, file) needs `download`, `target` or `rel="external"`,
   or the router takes it for a page. `navigate(path)` is for code: `navigate(linkTo('/move'))`.
+- A tool page (`/browse`, `/duplicates`, `/move`, `/format`, `/cleanup`) renders `<apm-tool-view
+  .config=${config}>` and nothing else: see Tool view.
 - Tests: mount the page itself with `mount('apm-x', props)`. Route-level tests mount the shell with
   stub loaders: `mount('apm-app', { routes: [...] })` (see `stubRoute` in `app/apm-app.test.ts`).
 
@@ -440,11 +443,13 @@ html`<apm-file-grid .request=${request} sort=${sort} order=${order} size=${size}
   .selectedIds=${selecting.selectedIds} .selectionActive=${selecting.active}></apm-file-grid>`;
 ```
 - Properties: `request` (`BrowseRequest`; `undefined` shows placeholders), `sort`, `order`, `size` (card
-  width in px, clamped to `GRID_SIZE` of `@/stores/prefs`: 96 to 320, step 16, default 160),
-  `.selectedIds`, `selection-active`, `empty-text`, `label`. A new `request`, `sort` or `order` starts
-  a new listing (an equal `request` in a new object does not). Also `columns` (read-only, cards per
-  row), `itemAt(index)` (the loaded item or `undefined`: the viewer's `startItem`), `focusItem(index)`
-  and `focus()`.
+  width in px, clamped to `GRID_SIZE` of `@/stores/prefs`: 96 to 320, step 16, default 160, and to the
+  grid's own width: the virtualiser renders no card in a grid narrower than one card, so a narrow pane
+  shows one shrunk column), `.selectedIds`, `selection-active`, `empty-text`, `label`. A new `request`,
+  `sort` or `order` starts a new listing (an equal `request` in a new object does not). Also `columns`
+  (read-only, cards per row), `itemAt(index)` (the loaded item or `undefined`: the viewer's `startItem`),
+  `refresh()` (fetches what is on screen again; the items stay until the answer), `focusItem(index)` and
+  `focus()`.
 - Events, both bubbling: `card-activate` from the cards (`{ id, index, via: 'checkbox' | 'card' |
   'space' | 'enter', shift, toggle }`) and `grid-state` (`{ total, loading, error }`, when one of them
   changes; `total` is `null` until the first page and counts ghosts). The grid keeps no selection and
@@ -700,6 +705,8 @@ html`<apm-pane pane="comparison" heading="Comparison" .filter=${filter} .plan=${
   'apm-pane')` and its read-only `browseRequest` (`null` while the volumes are unknown or the pane is
   disabled; built by `requestFor(location, filter, plan)` in `@/api/browse`: nobody builds a
   `BrowseRequest` by hand), `sortSpec` and `itemAt(index)` (the loaded item: the viewer's `startItem`).
+  `refresh()` fetches the folders, the counts and the files again (the rows stay until the answer): the
+  pane already does it after an `fs_change`; `ToolContext.refresh()` (see Tool view) calls it on both.
 - The pane owns: navigation (a folder row, a crumb and Up call `setLocation(pane, ...)`, one history entry
   each, the other pane untouched; each is a real `<a href>` from `linkToLocation(pane, location)` in
   `@/stores/nav`, and `isPlainClick(event)` in `@/util/plain-click` tells a click the app handles from one
@@ -744,3 +751,135 @@ html`<apm-pane pane="comparison" heading="Comparison" .filter=${filter} .plan=${
   never goes back to `idle`, so a test of its first load needs its own file (`apm-pane.volumes.test.ts`).
   A removed pane can still have an update queued: the pane stops touching the shared stores once it is
   disconnected. Keep that.
+
+## Tool view (`apm-tool-view`, `ToolConfig`, `ToolContext`, `src/tools/framework/`)
+Every tool page is ONE declarative `ToolConfig` that `<apm-tool-view .config=${config}>` renders: a tool
+writes no layout, no event wiring and no store plumbing, and the framework never knows a tool by name.
+`tools/browse/` is the model (`tool.ts` holds the config, `apm-browse-page.ts` the page element). A tool
+adds only its own folder `tools/<tool>/` and its route line (see Adding a page).
+```ts
+// tools/tidy/tool.ts
+export const tidyTool = defineTool({
+  id: 'cleanup', // YOUR tool's id: one of the ToolIds of @/stores/nav
+  title: 'Tidy up',
+  summary: 'Pick files in the source pane and move them to the trash.',
+  panes: {
+    source: { heading: 'Files', baseMode: 'none', showMatches: false, planSide: null },
+    comparison: { heading: 'Reference', baseMode: 'none', showMatches: false, planSide: null },
+  },
+  filter: { applies: 'source' },
+  recursive: 'toggle',
+  actions: () => ({
+    defaultId: 'trash',
+    count: (ctx) => ctx.selection('source').count.value,
+    options: [{
+      id: 'trash', label: 'Move to trash', icon: 'trash-2', danger: true,
+      disabled: (ctx) => (ctx.selection('source').count.value === 0 ? 'Select files first.' : null),
+      run: async (ctx) => {
+        const ids = ctx.selection('source').toArray();
+        if (!(await confirmDialog({ title: `Trash ${ids.length} files?`, message: '...', danger: true }))) return;
+        await trashFiles(ids); // the tool's own API call
+        ctx.clearSelections();
+        ctx.refresh();
+      },
+    }],
+  }),
+});
+
+// tools/tidy/apm-tidy-page.ts
+export class ApmTidyPage extends ApmElement {
+  override connectedCallback() {
+    super.connectedCallback();
+    this.classList.add('block', 'h-full', 'min-h-0'); // the router does it too; a test mount does not
+  }
+  protected override render() {
+    return html`<apm-tool-view .config=${tidyTool}></apm-tool-view>`;
+  }
+}
+customElements.define('apm-tidy-page', ApmTidyPage);
+
+// routes.ts: replace only your tool's comingSoon line
+{ path: '/cleanup', tag: 'apm-tidy-page', label: 'Tidy up', icon: 'trash-2', menu: 'tools',
+  load: () => import('@/tools/tidy/apm-tidy-page') },
+```
+- **`ToolConfig`** (`tool-config.ts`; `defineTool` checks it and throws `Tool "<id>": <problem>` when the
+  module is imported, so a mistake fails the tool's own test): `id`, `title` (the tool bar's `h2`),
+  `summary` (one sentence under it), `panes` (a `PaneSpec` per pane: `heading`, `baseMode`
+  `none | current | pinned`, `showMatches`, `planSide` (`PlanSide | null`, set exactly when the tool has a
+  `plan`), optional `defaultBase { from, label }`: `pinned` only, until the user pins a folder the base is
+  the base of pane `from`), `filter` (`{ applies: 'both' | 'source' }`; `{ applies: 'choice', labels?,
+  initial? }` shows the "Apply to" selector; `{ applies: 'none', reason }` shows the bar disabled and gives
+  both panes `EMPTY_FILTER`), `recursive?` (`'always'` by default, `'toggle'` adds the "Include
+  subfolders" switch, on by default), `controls?(ctx)` (the tool's own controls in the tool bar, built from
+  shared components), `plan?` (`{ kind: PlanKind, params(ctx) }`, below), `actions?(ctx)` and
+  `setup?(ctx)`. `controls` and `actions` run INSIDE the view's render: what they read from signals
+  re-renders the view. `setup` runs once per connection (again for a new `config`) and returns its cleanup,
+  `(() => void) | undefined`.
+- **`ToolContext`** (`tool-context.ts`): one per connected view and the only argument a callback needs;
+  its getters read signals. `config`, `tool`, `host`, `plan`; `location(pane)`; `base(pane)`,
+  `setBase(pane, base)` (`pinned` panes only), `baseIsDefault(pane)`; `scope(pane)` (`Scope | null`);
+  `recursive`; `toolFilter`, `filter(pane)` (the EFFECTIVE filter: `toolFilter` or `EMPTY_FILTER`),
+  `filterScope` (`FilterScope`, `null` for `applies: 'none'`); `counts(pane)` (`null` while loading),
+  `selection(pane)`; `request(pane)` (the pane's `BrowseRequest`, with its effective filter and the plan
+  of its `planSide`); `refresh()` (both panes reload, the rows stay until the answer) and
+  `clearSelections()`. `base(pane)`: `none` is `null`, `current` the location, `pinned` the folder the user
+  pinned, else the base of `defaultBase.from`, else `null`. `scope(pane)` is `{ volume_id, dir, recursive }`
+  of `base(pane)` (of the location for `none`) and `null` while there is nothing to scope: no base, the
+  volumes root, a volume that is unknown or not loaded.
+- **Plan seam** (`plan-binding.ts`): the view, the panes and the actions only ever see `PlanBinding {
+  status, error, planId, stats, warnings, ref(side), stale(ref), retry(), dispose? }` with `PlanStatus` =
+  `none | idle | building | ready | executing | error`. `createPlanBinding(ctx)` returns the frozen
+  `NO_PLAN` until the plan client lands: the client replaces ONLY that body (`NO_PLAN` for a tool without
+  `ctx.config.plan`), keeps its state in signals, and extends `renderPlanStatus` and `actionReason` when it
+  needs more. `ctx.plan` is built last in the constructor, so the binding can read the whole context. The
+  view gives each pane `plan.ref(planSide)`, forwards `plan-stale` to `plan.stale(ref)` and calls `dispose`
+  when it disconnects or gets another `config`. `plan.params(ctx)` is `{ ready: true, params }` or `{ ready:
+  false, reason }` (the reason is quiet text in the tool bar, `null` shows nothing).
+- `renderPlanStatus(ctx)` (`plan-status.ts`): a persistent `[role=status]` ("Matching..." and a spinner
+  while `building`, "Working..." while `executing`, else the `params` reason), an inline `alert-error` with
+  Retry (`plan.retry()`) on `error`, and an "N warnings" dropdown listing `plan.warnings`.
+- **Actions** (`tool-actions.ts`): `ToolActions { options, defaultId, count? }`, `ToolAction { id, label,
+  icon?, danger?, hint?, disabled?(ctx), run(ctx) }`. One option is a `btn-lg` primary button (red when
+  `danger`), several the `apm-split-button`, which remembers the choice per tool (`lastAction`). `disabled`
+  returns the reason (also the tooltip), `null` when the action can run. `run` owns its confirmation
+  (`confirmDialog`); a rejection becomes ONE `toast.error` except an abort, which is silent; a click while
+  busy is ignored. `actionReason(ctx, action)` is the one place that decides whether an action can run: the
+  plan client extends it ("no plan yet"). `checkToolActions` (duplicate ids, unknown `defaultId`) runs at
+  render and logs once per distinct problem; nothing is rendered then.
+- **`followSource(ctx, { enabled? })`** (`follow-source.ts`), returned from `setup` (Folder formatting,
+  Empty folder cleanup): the comparison pane starts on, then follows, the source folder, e.g. `setup: (ctx)
+  => followSource(ctx, { enabled: (c) => c.baseIsDefault('comparison') })`. It writes with `replace: true`
+  and NEVER adds a history entry, so Back steps through the user's own moves. The first move is immediate;
+  a later one lands one microtask AFTER the move of the source (read the comparison after an `await`) and
+  moves of one turn are followed once. `enabled` is asked on every move, not subscribed to. Nothing moves
+  while the source has no volume.
+- **`stores/tool-state.ts`**, in memory per tool (a reload clears it on purpose): `pinnedBase` and
+  `setPinnedBase(tool, pane, base)`, `recursiveFor` and `setRecursive(tool, on)`, `handoffFor` and
+  `setHandoff(tool, { label } | null)`, `resetToolState(tool)`, `resetToolStateForTests()`; in a tool use
+  the `ToolContext` getters. Hand-off (another tool sends the user here with a server-side selection):
+  `setFilter(tool, { ...EMPTY_FILTER, selection_id })` plus `setHandoff(tool, { label })`; the label is the
+  filter bar's chip, and the bar's `selection-clear` clears both (the view does it).
+- **What the view wires**, so a tool never does: the filter bar (`filter-change`, `scope-change` (the
+  selector shows only for `applies: 'choice'`), `selection-clear`, `hide-unmatched-change`); the panes
+  (`pane-counts`, `plan-stale`, `base-change` into `ctx.setBase`, and `item-open`, which opens the viewer on
+  THAT pane's listing through `event.target.closest('apm-pane').itemAt(index)` and `openViewer`); the bottom
+  bar (`size-change`, `select-all`, `clear-selection`). It also installs the selection shortcuts and starts
+  with both selections empty. The render is `keyed` by the context: another tool or a reconnection gets
+  new panes and a new bar.
+- **Layout** (checked in a browser from 320 to 1400 px): the host is `flex h-full min-h-0 min-w-0 flex-col`,
+  so the page element is `block h-full min-h-0` and NOTHING but a pane body scrolls: never add a scrolling
+  wrapper. Children, top to bottom: the tool bar, the filter bar, the panes and the bottom bar. The panes
+  sit side by side from `md` (a pane is then at least 383 px wide, more than the largest card plus its
+  padding) and stacked in two rows below it. The tool bar has two rows: the title, the switch and
+  `controls` (wrapping), then the summary with the plan status at the right end of the SAME row. That row
+  keeps its height, so no plan status moves the panes (only the error alert makes it taller): keep
+  `controls` free of content that changes height. A tool without a plan has a 48 px bar.
+- **Grid and pane additions**: `ApmPane.refresh()` and `ApmFileGrid.refresh()` reload the lists (what is
+  shown stays until the answer arrives); `ctx.refresh()` asks both panes. `apm-file-grid` limits the card
+  size to its own width, because the virtualiser renders no card in a grid narrower than one card (a phone
+  with the largest size).
+- Tests: `toolConfig(patch)`, `plainPane(heading)` and `FakePlan` (`@/test/tool-config`). Fake the plan
+  seam by mocking `createPlanBinding` of `@/tools/framework/plan-binding` (see the top of
+  `apm-tool-view.test.ts`); mock `@/components/apm-viewer` when the viewer is not under test; use
+  `stubBrowseServer()` for the panes. Reset in `afterEach`: `resetToolStateForTests()`, `resetFilters()`,
+  `resetSelectionForTests()`, and remove the views BEFORE `vi.unstubAllGlobals()`.

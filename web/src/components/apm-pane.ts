@@ -151,7 +151,7 @@ function sameCounts(a: FooterCounts | null, b: FooterCounts | null): boolean {
  *
  * Read-only: `browseRequest` (the effective `BrowseRequest`, `null` while the volumes are unknown or
  * the pane is disabled; the viewer's id list uses it), `sortSpec` and `itemAt(index)` (the loaded
- * item of the grid, the viewer's `startItem`).
+ * item of the grid, the viewer's `startItem`). `refresh()` fetches the lists and the counts again.
  *
  * Events (all bubble): `pane-counts { pane, counts }` (the footer counts, `null` while they load),
  * `plan-stale { pane, plan }` (once per plan: the server forgot it, build a new one and hand it
@@ -242,6 +242,16 @@ export class ApmPane extends ApmElement {
    */
   itemAt(index: number): FileItem | undefined {
     return this.querySelector<ApmFileGrid>('apm-file-grid')?.itemAt(index);
+  }
+
+  /**
+   * Fetches the folders, the footer counts and the files again, now. What is shown stays until the
+   * answer arrives. The pane does this by itself on `fs_change` events; the tool view's
+   * `ctx.refresh()` calls it for a change the server does not announce.
+   */
+  refresh(): void {
+    this.subfolders.invalidate();
+    this.querySelector<ApmFileGrid>('apm-file-grid')?.refresh();
   }
 
   override connectedCallback(): void {

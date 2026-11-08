@@ -152,7 +152,8 @@ function viewOf(element: Element): View {
  *     .selectedIds=${selecting.selectedIds} ?selection-active=${selecting.active}></apm-file-grid>
  *
  * Properties: `request` (`undefined` shows placeholders), `sort`, `order`, `size` (card width in
- * px, clamped to `GRID_SIZE`), `selectedIds` (a NEW set on every change), `selectionActive`
+ * px, clamped to `GRID_SIZE` and to the width of the grid, so a pane narrower than a card still
+ * shows one column), `selectedIds` (a NEW set on every change), `selectionActive`
  * (checkboxes on every card), `emptyText` and `label` (the accessible name of the list). A change
  * of `request`, `sort` or `order` starts a new listing; the same values in a new object do not.
  * The grid keeps no selection: it only draws `selectedIds` and the cards report clicks.
@@ -198,6 +199,8 @@ export class ApmFileGrid extends ApmElement {
   /** The store was given a listing. */
   private listed = false;
   private columnCount = 1;
+  /** The widest a card may be: the grid's own width when that is below `GRID_SIZE.max`. */
+  private fitWidth = Number.POSITIVE_INFINITY;
   /** One slot per item, only there to give the virtualiser a length. */
   private slots: unknown[] = [];
   private resizeObserver: ResizeObserver | undefined;
@@ -237,6 +240,11 @@ export class ApmFileGrid extends ApmElement {
    */
   itemAt(index: number): FileItem | undefined {
     return this.store?.get(index);
+  }
+
+  /** Fetches what is on screen again, now. The shown items stay until the answer arrives. */
+  refresh(): void {
+    this.store?.invalidate();
   }
 
   /** The listing's store: made when first needed, dropped when the grid leaves the page. */
@@ -338,8 +346,9 @@ export class ApmFileGrid extends ApmElement {
     if (this.paged.reset(request, this.sort, this.order)) this.focusIndex = 0;
   }
 
+  /** The card width in use: `size`, but never wider than the grid, so one column always fits. */
   private get cell(): number {
-    return normalizeGridSize(this.size);
+    return Math.min(normalizeGridSize(this.size), this.fitWidth);
   }
 
   private gridElement(): HTMLElement | null {
@@ -365,7 +374,17 @@ export class ApmFileGrid extends ApmElement {
 
   private measure(): void {
     const width = this.observed?.clientWidth ?? 0;
-    if (width > 0) this.columnCount = columnsFor(width, this.cell);
+    if (width <= 0) return;
+    // The virtualiser renders no card in a grid narrower than a card. Only a grid below the widest
+    // card needs the limit, so resizing a wide grid never renders again.
+    const fit = width < GRID_SIZE.max ? width : Number.POSITIVE_INFINITY;
+    if (fit !== this.fitWidth) {
+      this.fitWidth = fit;
+      queueMicrotask(() => {
+        if (this.isConnected) this.requestUpdate();
+      });
+    }
+    this.columnCount = columnsFor(width, this.cell);
   }
 
   private announce(): void {
