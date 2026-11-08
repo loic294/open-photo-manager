@@ -2,6 +2,9 @@ import { formatFileSize } from '../../../web/src/util/format';
 import { writeFile } from '../../src/disk';
 import { expect, test } from '../../src/test';
 
+// Route changes intentionally abort the previous server-sent events connection.
+test.use({ allowedErrors: [/^requestfailed: .*\/api\/events net::ERR_ABORTED$/] });
+
 declare global {
   interface Window {
     __e2eLongTasks: number[];
@@ -23,11 +26,19 @@ test('duplicate and move tools stay responsive with 3,000 indexed files', async 
 }) => {
   test.setTimeout(300_000);
   const bytes = 'A private 3,000-file performance fixture';
-  await Promise.all(
-    Array.from({ length: 3_000 }, (_, index) =>
-      writeFile(app, 'photos', `e2e-performance/ITEM_${String(index).padStart(4, '0')}.txt`, bytes),
-    ),
-  );
+  for (let start = 0; start < 3_000; start += 100) {
+    await Promise.all(
+      Array.from({ length: 100 }, (_, offset) => {
+        const index = start + offset;
+        return writeFile(
+          app,
+          'photos',
+          `e2e-performance/ITEM_${String(index).padStart(4, '0')}.txt`,
+          bytes,
+        );
+      }),
+    );
+  }
   await app.rescan();
   expect((await app.api.listing('photos', 'e2e-performance')).total).toBe(3_000);
 
@@ -64,9 +75,7 @@ test('duplicate and move tools stay responsive with 3,000 indexed files', async 
   moveUrl.searchParams.set('cmp', 'archive');
   await page.goto(moveUrl.href);
   await expect(movePage.planNotices()).toContainText('Choose the source folder');
-  const sourcePlan = page.waitForResponse(isResponse(/^\/api\/plans$/));
   await source.useFolder();
-  await sourcePlan;
   await expect(movePage.planNotices()).toContainText('Choose the destination folder');
   const destinationPlan = page.waitForResponse(isResponse(/^\/api\/plans$/));
   await movePage.destinationBase().getByRole('button', { name: 'Use this folder' }).click();
