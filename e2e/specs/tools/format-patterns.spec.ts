@@ -55,3 +55,25 @@ for (const { scenario, date } of dateFixtures) {
     await expect(page.getByRole('button', { name: '{filename}', exact: true })).toBeVisible();
   });
 }
+
+test('format pattern renders month names, time and the original uppercase extension', async ({
+  app,
+  page,
+  formatPage,
+}) => {
+  const pattern = '{MMM}/{MMMM}/{HH}-{min}-{sec}/{folder}/{name}.{ext}';
+  const planResponse = page.waitForResponse(isResponse(/^\/api\/plans$/));
+  const previewResponse = page.waitForResponse(isResponse(/^\/api\/format\/preview$/));
+  const url = new URL('/format', app.url);
+  url.searchParams.set('src', 'photos/sidecars');
+  await page.goto(url.href);
+  await planResponse;
+  await previewResponse;
+
+  const updatedPreview = page.waitForResponse(isResponse(/^\/api\/format\/preview$/));
+  await formatPage.pattern().fill(pattern);
+  await updatedPreview;
+  const expected = 'May/May/09-30-00/sidecars/IMG_0001.CR3';
+  await formatPage.livePreview().locator('summary').click();
+  await expect(formatPage.livePreview()).toContainText(expected);
+});
