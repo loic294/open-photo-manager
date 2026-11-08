@@ -1,3 +1,4 @@
+import type { FileDetail } from '@/api/generated/FileDetail';
 import type { FileItem } from '@/api/generated/FileItem';
 import type { Overlay } from '@/api/generated/Overlay';
 
@@ -25,5 +26,21 @@ export function fileItem(overrides: FileItemOverrides = {}): FileItem {
     in_immich: false,
     overlay: { matched: false, planned: false, will_delete: false, ...overlay },
     ...rest,
+  };
+}
+
+/** The detail of `item`: a JPEG without a hash, a birth time, tags or sidecars until a test adds them. */
+export function fileDetail(
+  item: FileItem = fileItem(),
+  overrides: Partial<Omit<FileDetail, 'item'>> = {},
+): FileDetail {
+  return {
+    item,
+    hash: null,
+    mime: 'image/jpeg',
+    btime: null,
+    tags: [],
+    sidecars: [],
+    ...overrides,
   };
 }

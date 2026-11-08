@@ -1,10 +1,13 @@
 import { afterEach, describe, expect, it, type Mock, vi } from 'vitest';
 import { type ApiClient, createApiClient } from '@/api/client';
-import { isAbortError } from '@/api/errors';
+import { isAbortError, isApiError } from '@/api/errors';
 import {
+  contentUrl,
+  fetchFileDetail,
   fetchIds,
   fetchItems,
   ITEMS_PAGE_SIZE,
+  previewUrl,
   THUMB_SM_PX,
   thumbSizeFor,
   thumbUrl,
@@ -207,5 +210,73 @@ describe('thumbUrl', () => {
 
   it('changes with the mtime, which is the browser cache key', () => {
     expect(thumbUrl({ id: 1, mtime: 1 }, 'sm')).not.toBe(thumbUrl({ id: 1, mtime: 2 }, 'sm'));
+  });
+});
+
+describe('previewUrl and contentUrl', () => {
+  it('build the media routes without a cache key', () => {
+    expect(previewUrl(42)).toBe('/api/files/42/preview');
+    expect(contentUrl(42)).toBe('/api/files/42/content');
+    expect(contentUrl(42, {})).toBe('/api/files/42/content');
+    expect(contentUrl(42, { download: false })).toBe('/api/files/42/content');
+  });
+
+  it('asks the server for an attachment when downloading', () => {
+    expect(contentUrl(7, { download: true })).toBe('/api/files/7/content?download=1');
+  });
+});
+
+describe('fetchFileDetail', () => {
+  const detail = {
+    item: { id: 42, name: 'IMG_1.jpg' },
+    hash: null,
+    mime: 'image/jpeg',
+    btime: null,
+    tags: [],
+    sidecars: [],
+  };
+
+  it('gets the file from the shared api client', async () => {
+    const fetchMock = vi.fn<typeof fetch>(async () => new Response(JSON.stringify(detail)));
+    vi.stubGlobal('fetch', fetchMock);
+
+    await expect(fetchFileDetail(42)).resolves.toEqual(detail);
+
+    const [url, init] = fetchMock.mock.calls[0] ?? [];
+    expect(String(url)).toBe('/api/files/42');
+    expect(init?.method).toBe('GET');
+  });
+
+  it('passes the abort signal through and rejects with an AbortError', async () => {
+    vi.stubGlobal(
+      'fetch',
+      vi.fn<typeof fetch>(
+        (_url, init) =>
+          new Promise((_resolve, reject) => {
+            init?.signal?.addEventListener('abort', () =>
+              reject(new DOMException('aborted', 'AbortError')),
+            );
+          }),
+      ),
+    );
+    const controller = new AbortController();
+    const pending = fetchFileDetail(42, controller.signal);
+    controller.abort();
+    await expect(pending).rejects.toSatisfy(isAbortError);
+  });
+
+  it('rejects an unknown file with the server error code', async () => {
+    vi.stubGlobal(
+      'fetch',
+      vi.fn<typeof fetch>(
+        async () =>
+          new Response(JSON.stringify({ error: { code: 'not_found', message: 'gone' } }), {
+            status: 404,
+          }),
+      ),
+    );
+    const failure = await fetchFileDetail(9).catch((error: unknown) => error);
+    expect(isApiError(failure)).toBe(true);
+    expect(failure).toMatchObject({ status: 404, code: 'not_found' });
   });
 });

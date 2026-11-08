@@ -5,6 +5,7 @@ import {
   formatDuration,
   formatEta,
   formatFileSize,
+  formatFileTime,
   formatRate,
 } from '@/util/format';
 
@@ -54,6 +55,57 @@ describe('formatCaptureDate', () => {
     expect(formatCaptureDate(Number.NaN)).toBe(EM_DASH);
     expect(formatCaptureDate(Number.POSITIVE_INFINITY)).toBe(EM_DASH);
     expect(formatCaptureDate(1e20)).toBe(EM_DASH);
+  });
+});
+
+describe('formatFileTime', () => {
+  // 2023-11-14T22:13:20Z
+  const ts = 1_700_000_000;
+
+  const originalZone = process.env.TZ;
+  afterEach(() => {
+    if (originalZone === undefined) delete process.env.TZ;
+    else process.env.TZ = originalZone;
+    vi.resetModules();
+  });
+
+  const plain = (text: string) => text.replace(/\s/g, ' ');
+
+  it('reads the instant on the browser clock, whatever the zone', async () => {
+    const expected = {
+      'Asia/Kolkata': 'Nov 15, 2023, 3:43 AM',
+      'America/Los_Angeles': 'Nov 14, 2023, 2:13 PM',
+      UTC: 'Nov 14, 2023, 10:13 PM',
+    };
+    for (const [zone, text] of Object.entries(expected)) {
+      process.env.TZ = zone;
+      // The formatter is cached per module: load a fresh one so it is built under this zone.
+      vi.resetModules();
+      const fresh = await import('@/util/format');
+      expect(plain(fresh.formatFileTime(ts, 'en-US'))).toBe(text);
+    }
+  });
+
+  it('differs from the capture date, which ignores the zone', async () => {
+    process.env.TZ = 'Asia/Kolkata';
+    vi.resetModules();
+    const fresh = await import('@/util/format');
+    expect(plain(fresh.formatCaptureDate(ts, 'en-US'))).toBe('Nov 14, 2023, 10:13 PM');
+    expect(plain(fresh.formatFileTime(ts, 'en-US'))).not.toBe(
+      plain(fresh.formatCaptureDate(ts, 'en-US')),
+    );
+  });
+
+  it('follows the locale', () => {
+    expect(formatFileTime(ts, 'fr-FR')).toContain('2023');
+  });
+
+  it('shows an em dash without a usable time', () => {
+    expect(formatFileTime(null)).toBe(EM_DASH);
+    expect(formatFileTime(undefined)).toBe(EM_DASH);
+    expect(formatFileTime(Number.NaN)).toBe(EM_DASH);
+    expect(formatFileTime(Number.POSITIVE_INFINITY)).toBe(EM_DASH);
+    expect(formatFileTime(1e20)).toBe(EM_DASH);
   });
 });
 

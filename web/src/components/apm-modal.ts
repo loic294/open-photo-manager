@@ -3,13 +3,16 @@ import { createRef, ref } from 'lit/directives/ref.js';
 import { ApmElement } from '@/base/apm-element';
 import '@/components/apm-icon';
 
-/** Complete class strings for Tailwind. `md` is DaisyUI's own default box width (32rem). */
+/**
+ * Complete class strings for Tailwind. `md` is DaisyUI's own default box width (32rem). `full` is
+ * a column: the heading keeps its height and the body fills the rest (see `fills` in `render`).
+ */
 const SIZE_CLASS = {
   sm: 'max-w-sm',
   md: 'max-w-lg',
   lg: 'max-w-3xl',
   xl: 'max-w-5xl',
-  full: 'h-full w-full max-h-none max-w-none rounded-none',
+  full: 'flex flex-col h-full w-full max-h-none max-w-none rounded-none p-3 sm:p-6',
 } as const;
 
 export type ModalSize = keyof typeof SIZE_CLASS;
@@ -140,6 +143,7 @@ export class ApmModal extends ApmElement {
 
   protected override render() {
     const closable = !this.persistent;
+    const fills = this.size === 'full';
     return html`
       <dialog
         ${ref(this.dialogRef)}
@@ -153,7 +157,7 @@ export class ApmModal extends ApmElement {
           ${
             this.heading || closable
               ? html`<div class="flex items-start justify-between gap-4">
-                  <h3 id=${this.headingId} class="text-lg font-bold">${this.heading}</h3>
+                  <h3 id=${this.headingId} class="text-lg font-bold ${fills ? 'min-w-0 truncate' : ''}">${this.heading}</h3>
                   ${
                     closable
                       ? html`<button
@@ -169,7 +173,11 @@ export class ApmModal extends ApmElement {
                 </div>`
               : nothing
           }
-          ${this.body ? html`<div class="py-4">${this.body}</div>` : nothing}
+          ${
+            this.body
+              ? html`<div class=${fills ? 'flex min-h-0 flex-1 flex-col' : 'py-4'}>${this.body}</div>`
+              : nothing
+          }
           ${this.actions ? html`<div class="modal-action">${this.actions}</div>` : nothing}
         </div>
         ${

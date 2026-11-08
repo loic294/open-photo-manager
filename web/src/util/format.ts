@@ -4,19 +4,29 @@ export const EM_DASH = '\u2014';
 const dateFormats = new Map<string, Intl.DateTimeFormat>();
 const numberFormats = new Map<string, Intl.NumberFormat>();
 
-function dateFormat(locale: string | undefined): Intl.DateTimeFormat {
-  const key = locale ?? '';
+/** `utc` reads the clock of the epoch seconds; otherwise the browser's own time zone applies. */
+function dateFormat(locale: string | undefined, utc: boolean): Intl.DateTimeFormat {
+  const key = `${locale ?? ''}|${utc ? 'utc' : 'local'}`;
   let format = dateFormats.get(key);
   if (!format) {
-    // `capture_ts` is naive-local: its UTC reading IS the photographer's wall clock.
     format = new Intl.DateTimeFormat(locale, {
       dateStyle: 'medium',
       timeStyle: 'short',
-      timeZone: 'UTC',
+      ...(utc ? { timeZone: 'UTC' } : {}),
     });
     dateFormats.set(key, format);
   }
   return format;
+}
+
+function formatSeconds(
+  ts: number | null | undefined,
+  locale: string | undefined,
+  utc: boolean,
+): string {
+  if (typeof ts !== 'number' || !Number.isFinite(ts)) return EM_DASH;
+  const date = new Date(ts * 1000);
+  return Number.isNaN(date.getTime()) ? EM_DASH : dateFormat(locale, utc).format(date);
 }
 
 function numberFormat(locale: string | undefined, fractionDigits: number): Intl.NumberFormat {
@@ -38,9 +48,15 @@ function numberFormat(locale: string | undefined, fractionDigits: number): Intl.
  * the time shown is the one the camera showed. An em dash when there is no date.
  */
 export function formatCaptureDate(ts: number | null | undefined, locale?: string): string {
-  if (typeof ts !== 'number' || !Number.isFinite(ts)) return EM_DASH;
-  const date = new Date(ts * 1000);
-  return Number.isNaN(date.getTime()) ? EM_DASH : dateFormat(locale).format(date);
+  return formatSeconds(ts, locale, true);
+}
+
+/**
+ * A real instant (`FileItem.mtime`, `FileDetail.btime`: epoch seconds) as "Nov 14, 2023, 10:13 PM"
+ * on the browser's own clock, unlike `formatCaptureDate`. An em dash when there is no time.
+ */
+export function formatFileTime(ts: number | null | undefined, locale?: string): string {
+  return formatSeconds(ts, locale, false);
 }
 
 const SIZE_UNITS = ['B', 'KB', 'MB', 'GB', 'TB'] as const;

@@ -1,5 +1,6 @@
 import { type ApiClient, api } from '@/api/client';
 import type { BrowseRequest } from '@/api/generated/BrowseRequest';
+import type { FileDetail } from '@/api/generated/FileDetail';
 import type { FileItem } from '@/api/generated/FileItem';
 import type { IdsResponse } from '@/api/generated/IdsResponse';
 import type { ItemsRequest } from '@/api/generated/ItemsRequest';
@@ -93,4 +94,27 @@ export function thumbSizeFor(cssPx: number, pixelRatio?: number): ThumbSize {
  */
 export function thumbUrl(item: Pick<FileItem, 'id' | 'mtime'>, size: ThumbSize): string {
   return `/api/files/${item.id}/thumb?size=${size}&v=${item.mtime}`;
+}
+
+/**
+ * URL of what the viewer shows full size: the original for browser-native images and for every
+ * video and audio file (the browser seeks with Range requests), else a cached JPEG of at most
+ * 2560 px. The server revalidates with ETag and Last-Modified, so there is no `v=`.
+ */
+export function previewUrl(id: FileItem['id']): string {
+  return `/api/files/${id}/preview`;
+}
+
+/** URL of the original file. `download` makes the server answer with an attachment. */
+export function contentUrl(id: FileItem['id'], options: { download?: boolean } = {}): string {
+  return `/api/files/${id}/content${options.download ? '?download=1' : ''}`;
+}
+
+/**
+ * One file with what a listing row lacks (hash, mime, birth time, tags, sidecars): `GET
+ * /api/files/{id}`. An unknown id rejects with a 404 `not_found` `ApiError`; aborting rejects with
+ * an `AbortError` (`isAbortError`).
+ */
+export function fetchFileDetail(id: FileItem['id'], signal?: AbortSignal): Promise<FileDetail> {
+  return api.get<FileDetail>(`/api/files/${id}`, { signal });
 }

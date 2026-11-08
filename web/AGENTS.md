@@ -321,8 +321,9 @@ selected item ids survives scrolling, sorting and refetching.
 - `interpret(activation, { active })` (`@/util/selection-rules`) is the pure click table: Shift = range,
   Cmd/Ctrl = toggle, a plain click toggles while `active` and opens otherwise, Enter always opens.
 - `SelectionController` (`@/controllers/selection-controller`) turns the grid's bubbling `card-activate`
-  into a selection change, or into a bubbling `item-open { id, index }` event from the host (the viewer
-  listens for it). It marks its pane active on `pointerdown` and `focusin`.
+  into a selection change, or into a bubbling `item-open { id, index }` event from the host (the pane
+  listens for it and calls `openViewer`, see Viewer). It marks its pane active on `pointerdown` and
+  `focusin`.
 - `installSelectionShortcuts()` (`@/controllers/selection-shortcuts`): Cmd/Ctrl+A selects everything in
   the active pane, Escape clears the active pane, then the other. Both stand aside in text fields and
   while a `dialog[open]` exists. Arrows, Space and Enter belong to the grid.
@@ -533,3 +534,53 @@ emit, not from the task.
   feed the store with `events.emit(taskEvent({ ... }))`; mount the element FIRST and call
   `vi.useFakeTimers()` after it; call `resetTasksForTests()` BEFORE `localStorage.clear()` in `beforeEach`
   and `afterEach`. happy-dom has no hover: dispatch `pointerenter` and `focusin` yourself.
+
+## Viewer (`openViewer`, `@/components/apm-viewer`)
+The photo and video modal. `openViewer(source: ViewerSource): Promise<void>` resolves when it closes. One
+`apm-viewer` (an `apm-modal size="full"`) is mounted lazily on the first call. Only the tool-view
+framework calls it, once per pane, on the grid's `item-open`. Pass the pane's CURRENT request and sort so
+the viewer steps through what the grid shows, in its order:
+```ts
+this.addEventListener(ITEM_OPEN_EVENT, (event) => {
+  const { id, index } = (event as ItemOpenEvent).detail; // from '@/controllers/selection-controller'
+  void openViewer({
+    startId: id,
+    startItem: this.items.get(index), // optional: the row is shown at once, the server is not asked
+    loadIds: (signal) => fetchIds(request, sort, order, { signal }), // called once; real files only
+  });
+});
+```
+- Calling it while it is open replaces the source (everything of the old one is aborted); every pending
+  promise resolves once, when the viewer closes. There is no `closeViewer()`, route or shell wiring.
+- If `startId` is not in the list, or `loadIds` fails, it shows that one file without stepping and says so
+  in a toolbar badge. It never raises a toast.
+- Keys: Left, Right, Home, End step (no wrap-around), `i` toggles the info panel, `z` the 100% zoom (images
+  only), Esc closes. Keys with a modifier, keys while a `video` or `audio` has the focus, and the arrows
+  before the list has arrived are left alone. For `OPEN_GUARD_MS` after opening, clicks and double clicks
+  anywhere in the viewer are swallowed: the grid opens it on the first click of a double click.
+- The pieces: `apm-viewer.ts` (the session: list, current file, requests, keys, focus), `viewer-chrome.ts`
+  (pure toolbar, step buttons and info panel markup over a `ChromeView` and `ChromeActions`),
+  `apm-viewer-stage.ts` (shows ONE file: `item`, `zoomed`, `failure`; non-bubbling `stage-settled`,
+  `stage-retry`, `zoom-toggle`; `release()`), `viewer-nav.ts` (the pure key, step and preload rules, the
+  labels, `DETAIL_DEBOUNCE_MS`, `OPEN_GUARD_MS`, `PRELOAD_MAX_BYTES`), `viewer-preload.ts`
+  (`ViewerPreloader`), `viewer-info.ts` (the info table).
+- The info panel is built from ONE array: add a line to `INFO_ROWS` (`{ id, label, value(ctx) }`, `null`
+  leaves the row out; it renders as `tr[data-info-row=id]`). `viewerInfoOpen` is its persisted open state.
+  Nothing there uses the clipboard: the app is served over plain HTTP, where it does not exist.
+- Each step aborts the previous detail request and asks for the new file's one `DETAIL_DEBOUNCE_MS` later
+  (the heading says "Loading…", the stage dims the old picture with a spinner). A file whose row is known
+  needs no detail until the panel is open. Once the current picture is shown, the next file in the
+  direction of travel is preloaded: detail, large thumbnail, then `/preview` only for an image of at most
+  `PRELOAD_MAX_BYTES`. A video is never preloaded beyond its poster.
+- `@/api/files`: `previewUrl(id)`, `contentUrl(id, { download? })` (a plain URL for an `<img>`, `<video>` or
+  link) and `fetchFileDetail(id, signal?)`. A link in the viewer needs `target` or `download`, or the router
+  takes the click. `loadImage(url)` (`@/util/load-image`) loads and decodes off-screen and cancels by
+  clearing `src`. `formatFileTime` (`@/util/format`) formats a mtime. `KIND_ICON` and `hasThumbnail(kind)`
+  come from `@/components/apm-file-card`.
+- `apm-modal size="full"` is a full-screen flex column with `p-3 sm:p-6`; its body wrapper is
+  `flex min-h-0 flex-1 flex-col` with no vertical padding, so content can fill it. The other sizes are
+  unchanged. The last file stays painted in the closed dialog, for its fade-out, until the next open.
+- Tests: use fake timers (the opening guard swallows clicks for 400 ms), `FakeImage` (`@/test/fake-image`,
+  `vi.stubGlobal('Image', FakeImage)`) and `fileDetail()` (`@/test/file-item`); mock `api.get` for
+  `/api/files/{id}`. happy-dom has no layout and does not focus a dialog it opens, so check the layout,
+  the focus and the Range requests in a browser.

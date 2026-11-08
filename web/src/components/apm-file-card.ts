@@ -184,7 +184,8 @@ function withDuration(name: string, duration: string | undefined): string {
   return duration ? `${name}, ${duration}` : name;
 }
 
-const KIND_ICON: Record<FileKind, IconName> = {
+/** The icon standing for a file kind where there is no picture of it (shared with the viewer). */
+export const KIND_ICON: Record<FileKind, IconName> = {
   image: 'image',
   video: 'film',
   audio: 'music',
@@ -192,8 +193,8 @@ const KIND_ICON: Record<FileKind, IconName> = {
   other: 'file',
 };
 
-/** The server renders thumbnails of images and videos only. */
-function hasThumbnail(kind: FileKind): boolean {
+/** The server renders thumbnails of images and videos only (shared with the viewer). */
+export function hasThumbnail(kind: FileKind): boolean {
   return kind === 'image' || kind === 'video';
 }
 

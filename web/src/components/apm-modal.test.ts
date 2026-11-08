@@ -90,6 +90,44 @@ describe('apm-modal: markup', () => {
     expect(modal.size).toBe('md');
   });
 
+  it('makes the full size a column whose body fills what the heading leaves', async () => {
+    const modal = await mount('apm-modal', {
+      size: 'full',
+      heading: 'A very long file name.jpg',
+      body: html`<p id="msg">x</p>`,
+    });
+
+    const box = modal.querySelector('.modal-box');
+    for (const name of ['flex', 'flex-col', 'h-full', 'w-full', 'max-w-none']) {
+      expect(box?.classList.contains(name), name).toBe(true);
+    }
+    const body = modal.querySelector('#msg')?.parentElement;
+    for (const name of ['flex', 'flex-col', 'flex-1', 'min-h-0']) {
+      expect(body?.classList.contains(name), name).toBe(true);
+    }
+    expect(body?.classList.contains('py-4')).toBe(false);
+    const heading = modal.querySelector('h3');
+    expect(heading?.classList.contains('truncate')).toBe(true);
+    expect(heading?.classList.contains('min-w-0')).toBe(true);
+    expect(heading?.textContent).toBe('A very long file name.jpg');
+  });
+
+  it.each(['sm', 'md', 'lg', 'xl'] as const)(
+    'keeps the %s size a plain box with a padded body and a wrapping heading',
+    async (size) => {
+      const modal = await mount('apm-modal', {
+        size,
+        heading: 'Title',
+        body: html`<p id="msg">x</p>`,
+      });
+
+      const box = modal.querySelector('.modal-box');
+      expect(box?.classList.contains('flex')).toBe(false);
+      expect(modal.querySelector('#msg')?.parentElement?.className).toBe('py-4');
+      expect(modal.querySelector('h3')?.classList.contains('truncate')).toBe(false);
+    },
+  );
+
   it('points screen readers at the described element', async () => {
     const modal = await mount('apm-modal', { describedBy: 'msg', body: html`<p id="msg">x</p>` });
 
