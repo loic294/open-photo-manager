@@ -1,0 +1,38 @@
+import type { Page } from '@playwright/test';
+import type { Side } from './pane';
+
+export class BottomBarPage {
+  readonly element;
+  constructor(readonly page: Page) {
+    this.element = page.locator('apm-bottom-bar');
+  }
+  side(side: Side) {
+    return this.element.getByRole('group', {
+      name: side === 'source' ? 'Source pane' : 'Comparison pane',
+      exact: true,
+    });
+  }
+  async selectAll(side: Side) {
+    await this.side(side).getByRole('button', { name: 'Select all', exact: true }).click();
+  }
+  async size(side: Side, value: number) {
+    const slider = this.side(side).getByRole('slider', { name: 'Thumbnail size' });
+    await slider.fill(String(value));
+    await slider.dispatchEvent('input');
+  }
+  async sizeValue(side: Side) {
+    return this.side(side).getByRole('slider', { name: 'Thumbnail size' }).inputValue();
+  }
+  async counts(side: Side) {
+    return this.side(side).textContent();
+  }
+  splitButton() {
+    return this.element.locator('apm-split-button');
+  }
+  async chooseAction(label: string) {
+    await this.splitButton()
+      .getByRole('button', { name: /options|actions/i })
+      .click();
+    await this.splitButton().getByRole('menuitem', { name: label, exact: true }).click();
+  }
+}

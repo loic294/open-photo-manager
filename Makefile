@@ -43,3 +43,4 @@ clean:
 -include docker/docker.mk
 -include fixtures/fixtures.mk
 -include tools/tools.mk
+-include e2e/e2e.mk

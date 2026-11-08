@@ -1,0 +1,20 @@
+{
+  "name": "apm-e2e",
+  "private": true,
+  "type": "module",
+  "engines": {
+    "node": ">=24"
+  },
+  "scripts": {
+    "check": "biome check . && tsc --noEmit && node src/check-waits.mjs",
+    "format": "biome check --write .",
+    "test": "playwright test"
+  },
+  "devDependencies": {
+    "@axe-core/playwright": "4.11.1",
+    "@biomejs/biome": "2.6.6",
+    "@playwright/test": "1.65.0",
+    "@types/node": "22.20.5",
+    "typescript": "7.0.2"
+  }
+}
