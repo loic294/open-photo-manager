@@ -7,7 +7,9 @@ import type { SettingsDto } from '@/api/generated/SettingsDto';
 import { ApmElement } from '@/base/apm-element';
 import { ApmChipInput, type ChipValuesChange } from '@/components/apm-chip-input';
 import '@/components/apm-icon';
+import '@/components/apm-save-bar';
 import { toast } from '@/components/toast';
+import { UnsavedGuard } from '@/controllers/unsaved-guard';
 import { loadSettings, saveSettings } from '@/stores/settings';
 import {
   DEFAULT_TRASH_RETENTION_DAYS,
@@ -354,7 +356,7 @@ export class ApmSettingsGeneral extends ApmElement {
   /** The days the automatic deletion is turned back on with. */
   private lastRetention = DEFAULT_TRASH_RETENTION_DAYS;
   private loads = 0;
-  private guarding = false;
+  private readonly unsavedGuard = new UnsavedGuard(this, () => this.dirty);
   private pendingFocus: FieldId | 'alert' | null = null;
 
   constructor() {
@@ -370,17 +372,11 @@ export class ApmSettingsGeneral extends ApmElement {
   override connectedCallback(): void {
     super.connectedCallback();
     this.classList.add('block');
-    this.syncGuard();
     if (this.baseline === null) void this.load();
   }
 
-  override disconnectedCallback(): void {
-    super.disconnectedCallback();
-    this.syncGuard();
-  }
-
   protected override updated(): void {
-    this.syncGuard();
+    this.unsavedGuard.sync();
     this.syncPolicy();
     if (this.saving || this.pendingFocus === null) return;
     const target = this.pendingFocus;
@@ -409,19 +405,6 @@ export class ApmSettingsGeneral extends ApmElement {
   private get invalid(): boolean {
     const doc = this.draft;
     return doc !== null && NUMBER_FIELDS.some((field) => numberProblem(doc, field) !== null);
-  }
-
-  private readonly warnBeforeLeaving = (event: BeforeUnloadEvent): void => {
-    event.preventDefault();
-  };
-
-  /** The browser's "leave site?" question exists only while there is something to lose. */
-  private syncGuard(): void {
-    const wanted = this.isConnected && this.dirty;
-    if (wanted === this.guarding) return;
-    this.guarding = wanted;
-    if (wanted) window.addEventListener('beforeunload', this.warnBeforeLeaving);
-    else window.removeEventListener('beforeunload', this.warnBeforeLeaving);
   }
 
   private async load(): Promise<void> {
@@ -770,42 +753,8 @@ export class ApmSettingsGeneral extends ApmElement {
   }
 
   private renderActionBar() {
-    const invalid = this.invalid;
-    return html`
-      <div
-        class="navbar sticky bottom-4 z-10 min-h-12 rounded-box border border-base-300 bg-base-100 px-4 shadow-lg"
-      >
-        <div class="navbar-start w-auto min-w-0 flex-1">
-          <span role="status" class="flex items-center gap-2 text-sm">
-            <apm-icon name=${invalid ? 'circle-alert' : 'info'} size="sm"></apm-icon>
-            ${invalid ? 'Some values are not valid' : 'Unsaved changes'}
-          </span>
-        </div>
-        <div class="navbar-end w-auto flex-none gap-2">
-          <button
-            type="button"
-            class="btn btn-ghost"
-            ?disabled=${this.saving}
-            @click=${() => this.discard()}
-          >
-            Discard
-          </button>
-          <button
-            type="button"
-            class="btn btn-primary"
-            ?disabled=${invalid || this.saving}
-            @click=${() => this.save()}
-          >
-            ${
-              this.saving
-                ? html`<span class="loading loading-spinner loading-xs"></span>`
-                : html`<apm-icon name="save" size="sm"></apm-icon>`
-            }
-            Save
-          </button>
-        </div>
-      </div>
-    `;
+    return html`<apm-save-bar .invalid=${this.invalid} .saving=${this.saving}
+      @discard=${() => this.discard()} @save=${() => this.save()}></apm-save-bar>`;
   }
 }
 

@@ -37,4 +37,11 @@ export const settingsSections: readonly SettingsSection[] = [
     tag: 'apm-settings-general',
     load: () => import('@/tools/settings/apm-settings-general'),
   },
+  {
+    id: 'immich',
+    label: 'Immich',
+    icon: 'plug',
+    tag: 'apm-settings-immich',
+    load: () => import('@/tools/settings/apm-settings-immich'),
+  },
 ];

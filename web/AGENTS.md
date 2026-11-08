@@ -439,6 +439,30 @@ followed; a missing or unknown id opens the first tab). Today there is one secti
   `updateComplete` before calling `focus()` on it. (3) Do not give a method the name of a native member
   (`remove`, `normalize`, `update`): TypeScript or the DOM will clash with it.
 
+### Immich settings
+`apm-settings-immich` is the lazy Immich tab. Its Connection, Library mapping, Sync and Changes
+waiting for Immich cards use `api/immich.ts` (generated DTOs only) and the shared pure
+`describeImmichError(error)` for actionable errors, including stored sync/outbox reason codes.
+- `stores/immich.ts`: `immichStatus`, `immichStatusError`, `immichAttention` are read-only signals.
+  `loadImmichStatus({ check }?)` resolves on failure without losing the old status; concurrent plain
+  loads share a request and explicit checks are separate. `applyImmichStatus(status)` adopts a
+  connect, disconnect or mapping save immediately and invalidates older loads. The shell owns
+  `startImmich(): () => void`: initial load, SSE resync and a one-second debounced reload after
+  finished `immich_sync`, `immich_cleanup`, `fs_move`, `fs_trash`, `fs_rmdir`, `plan_execute` or
+  `trash_empty` tasks. No polling, including while Settings is hidden.
+- General and mapping forms share `apm-save-bar` (`invalid`, `saving`, `message`,
+  `invalidMessage`; bubbling `save`/`discard` events) and `UnsavedGuard(host, () => dirty)`.
+  Call the guard's `sync()` in `updated()`; it listens for `beforeunload` only while connected
+  and dirty, and removes the listener on disconnect. Keep drafts across tab switches.
+- Mapping saves send the complete set in volume row order, skipping unmapped rows. A validation
+  path `mappings[i].path_prefix` refers to the i-th **sent entry**, not the visible row; retain
+  that index-to-volume association. Successful saves adopt the returned mapping set before
+  requesting a background sync. Detect requests are aborted/ignored on library changes or removal.
+- Passwords belong only to the connect form, are cleared after success/removal, and never enter
+  browser storage or a store. Test cards with `vi.spyOn(api, 'get'/'post'/'put'/'delete')`, real
+  signals and `sampleImmichStatus`, `sampleLibraries`, `sampleOutboxPage` from
+  `test/immich-fixtures.ts`. Await nested elements' `updateComplete` before querying their controls.
+
 ## File grid
 `<apm-file-grid>` (`@/components/apm-file-grid`) shows one listing as cards (`<apm-file-card>`), read
 page by page through `PagedItems` (`@/stores/paged-items`). Both panes use it.

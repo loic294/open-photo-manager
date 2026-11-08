@@ -527,7 +527,10 @@ describe('apm-settings-page', () => {
       await vi.waitFor(() => expect(page.querySelector('form')).not.toBeNull());
 
       expect(customElements.get('apm-settings-general')).toBeDefined();
-      expect(tabs(page).map((candidate) => candidate.textContent?.trim())).toEqual(['General']);
+      expect(tabs(page).map((candidate) => candidate.textContent?.trim())).toEqual([
+        'General',
+        'Immich',
+      ]);
       expect(selected(page)).toEqual(['general']);
       expect(panel(page, 'general')?.querySelector('apm-settings-general')).not.toBeNull();
     });

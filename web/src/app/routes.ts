@@ -1,4 +1,5 @@
 import type { IconName } from '@/components/apm-icon';
+import { immichAttention } from '@/stores/immich';
 
 /** Where a route appears in the main menu. */
 export type MenuGroup = 'tools' | 'footer';
@@ -17,6 +18,7 @@ export interface AppRoute {
   menu?: MenuGroup;
   /** Assigned to the element as properties before it connects. */
   props?: Readonly<Record<string, unknown>>;
+  attention?: () => boolean;
 }
 
 const loadPlaceholder = () => import('@/components/apm-route-placeholder');
@@ -68,6 +70,7 @@ export const routes: readonly AppRoute[] = [
     label: 'Settings',
     icon: 'settings',
     menu: 'footer',
+    attention: () => immichAttention.value,
   },
 ];
 

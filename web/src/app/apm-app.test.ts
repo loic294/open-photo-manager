@@ -709,7 +709,12 @@ describe('app services', () => {
 
     expect(FakeEventSource.instances.map((source) => source.url)).toEqual(['/api/events']);
     const loaded = vi.mocked(api.get).mock.calls.map((call) => call[0]);
-    expect(loaded.sort()).toEqual(['/api/index/status', '/api/tasks', '/api/volumes']);
+    expect(loaded.sort()).toEqual([
+      '/api/immich/status',
+      '/api/index/status',
+      '/api/tasks',
+      '/api/volumes',
+    ]);
   });
 
   it('shows the tasks the server reports in the indicator of the top bar', async () => {

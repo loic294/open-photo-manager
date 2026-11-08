@@ -10,6 +10,7 @@ import { type AppRouter, createAppRouter } from '@/app/router';
 import { type AppRoute, routes as appRoutes, notFound, redirects, routeAt } from '@/app/routes';
 import { startTheme } from '@/app/theme';
 import { ApmElement } from '@/base/apm-element';
+import { startImmich } from '@/stores/immich';
 import { startIndexStatus } from '@/stores/index-status';
 import { currentPath, linkTo, startNavSync } from '@/stores/nav';
 import { startTasks } from '@/stores/tasks';
@@ -79,6 +80,7 @@ export class ApmApp extends ApmElement {
       startTasks(),
       startVolumes(),
       startIndexStatus(),
+      startImmich(),
       startReindex(),
       effect(() => {
         document.title = `${this.pageFor(currentPath.value).label} · ${APP_NAME}`;
@@ -160,6 +162,7 @@ export class ApmApp extends ApmElement {
         >
           <apm-icon name=${route.icon} size="sm"></apm-icon>
           ${route.label}
+          ${route.attention?.() ? html`<span class="status status-warning" role="img" aria-label="Needs attention"></span>` : nothing}
         </a>
       </li>
     `;
