@@ -4,17 +4,17 @@ use apm_core::paths::FileId;
 use apm_core::sidecar::LinkKind;
 use sqlx::{QueryBuilder, Sqlite, SqliteConnection};
 
-use super::dest::Source;
+use super::Source;
 use crate::fsops::{SidecarAction, SidecarItem};
 use crate::plans::PlanError;
 
 #[derive(Clone, Debug)]
-pub(super) struct Link {
+pub(crate) struct Link {
     pub source: Source,
     pub kind: LinkKind,
 }
 
-pub(super) async fn links(
+pub(crate) async fn links(
     conn: &mut SqliteConnection,
     ids: &[FileId],
 ) -> Result<HashMap<FileId, Vec<Link>>, PlanError> {
@@ -56,7 +56,7 @@ pub(super) async fn links(
 /// deduplicates identical same-path copies; the final carrier moves only while all owners left.
 pub(super) async fn carriers(
     conn: &mut SqliteConnection,
-    items: &[super::execute::Item],
+    items: &[super::Item],
 ) -> Result<HashMap<FileId, Vec<SidecarItem>>, PlanError> {
     let ids: Vec<_> = items.iter().map(|i| i.file_id).collect();
     let links = links(conn, &ids).await?;

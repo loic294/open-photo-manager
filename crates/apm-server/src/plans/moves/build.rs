@@ -8,9 +8,9 @@ use futures_util::{TryStreamExt, future::BoxFuture};
 use serde_json::Value;
 use sqlx::{QueryBuilder, Sqlite, SqliteConnection};
 
-use super::conflicts::{Directory, HashBudget};
-use super::dest::{COLUMNS, Source, Wanted, destination_for};
-use super::{params, sidecars};
+use super::dest::destination_for;
+use super::params;
+use super::{COLUMNS, Directory, HashBudget, Source, Wanted};
 use crate::plans::duplicates::{MAX_PAIRS, OverlapPolicy, PairVisitor, candidate_pairs};
 use crate::plans::{BuildContext, Built, BulkWriter, PlanError};
 
@@ -127,7 +127,7 @@ async fn counterparts(
         .collect()
 }
 
-pub(super) fn source_statement(query: &crate::query::FileQuery) -> QueryBuilder<Sqlite> {
+pub(crate) fn source_statement(query: &crate::query::FileQuery) -> QueryBuilder<Sqlite> {
     let mut qb = QueryBuilder::new(format!(
         "SELECT {COLUMNS} FROM files f LEFT JOIN cameras cam ON cam.id = f.camera_id WHERE "
     ));
@@ -144,7 +144,7 @@ pub(super) async fn build(ctx: &BuildContext, value: Value) -> Result<Built, Pla
     let policy = p
         .conflict_policy
         .unwrap_or(ctx.settings.default_conflict_policy);
-    let query = params::source_query(&p.source)?;
+    let query = super::source_query(&p.source)?;
     let mut registration = ctx.db.begin_write().await?;
     crate::plans::file_identity::begin(&mut registration, ctx.plan_id).await?;
     registration.commit().await?;
@@ -158,7 +158,7 @@ pub(super) async fn build(ctx: &BuildContext, value: Value) -> Result<Built, Pla
     ctx.check_size(ids.len() as u64)?;
     ctx.check_cancelled()?;
     let sources: HashSet<_> = ids.iter().copied().collect();
-    let links = sidecars::links(&mut read, &ids).await?;
+    let links = super::links(&mut read, &ids).await?;
     let counterparts = counterparts(&mut read, ctx, &p).await?;
     let mut identities = ctx.db.begin_write().await?;
     crate::plans::file_identity::track(&mut identities, ctx.plan_id, &ids).await?;
@@ -257,7 +257,7 @@ pub(super) async fn build(ctx: &BuildContext, value: Value) -> Result<Built, Pla
         MoveType::Custom => {
             // Derived paths use the shared destination function. Stream on the same
             // snapshot, retaining distinct directories rather than every source row.
-            let mut statement = source_statement(&query);
+            let mut statement = super::source_statement(&query);
             let mut rows = statement.build_query_as::<Source>().fetch(&mut *read);
             while let Some(row) = rows.try_next().await? {
                 ctx.check_cancelled()?;
@@ -314,7 +314,7 @@ pub(super) async fn build(ctx: &BuildContext, value: Value) -> Result<Built, Pla
     .map(|s| (s.to_owned(), 0))
     .collect();
     let mut warnings: BTreeMap<&str, u64> = BTreeMap::new();
-    let mut statement = source_statement(&query);
+    let mut statement = super::source_statement(&query);
     let mut rows = statement.build_query_as::<Source>().fetch(&mut *read);
     while let Some(row) = rows.try_next().await? {
         ctx.check_cancelled()?;

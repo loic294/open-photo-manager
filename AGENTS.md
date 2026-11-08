@@ -417,3 +417,15 @@ with no fixed sleeps or retries. Preserve failing product assertions: small fixe
 regressions; report larger bugs for assignment, never treat `fixme` as final verification.
 Use only private generated copies and free ports (not 8080, 18080 or 15173), the shared mock
 Immich, and no credential files, real media, or mutations of `fixtures/out`.
+
+## Move executor seam
+
+Another plan kind reuses `moves::run` through `Revalidate`, never copies `execute.rs`.
+The hook returns `Wanted` from a live `Source`, `Item`, `ExecContext`, and read-only transferred map.
+Generic checks run in order: source exists, identity live, source facts, hook, wanted snapshot.
+`Stored::load` supplies the frozen policy/name limit; the executor owns totals and all FsOps outcomes.
+Crate-visible exports: `Source`, `COLUMNS`, `Wanted`, `source_query`, `reserved`, `validate_volume`,
+`Directory`, `HashBudget`, `Resolved`, `Link`, `links`, `source_statement`, `Item`, `Stored`,
+`Revalidate`, `run`. Submodules, move rules, destination rendering and carrier selection stay private.
+Use the shared identity registration before the build snapshot and track every snapshot dependency.
+Hooks preserve coded skips and propagate infrastructure errors; they add no filesystem/Immich preflight.

@@ -44,7 +44,13 @@ use super::overlay::{FolderOverlay, GhostPage, GhostView, Window};
 use super::{BuildContext, Built, ExecContext, ExecutePrep, Plan, PlanDeps, PlanError, Planner};
 use crate::db::Db;
 
+pub(crate) use build::source_statement;
+pub(crate) use conflicts::{Directory, HashBudget, Resolved};
+pub(crate) use dest::{COLUMNS, Source, Wanted};
+pub(crate) use execute::{Item, Revalidate, Stored, run};
 pub use format::{preview, tokens};
+pub(crate) use params::{reserved, source_query, validate_volume};
+pub(crate) use sidecars::{Link, links};
 
 #[derive(Clone)]
 pub struct MovePlanner {

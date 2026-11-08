@@ -1,11 +1,18 @@
+//! Shared move executor: identity and source facts are checked before the async destination hook,
+//! then its wanted location is compared with the snapshot before any FsOps call. Hooks receive
+//! only a read-only map of completed transfers; they return coded skips or infrastructure errors.
+//! Other plan kinds reuse `run`, retaining ordering, sidecar carriers, Replace safety and outcomes.
+
 use std::collections::{HashMap, HashSet};
 
 use apm_core::dto::{ConflictPolicy, MoveParams, MoveType, PlanResult};
 use apm_core::matching::{MatchOptions, is_match};
 use apm_core::paths::{FileId, RelPath};
+use futures_util::future::BoxFuture;
 use sqlx::QueryBuilder;
 
-use super::dest::{COLUMNS, Source, destination_for};
+use super::dest::{Rules, destination_for};
+use super::{COLUMNS, Source, Wanted};
 use super::{params, sidecars};
 use crate::db::Db;
 use crate::fsops::{
@@ -15,19 +22,50 @@ use crate::fsops::{
 use crate::plans::{ExecContext, Plan, PlanError, ResultBuilder, display_path};
 
 #[derive(sqlx::FromRow)]
-pub(super) struct Item {
-    pub file_id: FileId,
-    pub dst_volume_id: i64,
-    pub dst_dir: String,
-    pub dst_name: String,
-    wanted_name: Option<String>,
-    counterpart_id: Option<FileId>,
-    replaced_id: Option<FileId>,
-    src_volume_id: i64,
-    src_dir: String,
-    pub src_name: String,
-    src_size: i64,
-    src_mtime: i64,
+pub(crate) struct Item {
+    pub(crate) file_id: FileId,
+    pub(crate) dst_volume_id: i64,
+    pub(crate) dst_dir: String,
+    pub(crate) dst_name: String,
+    pub(crate) wanted_name: Option<String>,
+    pub(crate) counterpart_id: Option<FileId>,
+    pub(crate) replaced_id: Option<FileId>,
+    pub(crate) src_volume_id: i64,
+    pub(crate) src_dir: String,
+    pub(crate) src_name: String,
+    pub(crate) src_size: i64,
+    pub(crate) src_mtime: i64,
+}
+
+pub(crate) struct Stored {
+    pub(crate) policy: ConflictPolicy,
+    pub(crate) name_max_len: usize,
+}
+
+impl Stored {
+    pub(crate) async fn load(ctx: &ExecContext) -> Result<Self, PlanError> {
+        let (policy, max): (String, i64) = sqlx::query_as(
+            "SELECT conflict_policy, name_max_len FROM move_plans WHERE plan_id = ?",
+        )
+        .bind(ctx.plan_id)
+        .fetch_one(ctx.db.read())
+        .await?;
+        Ok(Self {
+            policy: serde_json::from_value(serde_json::Value::String(policy))
+                .map_err(anyhow::Error::from)?,
+            name_max_len: usize::try_from(max).map_err(anyhow::Error::from)?,
+        })
+    }
+}
+
+pub(crate) trait Revalidate: Sync {
+    fn wanted<'a>(
+        &'a self,
+        ctx: &'a ExecContext,
+        item: &'a Item,
+        row: &'a Source,
+        transferred: &'a HashMap<FileId, crate::fsops::Loc>,
+    ) -> BoxFuture<'a, Result<Result<Wanted, &'static str>, PlanError>>;
 }
 
 async fn live(db: &Db, id: FileId) -> Result<Option<Source>, PlanError> {
@@ -42,8 +80,8 @@ async fn live(db: &Db, id: FileId) -> Result<Option<Source>, PlanError> {
 async fn validate(
     ctx: &ExecContext,
     item: &Item,
-    p: &MoveParams,
-    rules: &super::dest::Rules,
+    hook: &dyn Revalidate,
+    transferred: &HashMap<FileId, crate::fsops::Loc>,
 ) -> Result<Result<Source, &'static str>, PlanError> {
     let Some(row) = live(&ctx.db, item.file_id).await? else {
         return Ok(Err("file_gone"));
@@ -60,31 +98,10 @@ async fn validate(
     {
         return Ok(Err("stale_plan"));
     }
-    let counterpart = if let Some(id) = item.counterpart_id {
-        if !crate::plans::file_identity::is_live(&mut identities, ctx.plan_id, id).await? {
-            return Ok(Err("stale_match"));
-        }
-        let Some(other) = live(&ctx.db, id).await? else {
-            return Ok(Err("stale_match"));
-        };
-        if !is_match(
-            p.match_mode.unwrap_or_default(),
-            &row.facts()?,
-            &other.facts()?,
-            MatchOptions {
-                strict_prefix: p.strict_prefix,
-            },
-        ) {
-            return Ok(Err("stale_match"));
-        }
-        Some(RelPath::new(&other.dir_path).map_err(anyhow::Error::from)?)
-    } else {
-        None
-    };
-    let wanted = match destination_for(rules, &row, counterpart.as_ref()) {
+    drop(identities);
+    let wanted = match hook.wanted(ctx, item, &row, transferred).await? {
         Ok(wanted) => wanted,
-        Err("metadata_pending") => return Ok(Err("metadata_pending")),
-        Err(_) => return Ok(Err("stale_plan")),
+        Err(code) => return Ok(Err(code)),
     };
     if wanted.volume_id != item.dst_volume_id
         || wanted.dir.as_str() != item.dst_dir
@@ -95,22 +112,92 @@ async fn validate(
     Ok(Ok(row))
 }
 
+struct MovesHook {
+    params: MoveParams,
+    rules: Rules,
+}
+
+impl super::Revalidate for MovesHook {
+    fn wanted<'a>(
+        &'a self,
+        ctx: &'a ExecContext,
+        item: &'a Item,
+        row: &'a Source,
+        transferred: &'a HashMap<FileId, crate::fsops::Loc>,
+    ) -> BoxFuture<'a, Result<Result<Wanted, &'static str>, PlanError>> {
+        Box::pin(async move {
+            let mut identities = ctx.db.read().acquire().await?;
+            let counterpart = if let Some(id) = item.counterpart_id {
+                if !crate::plans::file_identity::is_live(&mut identities, ctx.plan_id, id).await? {
+                    return Ok(Err("stale_match"));
+                }
+                let Some(other) = live(&ctx.db, id).await? else {
+                    return Ok(Err("stale_match"));
+                };
+                if !is_match(
+                    self.params.match_mode.unwrap_or_default(),
+                    &row.facts()?,
+                    &other.facts()?,
+                    MatchOptions {
+                        strict_prefix: self.params.strict_prefix,
+                    },
+                ) {
+                    return Ok(Err("stale_match"));
+                }
+                Some(RelPath::new(&other.dir_path).map_err(anyhow::Error::from)?)
+            } else {
+                None
+            };
+            // A transferred counterpart keeps its plan-time folder, but must still match live facts.
+            let original;
+            let rules = if self.rules.move_type == MoveType::KeepDestination
+                && item
+                    .counterpart_id
+                    .is_some_and(|id| transferred.contains_key(&id))
+            {
+                original = Rules {
+                    move_type: MoveType::Flat,
+                    source_base: self.rules.source_base.clone(),
+                    destination_base: RelPath::new(&item.dst_dir).map_err(anyhow::Error::from)?,
+                    destination_volume: self.rules.destination_volume,
+                    pattern: None,
+                    name_max_len: self.rules.name_max_len,
+                    junk: self.rules.junk.clone(),
+                    timezone: self.rules.timezone,
+                };
+                &original
+            } else {
+                &self.rules
+            };
+            let wanted = match destination_for(rules, row, counterpart.as_ref()) {
+                Ok(wanted) => wanted,
+                Err("metadata_pending") => return Ok(Err("metadata_pending")),
+                Err(_) => return Ok(Err("stale_plan")),
+            };
+            Ok(Ok(wanted))
+        })
+    }
+}
+
 pub(super) async fn execute(ctx: ExecContext, plan: &Plan) -> Result<PlanResult, PlanError> {
     let p: MoveParams = plan.params()?;
     let mut rules = params::rules(&p, &ctx.settings)?;
-    let (policy, max): (String, i64) =
-        sqlx::query_as("SELECT conflict_policy, name_max_len FROM move_plans WHERE plan_id = ?")
-            .bind(plan.id)
-            .fetch_one(ctx.db.read())
-            .await?;
-    let policy: ConflictPolicy =
-        serde_json::from_value(serde_json::Value::String(policy)).map_err(anyhow::Error::from)?;
-    rules.name_max_len = usize::try_from(max).map_err(anyhow::Error::from)?;
+    let stored = super::Stored::load(&ctx).await?;
+    rules.name_max_len = stored.name_max_len;
+    super::run(ctx, stored, &MovesHook { params: p, rules }).await
+}
+
+pub(crate) async fn run(
+    ctx: ExecContext,
+    stored: Stored,
+    hook: &dyn Revalidate,
+) -> Result<PlanResult, PlanError> {
+    let policy = stored.policy;
     let only = ctx.only_ids().await?;
     let mut qb = QueryBuilder::new(
         "SELECT m.file_id, m.dst_volume_id, m.dst_dir, m.dst_name, m.wanted_name, m.counterpart_id, m.replaced_id, m.src_volume_id, m.src_dir, m.src_name, m.src_size, m.src_mtime FROM move_items m WHERE m.plan_id = ",
     );
-    qb.push_bind(plan.id)
+    qb.push_bind(ctx.plan_id)
         .push(" AND m.status = 'move' ORDER BY m.src_volume_id, m.src_dir, m.src_name");
     let items: Vec<Item> = qb.build_query_as().fetch_all(ctx.db.read()).await?;
     let items: Vec<_> = items
@@ -131,7 +218,7 @@ pub(super) async fn execute(ctx: ExecContext, plan: &Plan) -> Result<PlanResult,
     let mut transferred: HashMap<FileId, crate::fsops::Loc> = HashMap::new();
     let all_sources: HashSet<FileId> =
         sqlx::query_scalar("SELECT file_id FROM move_items WHERE plan_id = ?")
-            .bind(plan.id)
+            .bind(ctx.plan_id)
             .fetch_all(ctx.db.read())
             .await?
             .into_iter()
@@ -145,28 +232,7 @@ pub(super) async fn execute(ctx: ExecContext, plan: &Plan) -> Result<PlanResult,
             .and_then(|dir| dir.join(&item.src_name))
             .map_err(anyhow::Error::from)?;
         let display = display_path(&ctx.volumes, item.src_volume_id, &source_path);
-        // A counterpart may have been moved earlier by this execution; its plan-time folder
-        // remains authoritative, but the live matching facts still have to agree.
-        let validation = if rules.move_type == MoveType::KeepDestination
-            && item
-                .counterpart_id
-                .is_some_and(|id| transferred.contains_key(&id))
-        {
-            let mut original = super::dest::Rules {
-                move_type: MoveType::Flat,
-                source_base: rules.source_base.clone(),
-                destination_base: RelPath::new(&item.dst_dir).map_err(anyhow::Error::from)?,
-                destination_volume: rules.destination_volume,
-                pattern: None,
-                name_max_len: rules.name_max_len,
-                junk: rules.junk.clone(),
-                timezone: rules.timezone,
-            };
-            original.move_type = MoveType::Flat;
-            validate(&ctx, &item, &p, &original).await?
-        } else {
-            validate(&ctx, &item, &p, &rules).await?
-        };
+        let validation = validate(&ctx, &item, hook, &transferred).await?;
         let row = match validation {
             Ok(row) => row,
             Err(code) => {

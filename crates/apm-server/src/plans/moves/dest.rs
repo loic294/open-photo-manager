@@ -12,10 +12,10 @@ use crate::db::models::PipelineState;
 use crate::fsops::Loc;
 use crate::plans::PlanError;
 
-pub(super) const COLUMNS: &str = "f.id, f.volume_id, f.dir_path, f.name, f.size, f.mtime, f.btime, f.capture_ts, f.capture_src, f.meta_state, f.hash, cam.name AS camera";
+pub(crate) const COLUMNS: &str = "f.id, f.volume_id, f.dir_path, f.name, f.size, f.mtime, f.btime, f.capture_ts, f.capture_src, f.meta_state, f.hash, cam.name AS camera";
 
 #[derive(Clone, Debug, sqlx::FromRow)]
-pub(super) struct Source {
+pub(crate) struct Source {
     pub id: FileId,
     pub volume_id: VolumeId,
     pub dir_path: String,
@@ -72,7 +72,7 @@ pub(super) struct Rules {
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
-pub(super) struct Wanted {
+pub(crate) struct Wanted {
     pub volume_id: VolumeId,
     pub dir: RelPath,
     pub name: String,
@@ -124,7 +124,7 @@ pub(super) fn destination_for(
     }
     let current_dir = RelPath::new(&row.dir_path).map_err(|_| "pattern_failed")?;
     let source_path = current_dir.join(&row.name).map_err(|_| "pattern_failed")?;
-    if super::params::reserved(&rules.junk, &source_path) {
+    if super::reserved(&rules.junk, &source_path) {
         return Err("reserved_destination");
     }
     let (dir, name) = match rules.move_type {
@@ -169,7 +169,7 @@ pub(super) fn destination_for(
         }
     };
     let path = dir.join(&name).map_err(|_| "pattern_failed")?;
-    if super::params::reserved(&rules.junk, &path) {
+    if super::reserved(&rules.junk, &path) {
         return Err("reserved_destination");
     }
     Ok(Wanted {

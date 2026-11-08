@@ -9,7 +9,7 @@ use crate::plans::PlanError;
 use crate::query::{FileQuery, KindFilter, QueryScope};
 use crate::settings::Settings;
 
-pub(super) fn source_query(source: &SideParams) -> Result<FileQuery, PlanError> {
+pub(crate) fn source_query(source: &SideParams) -> Result<FileQuery, PlanError> {
     if source.scope.volume_id.is_none() {
         return Err(PlanError::invalid_field(
             "source.scope",
@@ -97,7 +97,7 @@ pub(super) fn rules(p: &MoveParams, settings: &Settings) -> Result<Rules, PlanEr
     })
 }
 
-pub(super) fn reserved(junk: &JunkRules, path: &RelPath) -> bool {
+pub(crate) fn reserved(junk: &JunkRules, path: &RelPath) -> bool {
     crate::fsops::is_protected_path(path) || junk.is_junk_path(path)
 }
 
@@ -106,15 +106,24 @@ pub(super) fn volumes(p: &MoveParams, registry: &VolumeRegistry) -> Result<(), P
         ("source.scope", p.source.scope.volume_id),
         ("destination", Some(p.destination.volume_id)),
     ] {
-        let volume = id
-            .and_then(|id| registry.volume(id))
-            .ok_or_else(|| PlanError::invalid_field(field, "unknown volume"))?;
-        if !volume.online || !volume.writable {
-            return Err(PlanError::invalid_field(
-                field,
-                "the volume must be online and writable",
-            ));
-        }
+        super::validate_volume(field, id, registry)?;
+    }
+    Ok(())
+}
+
+pub(crate) fn validate_volume(
+    field: &str,
+    id: Option<apm_core::paths::VolumeId>,
+    registry: &VolumeRegistry,
+) -> Result<(), PlanError> {
+    let volume = id
+        .and_then(|id| registry.volume(id))
+        .ok_or_else(|| PlanError::invalid_field(field, "unknown volume"))?;
+    if !volume.online || !volume.writable {
+        return Err(PlanError::invalid_field(
+            field,
+            "the volume must be online and writable",
+        ));
     }
     Ok(())
 }

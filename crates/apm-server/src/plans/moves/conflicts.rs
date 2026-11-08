@@ -9,14 +9,13 @@ use apm_core::names::normalize_name;
 use apm_core::paths::{FileId, RelPath, VolumeId};
 use sqlx::SqliteConnection;
 
-use super::dest::{COLUMNS, Source, Wanted};
-use super::sidecars::Link;
+use super::{COLUMNS, Link, Source, Wanted};
 use crate::plans::{BuildContext, PlanError};
 
 const HASH_BYTES: u64 = 1024 * 1024 * 1024;
 const HASH_TIME: Duration = Duration::from_secs(20);
 
-pub(super) struct HashBudget {
+pub(crate) struct HashBudget {
     bytes: u64,
     deadline: Instant,
     cache: HashMap<FileId, Option<Sha1Digest>>,
@@ -85,7 +84,7 @@ impl HashBudget {
 }
 
 #[derive(Default)]
-pub(super) struct Directory {
+pub(crate) struct Directory {
     files: HashMap<String, Source>,
     folders: HashSet<String>,
     claimed: HashMap<String, FileId>,
@@ -140,7 +139,7 @@ impl Directory {
         policy: ConflictPolicy,
         sources: &HashSet<FileId>,
         budget: &mut HashBudget,
-    ) -> Result<Resolved, PlanError> {
+    ) -> Result<super::Resolved, PlanError> {
         let norm = normalize_name(&wanted.name);
         let existing = self.files.get(&norm).filter(|f| f.id != row.id);
         let claimed = self.claimed.contains_key(&norm);
@@ -258,7 +257,7 @@ impl Directory {
     }
 }
 
-pub(super) struct Resolved {
+pub(crate) struct Resolved {
     pub name: String,
     pub status: &'static str,
     pub replaced_id: Option<FileId>,
