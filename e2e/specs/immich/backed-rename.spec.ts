@@ -1,5 +1,5 @@
 import { createHash } from 'node:crypto';
-import { readFile, stat } from 'node:fs/promises';
+import { readFile, stat, writeFile } from 'node:fs/promises';
 import type { PlanDto } from '../../../web/src/api/generated/PlanDto';
 import type { RenameParams } from '../../../web/src/api/generated/RenameParams';
 import type { TaskDto } from '../../../web/src/api/generated/TaskDto';
@@ -86,7 +86,8 @@ test('same-folder rename preserves the Immich identity, album, sidecar and curso
   expect(
     await database.sql(`SELECT "originalPath" FROM public.asset WHERE id = '${id}'::uuid`),
   ).toBe('/mnt/photos/sidecars/IMG_0010.JPG');
-  expectRemovedFiles(['photos/sidecars/IMG_0010.JPG', 'photos/sidecars/IMG_0010.JPG.xmp']);
+  // The old photo path is recreated below to verify Immich can import it again.
+  expectRemovedFiles(['photos/sidecars/IMG_0010.JPG.xmp']);
   const finished = await execute(await build());
   expect(finished.result).toMatchObject({ done: 1, skipped: 0, failed: 0 });
   expect(await readFile(newPhoto)).toEqual(photoBytes);
@@ -150,4 +151,23 @@ test('same-folder rename preserves the Immich identity, album, sidecar and curso
     originalPath: path,
     checksum: Buffer.from(checksum, 'hex').toString('base64'),
   });
+
+  await writeFile(oldPhoto, Buffer.from('a different fixture at the original path'));
+  const [scan] = await mock.control.scan('Photos');
+  expect(scan?.status, scan?.error ?? undefined).toBe('completed');
+  const reimported = mock.state.assetByPath('/mnt/photos/sidecars/IMG_0010.JPG');
+  expect(reimported).toBeDefined();
+  expect(reimported?.id).not.toBe(id);
+  const importedId = String(reimported?.id);
+  const importedChecksum = createHash('sha1')
+    .update('path:/mnt/photos/sidecars/IMG_0010.JPG')
+    .digest('hex');
+  const rows = await database.sql(`SELECT json_build_object('id', id::text,
+    'path', "originalPath", 'checksum', encode(checksum, 'hex'))
+    FROM public.asset WHERE id IN ('${id}'::uuid, '${importedId}'::uuid) ORDER BY "originalPath"`);
+  const assets = rows.split('\n').map((row) => JSON.parse(row) as object);
+  expect(assets).toEqual([
+    { id: importedId, path: '/mnt/photos/sidecars/IMG_0010.JPG', checksum: importedChecksum },
+    { id, path, checksum },
+  ]);
 });

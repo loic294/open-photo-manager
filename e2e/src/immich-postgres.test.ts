@@ -66,6 +66,30 @@ test('real v3.3.3 SQL path updates are visible through the mock API', {
   });
   assert.equal(createKey.status, 201);
   const key: { secret: string } = await createKey.json();
+  await assert.rejects(
+    () =>
+      database.sql(`UPDATE public.asset SET "originalPath" = '/mnt/photos/new.jpg',
+      "originalFileName" = 'new.jpg' WHERE id = '${id}'::uuid;
+      INSERT INTO public.asset
+        (id, "ownerId", "libraryId", "isExternal", type, "originalPath",
+         "originalFileName", checksum, "checksumAlgorithm",
+         "fileCreatedAt", "fileModifiedAt", "localDateTime")
+      SELECT gen_random_uuid(), "ownerId", "libraryId", true, type,
+        '/mnt/photos/old.jpg', 'old.jpg', checksum, "checksumAlgorithm",
+        "fileCreatedAt", "fileModifiedAt", "localDateTime"
+      FROM public.asset WHERE id = '${id}'::uuid`),
+    (error: unknown) => {
+      assert.ok(error instanceof Error && error.cause instanceof Error);
+      assert.ok('stderr' in error.cause && typeof error.cause.stderr === 'string');
+      assert.match(error.cause.stderr, /duplicate key value violates unique constraint/);
+      return true;
+    },
+  );
+  assert.equal(
+    await database.sql(`SELECT "originalPath" FROM public.asset WHERE id = '${id}'::uuid`),
+    '/mnt/photos/old.jpg',
+    'the duplicate checksum must roll back the entire attempted move',
+  );
   const checksum = createHash('sha1').update('path:/mnt/photos/new.jpg').digest('hex');
   await database.sql(`UPDATE public.asset SET "originalPath" = '/mnt/photos/new.jpg',
     "originalFileName" = 'new.jpg', checksum = decode('${checksum}', 'hex')
