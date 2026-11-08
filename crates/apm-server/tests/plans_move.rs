@@ -154,6 +154,97 @@ async fn failed_shared_sidecar_copy_is_attention_with_the_actual_metadata_path()
 }
 
 #[tokio::test]
+async fn forced_cross_device_move_preserves_metadata_and_counts_copied_bytes_once() {
+    use apm_server::plans::{PlanDeps, PlanService};
+    use common::fsops::SplitMover;
+    use std::sync::Arc;
+
+    let mut app = TestApp::new().await;
+    let (src, source) = app.add_volume("source").await;
+    let (dst, destination) = app.add_volume("destination").await;
+    let fsops = app
+        .state
+        .fsops
+        .clone()
+        .with_mover(Arc::new(SplitMover::new(&[&source, &destination])));
+    app.state.plans = PlanService::new(PlanDeps {
+        db: app.state.db.clone(),
+        fsops,
+        settings: app.state.settings.clone(),
+        shutdown: app.state.shutdown.clone(),
+        tasks: app.state.tasks.clone(),
+        volumes: app.state.volumes.clone(),
+    })
+    .await
+    .unwrap();
+    app.router = apm_server::app::router(app.state.clone());
+    source.write("src/one.jpg", b"photo");
+    source.write("src/one.jpg.xmp", b"metadata");
+    let seed = Seed::new(&app.state.db);
+    let owner = seed.file(src, "src", "one.jpg").size(5).insert().await;
+    let metadata = seed.file(src, "src", "one.jpg.xmp").size(8).insert().await;
+    seed.sidecar(owner, metadata, "exact").await;
+    ready(&app).await;
+    let plan = build(&app, &params(MoveType::Flat, src, dst)).await;
+    let (result, task) = run(&app, plan.id, None).await;
+    assert_eq!((result.done, result.failed, result.skipped), (1, 0, 0));
+    assert_eq!(task.bytes_done, 13);
+    assert_eq!(task.items_done, 1);
+    assert!(!source.path("src/one.jpg").exists());
+    assert!(!source.path("src/one.jpg.xmp").exists());
+    assert_eq!(
+        std::fs::read(destination.path("out/one.jpg")).unwrap(),
+        b"photo"
+    );
+    assert_eq!(
+        std::fs::read(destination.path("out/one.jpg.xmp")).unwrap(),
+        b"metadata"
+    );
+    let links: Vec<(i64, i64)> = sqlx::query_as("SELECT file_id, sidecar_id FROM file_sidecars")
+        .fetch_all(app.state.db.read())
+        .await
+        .unwrap();
+    assert_eq!(links, [(owner, metadata)]);
+}
+
+#[tokio::test]
+async fn execute_uses_the_build_time_default_conflict_policy() {
+    let app = TestApp::new().await;
+    let (v, tree) = app.add_volume("photos").await;
+    tree.write("src/one.jpg", b"photo");
+    tree.write("out/one.jpg", b"other");
+    let seed = Seed::new(&app.state.db);
+    seed.file(v, "src", "one.jpg")
+        .size(5)
+        .hash(sha1_bytes(b"photo"))
+        .insert()
+        .await;
+    seed.file(v, "out", "one.jpg")
+        .size(5)
+        .hash(sha1_bytes(b"other"))
+        .insert()
+        .await;
+    ready(&app).await;
+    let mut settings = (*app.state.settings.get()).clone();
+    settings.default_conflict_policy = ConflictPolicy::Rename;
+    app.state.settings.update(settings).await.unwrap();
+    let plan = build(&app, &params(MoveType::Flat, v, v)).await;
+    assert_eq!(names(&app, plan.id).await[0].2, "one_1.jpg");
+    let mut settings = (*app.state.settings.get()).clone();
+    settings.default_conflict_policy = ConflictPolicy::Replace;
+    app.state.settings.update(settings).await.unwrap();
+    let (result, _) = run(&app, plan.id, None).await;
+    assert_eq!((result.done, result.failed), (1, 0));
+    assert_eq!(std::fs::read(tree.path("out/one.jpg")).unwrap(), b"other");
+    assert_eq!(std::fs::read(tree.path("out/one_1.jpg")).unwrap(), b"photo");
+    let trash: i64 = sqlx::query_scalar("SELECT COUNT(*) FROM trash_items")
+        .fetch_one(app.state.db.read())
+        .await
+        .unwrap();
+    assert_eq!(trash, 0);
+}
+
+#[tokio::test]
 async fn build_types_kinds_pending_and_cross_volume_stats() {
     let app = TestApp::new().await;
     let (src, _) = app.add_volume("source").await;
@@ -307,6 +398,45 @@ async fn replace_never_trashes_a_source_or_reuses_a_freed_name() {
     assert_eq!(rows[0].3, "already_in_place");
     assert_eq!(rows[1].2, "one_1.jpg");
     assert_eq!(plan.stats["replaced"], 0);
+}
+
+#[tokio::test]
+async fn normalized_unicode_collisions_preserve_byte_exact_source_and_avoid_arbitrary_replace() {
+    let app = TestApp::new().await;
+    let (v, _) = app.add_volume("photos").await;
+    let seed = Seed::new(&app.state.db);
+    let source = seed.file(v, "src", "cafe\u{301}.jpg").insert().await;
+    let a = seed.file(v, "out", "caf\u{e9}.jpg").insert().await;
+    let b = seed.file(v, "out", "CAF\u{c9}.jpg").insert().await;
+    ready(&app).await;
+    let mut p = params(MoveType::Flat, v, v);
+    p.conflict_policy = Some(ConflictPolicy::Replace);
+    let plan = build(&app, &p).await;
+    let rows = names(&app, plan.id).await;
+    assert_eq!(rows[0].0, source);
+    assert_eq!(rows[0].2, "cafe\u{301}_1.jpg");
+    assert_eq!(rows[0].3, "move");
+    assert_eq!(plan.stats["replaced"], 0);
+    assert_eq!(plan.stats["renamed"], 1);
+    let stored: String = sqlx::query_scalar("SELECT src_name FROM move_items WHERE plan_id = ?")
+        .bind(plan.id)
+        .fetch_one(app.state.db.read())
+        .await
+        .unwrap();
+    assert_eq!(stored, "cafe\u{301}.jpg");
+    let flags = app
+        .state
+        .plans
+        .item_flags(
+            PlanRef {
+                plan_id: plan.id,
+                side: PlanSide::Comparison,
+            },
+            &[a, b],
+        )
+        .await
+        .unwrap();
+    assert!(flags.is_empty());
 }
 
 #[tokio::test]

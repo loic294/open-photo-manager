@@ -247,6 +247,33 @@ mod tests {
         assert_eq!(destination_for(&r, &row, None), Err("reserved_destination"));
     }
 
+    #[test]
+    fn indexed_capture_precedes_birth_time_and_modified_time_is_last_fallback() {
+        let mut row = row();
+        row.btime = Some(1);
+        row.mtime = 1_704_067_200;
+        let r = rules(MoveType::Custom);
+        assert_eq!(
+            destination_for(&r, &row, None).unwrap().dir.as_str(),
+            "out/2026/10"
+        );
+        row.capture_ts = None;
+        assert_eq!(
+            destination_for(&r, &row, None).unwrap().dir.as_str(),
+            "out/1970/01"
+        );
+        row.btime = None;
+        assert_eq!(
+            destination_for(&r, &row, None).unwrap().dir.as_str(),
+            "out/2024/01"
+        );
+        row.btime = Some(0);
+        assert_eq!(
+            destination_for(&r, &row, None).unwrap().dir.as_str(),
+            "out/2024/01"
+        );
+    }
+
     proptest::proptest! {
         #[test]
         fn custom_values_do_not_escape_and_name_caps_hold(
