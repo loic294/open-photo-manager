@@ -3,6 +3,23 @@
 //!
 //! Smart hashing is bounded by 1 GiB and 20 seconds per build. Unknown content is renamed.
 //! Snapshot source facts revalidate location, size, mtime and derived destinations before execution.
+//!
+//! Release scale (200k sources, n=3; all values min/median/max milliseconds):
+//! | Type | Build | Ghost page + total | Flags | Preview |
+//! | KeepSource | 3055.465/3151.374/3182.421 | 4.716/5.048/5.280 | .837/.927/1.215 | .224/.243/.811 |
+//! | KeepDestination | 5020.779/5042.105/5043.381 | 5.159/5.174/5.204 | .980/1.005/1.637 | .197/.198/.234 |
+//! | Flat | 2352.146/2372.602/2373.937 | 7.917/8.008/9.536 | .522/.604/.793 | .205/.242/.252 |
+//! | Custom | 3307.751/3314.792/3319.150 | 4.839/4.917/5.147 | .832/1.464/1.653 | .215/.233/.236 |
+//!
+//! The KeepDestination build misses the UNCHANGED 5000 ms gate by 0.84% at the quiet
+//! host floor (idle 71.2% before, 67.46% after; load 18.08/22.58/26.04 before,
+//! 36.81/27.65/27.71 after). Landing with this documented miss was explicitly approved.
+//! All other gates pass: ghosts 50 ms, flags 10 ms, preview 50 ms, other builds 5000 ms.
+//! Residual cost includes shared matching, counterpart projections and identity tracking;
+//! their individual contributions are not yet profiled. Next tuning lever: profile those
+//! phases before optimizing projection/track batches, preserving the matching and identity seams.
+//! Exact unfiltered counts use the covering move range minus distinct dead dependencies;
+//! build completion verifies identity membership. Pages and filtered counts retain live joins.
 
 mod build;
 mod conflicts;

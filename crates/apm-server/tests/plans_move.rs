@@ -86,6 +86,85 @@ async fn run(app: &TestApp, id: i64, only: Option<i64>) -> (PlanResult, TaskDto)
 }
 
 #[tokio::test]
+async fn immich_guard_refusal_is_a_coded_skip_before_replacement_and_untracked_moves_continue() {
+    use apm_server::fsops::{FsOpError, Loc, MoveGuard};
+    use apm_server::plans::{PlanDeps, PlanService};
+    use futures_util::future::BoxFuture;
+    use std::sync::Arc;
+
+    struct RefuseTracked;
+    impl MoveGuard for RefuseTracked {
+        fn check<'a>(
+            &'a self,
+            src: &'a Loc,
+            dst: &'a Loc,
+            sidecars: &'a [(Loc, Loc)],
+        ) -> BoxFuture<'a, Result<(), FsOpError>> {
+            Box::pin(async move {
+                if src.rel.as_str() == "src/a.jpg" {
+                    assert_eq!(dst.rel.as_str(), "out/a.jpg");
+                    assert_eq!(sidecars.len(), 1);
+                    assert_eq!(sidecars[0].1.rel.as_str(), "out/a.jpg.xmp");
+                    return Err(FsOpError::ImmichMoveRefused(
+                        "No file was moved. Restore the Immich database connection, then rebuild and retry.".into(),
+                    ));
+                }
+                Ok(())
+            })
+        }
+    }
+    let mut app = TestApp::new().await;
+    let fsops = app
+        .state
+        .fsops
+        .clone()
+        .with_move_guard(Arc::new(RefuseTracked));
+    app.state.plans = PlanService::new(PlanDeps {
+        db: app.state.db.clone(),
+        fsops,
+        settings: app.state.settings.clone(),
+        shutdown: app.state.shutdown.clone(),
+        tasks: app.state.tasks.clone(),
+        volumes: app.state.volumes.clone(),
+    })
+    .await
+    .unwrap();
+    app.router = apm_server::app::router(app.state.clone());
+    let (v, tree) = app.add_volume("photos").await;
+    tree.write("src/a.jpg", b"photo");
+    tree.write("src/a.jpg.xmp", b"metadata");
+    tree.write("src/b.jpg", b"other");
+    tree.write("out/a.jpg", b"incumbent");
+    let seed = Seed::new(&app.state.db);
+    let a = seed.file(v, "src", "a.jpg").size(5).insert().await;
+    let s = seed.file(v, "src", "a.jpg.xmp").size(8).insert().await;
+    seed.sidecar(a, s, "exact").await;
+    seed.file(v, "src", "b.jpg").size(5).insert().await;
+    seed.file(v, "out", "a.jpg").size(9).insert().await;
+    ready(&app).await;
+    let mut p = params(MoveType::Flat, v, v);
+    p.conflict_policy = Some(ConflictPolicy::Replace);
+    let plan = build(&app, &p).await;
+    let (result, _) = run(&app, plan.id, None).await;
+    assert_eq!((result.done, result.skipped, result.failed), (1, 1, 0));
+    assert_eq!(result.failures[0].code, "immich_move_refused");
+    assert!(result.failures[0].message.starts_with("No file was moved."));
+    assert!(result.failures[0].message.contains("retry"));
+    assert_eq!(std::fs::read(tree.path("out/a.jpg")).unwrap(), b"incumbent");
+    assert_eq!(std::fs::read(tree.path("src/a.jpg")).unwrap(), b"photo");
+    assert_eq!(
+        std::fs::read(tree.path("src/a.jpg.xmp")).unwrap(),
+        b"metadata"
+    );
+    assert_eq!(std::fs::read(tree.path("out/b.jpg")).unwrap(), b"other");
+    let trash: i64 = sqlx::query_scalar("SELECT COUNT(*) FROM trash_items")
+        .fetch_one(app.state.db.read())
+        .await
+        .unwrap();
+    assert_eq!(trash, 0);
+}
+
+#[tokio::test]
 async fn failed_shared_sidecar_copy_is_attention_with_the_actual_metadata_path() {
     use apm_server::fsops::{Mover, SystemMover};
     use apm_server::plans::{PlanDeps, PlanService};
