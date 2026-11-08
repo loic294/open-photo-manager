@@ -4,6 +4,7 @@ import { api } from '@/api/client';
 import { ApiError } from '@/api/errors';
 import { routes } from '@/app/routes';
 import { confirmDialog } from '@/components/confirm-dialog';
+import { resetFilters, setFilter } from '@/stores/filters';
 import { locations, setLocation } from '@/stores/nav';
 import { resetPlanRunsForTests } from '@/stores/plan-runs';
 import { resetSelectionForTests } from '@/stores/selection';
@@ -59,6 +60,7 @@ beforeEach(async () => {
 });
 afterEach(() => {
   resetToolStateForTests();
+  resetFilters();
   resetSelectionForTests();
   resetPlanRunsForTests();
   vi.restoreAllMocks();
@@ -122,6 +124,11 @@ it('sends complete rules, preserves rewrite drafts and gates every current revis
   setRecursive('rename', false);
   expect(renameTool.plan?.params(ctx).ready).toBe(false);
   validate(ctx);
+  setFilter('rename', { ...ctx.filter('source'), ratings: [5], selection_id: 42 });
+  expect(renameTool.plan?.params(ctx).ready).toBe(false);
+  expect(renameParams(ctx)?.source.filter).toMatchObject({ ratings: [5], selection_id: 42 });
+  expect(ctx.filter('comparison').ratings).toEqual([]);
+  validate(ctx);
   validation.value = { ...validation.value, status: 'idle' };
   expect(renameTool.plan?.params(ctx).ready).toBe(false);
 });
@@ -152,6 +159,9 @@ it('offers no replace policy and renders truthful no-op and field issues', () =>
   render(renameTool.controls?.(ctx), host);
   expect(host.textContent).toContain('Bad matcher');
   expect(host.querySelector('apm-pattern-editor')?.requestKey).toBe(previewKey(renameParams(ctx)));
+  const rulesPanel = host.querySelector(':scope > details.dropdown');
+  expect(rulesPanel?.querySelector(':scope > .dropdown-content apm-pattern-editor')).not.toBeNull();
+  expect(rulesPanel?.hasAttribute('open')).toBe(false);
 });
 
 it.each([false, true])(

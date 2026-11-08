@@ -95,7 +95,9 @@ it('sends every rule and renders all server sample outcomes with first-folder an
   expect(el.textContent).toContain('original extension');
   expect(el.textContent).toContain('first/folder');
   expect(el.textContent).toContain('21000');
-  expect(el.textContent).toContain('counters in this sample may be incomplete');
+  expect(el.textContent).toContain(
+    'counter values are approximate and may differ from the full plan',
+  );
   expect(el.textContent).toContain('final conflict-resolved names');
   expect(changes.at(-1)).toMatchObject({ status: 'valid', requestKey: 'revision-1' });
   expect(fetchFormatTokens).not.toHaveBeenCalled();

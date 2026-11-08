@@ -63,6 +63,9 @@ export function renameControls(ctx: ToolContext) {
     );
   const stats = ctx.plan.stats;
   return html`
+    <details class="dropdown min-w-0">
+      <summary class="btn btn-ghost btn-sm">Rename rules${current ? html`<span class="badge badge-error badge-xs">Fix rules</span>` : nothing}</summary>
+      <div class="dropdown-content left-0 z-30 w-96 max-w-[85vw] max-h-[70vh] overflow-auto rounded-box bg-base-100 p-3 shadow-lg flex flex-col gap-2">
     <apm-segmented label="Filename match mode" .value=${matchMode.value}
       .options=${[
         { value: 'all', label: 'All files' },
@@ -79,18 +82,6 @@ export function renameControls(ctx: ToolContext) {
         const next = RENAME_POLICIES.find((entry) => entry === event.detail.value);
         if (next) policy.value = next;
       }}></apm-select>
-    ${
-      ctx.plan.status === 'ready'
-        ? html`<span class="text-xs" role="status">
-      ${
-        (stats.to_rename ?? 0) > 0
-          ? `${fileCount(stats.to_rename ?? 0)} will be renamed`
-          : (stats.matched ?? 0) === 0
-            ? 'No matching files'
-            : stats.already_in_place === stats.matched
-              ? 'No names would change'
-              : 'Nothing eligible to rename'
-      }
       ${[
         'already_in_place',
         'identical_at_destination',
@@ -104,18 +95,9 @@ export function renameControls(ctx: ToolContext) {
           : nothing,
       )}
       ${(stats.renamed_by_policy ?? 0) > 0 ? 'Use {count} for explicit numbering of duplicate names.' : nothing}
-    </span>`
-        : nothing
-    }
-    ${renderPendingNotice(ctx, {
-      code: 'metadata_pending',
-      text: (count) => `${fileCount(count)} waiting for metadata`,
-      title:
-        'These files cannot be renamed until their metadata is known. The plan updates automatically.',
-    })}
-    <details class="dropdown min-w-0">
-      <summary class="btn btn-ghost btn-sm">Match and clean rules${issues('matcher').length + issues('rewrite').length > 0 ? html`<span class="badge badge-error badge-xs">Fix rules</span>` : nothing}</summary>
-      <div class="dropdown-content left-0 z-30 w-80 max-w-[85vw] max-h-80 overflow-auto rounded-box bg-base-100 p-3 shadow-lg flex flex-col gap-2">
+    <details class="min-w-0">
+      <summary class="btn btn-ghost btn-sm">Match and clean rules</summary>
+      <div class="flex flex-col gap-2">
         ${
           matchMode.value !== 'all'
             ? html`${field('Filename match pattern', matchPattern, issues('matcher').length > 0)}
@@ -140,9 +122,9 @@ export function renameControls(ctx: ToolContext) {
         ${messages('rewrite')}
       </div>
     </details>
-    <details class="dropdown min-w-0">
+    <details class="min-w-0">
       <summary class="btn btn-ghost btn-sm">Counter digits: ${countDigits.value === 0 ? 'Exact number' : countDigits.value}</summary>
-      <div class="dropdown-content right-0 z-30 w-72 max-w-[85vw] rounded-box bg-base-100 p-3 shadow-lg">
+      <div class="flex flex-col gap-2">
         <apm-select label="Counter digits" show-label .value=${String(countDigits.value)}
           .options=${Array.from({ length: 10 }, (_, width) => ({
             value: String(width),
@@ -172,5 +154,26 @@ export function renameControls(ctx: ToolContext) {
             };
           }
         }}></apm-pattern-editor>
-    </div>`;
+    </div>
+      </div>
+    </details>
+    ${
+      ctx.plan.status === 'ready'
+        ? html`<span class="text-xs" role="status">${
+            (stats.to_rename ?? 0) > 0
+              ? `${fileCount(stats.to_rename ?? 0)} will be renamed`
+              : (stats.matched ?? 0) === 0
+                ? 'No matching files'
+                : stats.already_in_place === stats.matched
+                  ? 'No names would change'
+                  : 'Nothing eligible to rename'
+          }</span>`
+        : nothing
+    }
+    ${renderPendingNotice(ctx, {
+      code: 'metadata_pending',
+      text: (count) => `${fileCount(count)} waiting for metadata`,
+      title:
+        'These files cannot be renamed until their metadata is known. The plan updates automatically.',
+    })}`;
 }

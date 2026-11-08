@@ -55,7 +55,7 @@ export const renamePreviewAdapter: PatternPreviewAdapter = {
       issues: response.issues,
       appends_filename: false,
       columns: ['Original name', 'Proposed name / outcome', 'Result'],
-      note: `Naming sample from volume ${response.volume_id ?? '—'}/${response.dir || ''}: ${response.samples.length} of ${response.matched} matched files (${response.folder_files} files in this folder). ${response.truncated ? 'Naming cap exceeded; counters in this sample may be incomplete. ' : ''}Other folders are not sampled. The built plan and ghost cards show final conflict-resolved names.`,
+      note: `Naming sample from volume ${response.volume_id ?? '—'}/${response.dir || ''}: ${response.samples.length} of ${response.matched} matched files (${response.folder_files} files in this folder). ${response.truncated ? 'Only 20,000 matching files were named: counter values are approximate and may differ from the full plan. ' : ''}Other folders are not sampled. The built plan and ghost cards show final conflict-resolved names.`,
       samples: response.samples.map((sample) => ({
         source: sample.name,
         destination:
