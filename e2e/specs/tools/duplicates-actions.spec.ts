@@ -209,6 +209,7 @@ test('duplicate deletion can target the source while preserving its comparison c
     done: selection.item_count,
     skipped: 0,
     failed: 0,
+    bytes: selection.total_size,
   });
 });
 
