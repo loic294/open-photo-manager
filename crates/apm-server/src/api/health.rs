@@ -16,10 +16,6 @@ async fn health(State(state): State<AppState>) -> Json<HealthResponse> {
     Json(HealthResponse {
         status: "ok".to_owned(),
         version: env!("CARGO_PKG_VERSION").to_owned(),
-        warnings: crate::hostfs::warnings::for_state(
-            &state.db,
-            &state.volumes,
-            &state.settings.get(),
-        ),
+        warnings: crate::hostfs::warnings::for_state(&state.volumes, &state.settings.get()),
     })
 }

@@ -484,5 +484,6 @@ Smart.
 
 The Linux Docker image also supports Docker Desktop on Windows: probe mounted filesystems at runtime and keep
 unknown capabilities native. `APM_WATCH_MODE=auto|watch|poll` controls global watcher registration; unsafe
-SQLite mounts fall back to the rollback journal. Never loosen identity or durability checks on a normal
-filesystem. Filesystem detection and fallback policy live in `apm_core::mounts` and `apm_server::hostfs`.
+`/data` mounts or failed WAL probes stop startup with guidance to use a local Docker named volume. Never
+loosen identity or durability checks on a normal filesystem. Filesystem detection and WAL policy live in
+`apm_core::mounts` and `apm_server::hostfs`.

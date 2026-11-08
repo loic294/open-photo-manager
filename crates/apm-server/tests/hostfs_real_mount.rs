@@ -99,13 +99,12 @@ async fn observes_real_mount_capabilities_and_file_operations() {
     println!(
         "volume_fs_type={:?} data_fs_type={:?} case_insensitive={:?} inode_reliable={:?} \
          inode_stable={inode_stable} d_ino_matches={d_ino_matches} directory_fsync={directory_sync:?} \
-         case_only_rename_succeeded={case_rename_succeeded} journal_mode={} journal_fallback_reason={:?}",
+         case_only_rename_succeeded={case_rename_succeeded} journal_mode={}",
         capability.fs_type,
         data_fs_type,
         capability.case_insensitive,
         capability.inode_reliable,
-        state.db.journal_mode(),
-        state.db.journal_fallback_reason()
+        state.db.journal_mode()
     );
 
     assert!(capability.case_insensitive.is_some());

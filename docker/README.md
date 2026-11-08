@@ -275,7 +275,9 @@ instead of failing later with a database error.
 On Docker Desktop for Windows with Linux containers, use a Docker named volume for `/data` and omit `user:`.
 Docker Desktop's user mapping does not use the NAS's numeric uid/gid convention. Windows photo folders can be
 bind-mounted under `/volumes`; use the volume details in Settings to see whether watching and case sensitivity
-are available on the mounted filesystem.
+are available on the mounted filesystem. SQLite WAL is required for `/data`: startup stops with an actionable
+error if the data mount is known to be unsafe or the live WAL probe fails. Keep `/data` on a local Docker named
+volume rather than a Windows drive bind mount.
 
 ### Watch policy
 

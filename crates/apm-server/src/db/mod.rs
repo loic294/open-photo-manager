@@ -10,10 +10,9 @@
 //!
 //! # The handle
 //!
-//! [`Db`] holds two pools over one SQLite file, normally WAL-mode `APM_DATA_DIR/apm.db`:
+//! [`Db`] holds two pools over one WAL-mode `APM_DATA_DIR/apm.db`:
 //!
-//! * [`Db::read`]: a few read-only connections (`query_only`). In WAL mode readers do not block
-//!   writers; with the rollback journal, a reader can delay a commit until it releases its snapshot.
+//! * [`Db::read`]: a few read-only connections (`query_only`). Readers do not block writers.
 //! * [`Db::write`] and [`Db::begin_write`]: ONE connection, so writers queue inside the pool and
 //!   SQLite never answers `SQLITE_BUSY`. [`Db::begin_write`] starts `BEGIN IMMEDIATE`, the right
 //!   mode for a transaction that writes (a deferred one can fail when it upgrades its lock).
@@ -33,10 +32,9 @@
 //! * Prefer `STRICT` tables in new migrations, and give every unique index an explicit name.
 //! * A migration that adds a column to `files` must also extend [`models::FileRow`] and
 //!   [`models::FILE_COLUMNS`] (a test fails until it does).
-//! * WAL is preferred and verified. When the data directory is on a known WAL-unsafe mount or the
-//!   live WAL probe fails, startup uses the rollback journal with a longer busy timeout and warns;
-//!   the index remains available, but concurrent reads can delay writes. A Docker named volume is
-//!   recommended for `/data`.
+//! * WAL is required and verified. Startup rejects known WAL-unsafe mounts and any data directory
+//!   where the live WAL probe fails. Use a local Docker named volume for `/data`, not a network or
+//!   host-shared filesystem.
 //! * Statistics come from `ANALYZE`, and the planner picks worse plans for tables that have none.
 //!   Call [`Db::optimize`] after a big batch of changes (the end of a scan or of an import): it only
 //!   analyses a table that has no statistics yet or has grown a lot, so it is cheap. [`Db::close`]
@@ -118,7 +116,6 @@ pub const DB_FILE_NAME: &str = "apm.db";
 pub const READER_MAX_LIFETIME: Duration = Duration::from_secs(10 * 60);
 
 const BUSY_TIMEOUT: Duration = Duration::from_secs(5);
-const ROLLBACK_BUSY_TIMEOUT: Duration = Duration::from_secs(30);
 /// How long [`Db::close`] waits for connections that are still checked out.
 const CLOSE_TIMEOUT: Duration = Duration::from_secs(5);
 /// Where [`Db::open_temp`] creates its directories: inside `target/`, never in `/tmp`.
@@ -131,26 +128,13 @@ pub struct Db {
     reader: SqlitePool,
     writer: SqlitePool,
     journal_mode: &'static str,
-    journal_fallback_reason: Option<String>,
-}
-
-#[derive(Debug, Clone, PartialEq, Eq)]
-pub enum JournalPolicy {
-    Wal,
-    Rollback { reason: String },
 }
 
 impl Db {
     /// Opens (creating it when missing) the database file at `path`, applies the pending migrations
     /// and checks that WAL mode and foreign key enforcement are really on.
     pub async fn open(path: &Path) -> Result<Self, DbError> {
-        Self::open_with(path, JournalPolicy::Wal).await
-    }
-
-    /// Opens with the already-determined SQLite journal policy. Startup probes the target mount;
-    /// ordinary callers and tests continue to request WAL through [`Db::open`].
-    pub async fn open_with(path: &Path, policy: JournalPolicy) -> Result<Self, DbError> {
-        Self::open_recycling_readers_after_with_policy(path, READER_MAX_LIFETIME, policy).await
+        Self::open_with_reader_lifetime(path, READER_MAX_LIFETIME).await
     }
 
     /// [`Db::open`] with another reader lifetime, so that a test need not wait for minutes.
@@ -159,14 +143,12 @@ impl Db {
         path: &Path,
         reader_lifetime: Duration,
     ) -> Result<Self, DbError> {
-        Self::open_recycling_readers_after_with_policy(path, reader_lifetime, JournalPolicy::Wal)
-            .await
+        Self::open_with_reader_lifetime(path, reader_lifetime).await
     }
 
-    async fn open_recycling_readers_after_with_policy(
+    async fn open_with_reader_lifetime(
         path: &Path,
         reader_lifetime: Duration,
-        policy: JournalPolicy,
     ) -> Result<Self, DbError> {
         if let Some(parent) = path
             .parent()
@@ -174,36 +156,17 @@ impl Db {
         {
             tokio::fs::create_dir_all(parent).await?;
         }
-        let journal_mode = match policy {
-            JournalPolicy::Wal => "wal",
-            JournalPolicy::Rollback { .. } => "delete",
-        };
-        let fallback_reason = match &policy {
-            JournalPolicy::Wal => None,
-            JournalPolicy::Rollback { reason } => Some(reason.clone()),
-        };
-        if let Some(reason) = &fallback_reason {
-            tracing::warn!(reason, "SQLite WAL is unavailable; using rollback journal");
-        }
-        let writer = pool_options(1)
-            .connect_with(writer_options(path, journal_mode))
-            .await?;
+        let writer = pool_options(1).connect_with(writer_options(path)).await?;
         // Migrate before any reader exists, so that none ever sees a half-built schema.
         sqlx::migrate!("./migrations").run(&writer).await?;
-        let readers = if journal_mode == "delete" {
-            2
-        } else {
-            reader_connections()
-        };
-        let reader = pool_options(readers)
+        let reader = pool_options(reader_connections())
             .max_lifetime(Some(reader_lifetime))
-            .connect_with(reader_options(path, journal_mode))
+            .connect_with(reader_options(path))
             .await?;
         let db = Self {
             reader,
             writer,
-            journal_mode,
-            journal_fallback_reason: fallback_reason,
+            journal_mode: "wal",
         };
         db.verify(path).await?;
         Ok(db)
@@ -241,25 +204,19 @@ impl Db {
                 )
             })?;
         let fs_type = crate::hostfs::mount_type(&canonical_data_dir);
-        let policy = if crate::hostfs::probe::wal_unsafe(fs_type.as_deref()) {
-            journal_policy(fs_type.as_deref(), Ok(()))
-        } else {
-            let probe_result = probe_wal(&canonical_data_dir).await.map_err(|error| {
-                tracing::warn!(error = %error, "SQLite WAL probe failed");
-                "the SQLite WAL probe failed".to_owned()
-            });
-            journal_policy(fs_type.as_deref(), probe_result)
-        };
+        if let Some(reason) = wal_unsafe_error(fs_type.as_deref()) {
+            bail!("{reason}");
+        }
+        probe_wal(&canonical_data_dir)
+            .await
+            .with_context(|| wal_probe_error(fs_type.as_deref()))?;
         tracing::info!(
             fs_type = fs_type.as_deref().unwrap_or("unknown"),
-            journal_policy = match policy {
-                JournalPolicy::Wal => "wal",
-                JournalPolicy::Rollback { .. } => "rollback",
-            },
-            "data directory capabilities detected"
+            journal_mode = "wal",
+            "data directory WAL support verified"
         );
         let path = config.data_dir.join(DB_FILE_NAME);
-        let db = Self::open_with(&path, policy)
+        let db = Self::open(&path)
             .await
             .with_context(|| format!("cannot open the database {}", path.display()))?;
         let (volumes, capabilities) =
@@ -293,10 +250,6 @@ impl Db {
 
     pub fn journal_mode(&self) -> &'static str {
         self.journal_mode
-    }
-
-    pub fn journal_fallback_reason(&self) -> Option<&str> {
-        self.journal_fallback_reason.as_deref()
     }
 
     /// Starts a write transaction (`BEGIN IMMEDIATE`) on the writer connection; it is rolled back
@@ -367,25 +320,24 @@ impl Db {
     }
 }
 
-fn rollback_reason(fs_type: Option<&str>, cause: &str) -> String {
-    format!(
-        "SQLite is using the rollback journal{} because {cause}; the app works but is slower. Use a Docker named volume for /data to avoid this.",
-        fs_type.map_or_else(String::new, |fs| format!(" on filesystem type {fs}")),
-    )
+fn wal_unsafe_error(fs_type: Option<&str>) -> Option<String> {
+    fs_type
+        .filter(|fs_type| crate::hostfs::probe::wal_unsafe(Some(*fs_type)))
+        .map(|fs_type| {
+            format!(
+                "APM_DATA_DIR is on filesystem type {fs_type}, which does not safely support SQLite WAL; use a local Docker named volume for /data or another local filesystem"
+            )
+        })
 }
 
-fn journal_policy(fs_type: Option<&str>, wal_probe: Result<(), String>) -> JournalPolicy {
-    if crate::hostfs::probe::wal_unsafe(fs_type) {
-        return JournalPolicy::Rollback {
-            reason: rollback_reason(fs_type, "the mount type is not WAL-safe"),
-        };
-    }
-    match wal_probe {
-        Ok(()) => JournalPolicy::Wal,
-        Err(_) => JournalPolicy::Rollback {
-            reason: rollback_reason(fs_type, "the SQLite WAL probe failed"),
-        },
-    }
+fn wal_probe_error(fs_type: Option<&str>) -> String {
+    let filesystem = fs_type.map_or_else(
+        || "an unknown filesystem type".to_owned(),
+        |fs_type| format!("filesystem type {fs_type}"),
+    );
+    format!(
+        "SQLite WAL could not be verified for APM_DATA_DIR on {filesystem}; use a local Docker named volume for /data or another local filesystem"
+    )
 }
 
 async fn probe_wal(data_dir: &Path) -> anyhow::Result<()> {
@@ -401,7 +353,7 @@ async fn probe_wal(data_dir: &Path) -> anyhow::Result<()> {
         .create_if_missing(true)
         .journal_mode(SqliteJournalMode::Wal)
         .synchronous(SqliteSynchronous::Full)
-        .busy_timeout(ROLLBACK_BUSY_TIMEOUT);
+        .busy_timeout(BUSY_TIMEOUT);
     let mut writer = SqliteConnection::connect_with(&options).await?;
     let mode: String = sqlx::query_scalar("PRAGMA journal_mode")
         .fetch_one(&mut writer)
@@ -507,47 +459,29 @@ fn pool_options(max_connections: u32) -> SqlitePoolOptions {
         .max_lifetime(None)
 }
 
-fn base_options(path: &Path, journal_mode: &str) -> SqliteConnectOptions {
-    let (journal, synchronous, timeout) = if journal_mode == "wal" {
-        (
-            SqliteJournalMode::Wal,
-            SqliteSynchronous::Normal,
-            BUSY_TIMEOUT,
-        )
-    } else {
-        (
-            SqliteJournalMode::Delete,
-            SqliteSynchronous::Full,
-            ROLLBACK_BUSY_TIMEOUT,
-        )
-    };
+fn base_options(path: &Path) -> SqliteConnectOptions {
     SqliteConnectOptions::new()
         .filename(path)
-        .journal_mode(journal)
-        .synchronous(synchronous)
+        .journal_mode(SqliteJournalMode::Wal)
+        .synchronous(SqliteSynchronous::Normal)
         .foreign_keys(true)
-        .busy_timeout(timeout)
+        .busy_timeout(BUSY_TIMEOUT)
         // Sorts spill to memory: the image may run with a read-only root file system.
         .pragma("temp_store", "MEMORY")
 }
 
-fn writer_options(path: &Path, journal_mode: &str) -> SqliteConnectOptions {
-    let options = base_options(path, journal_mode)
+fn writer_options(path: &Path) -> SqliteConnectOptions {
+    base_options(path)
         .create_if_missing(true)
         .pragma("cache_size", "-16384")
         // `ANALYZE` and `PRAGMA optimize` sample instead of reading every row.
-        .analysis_limit(1000);
-    if journal_mode == "wal" {
-        options
-            .pragma("wal_autocheckpoint", "1000")
-            .pragma("journal_size_limit", "67108864")
-    } else {
-        options
-    }
+        .analysis_limit(1000)
+        .pragma("wal_autocheckpoint", "1000")
+        .pragma("journal_size_limit", "67108864")
 }
 
-fn reader_options(path: &Path, journal_mode: &str) -> SqliteConnectOptions {
-    base_options(path, journal_mode)
+fn reader_options(path: &Path) -> SqliteConnectOptions {
+    base_options(path)
         .pragma("cache_size", "-8192")
         // Applied last (custom pragmas keep their order): nothing may write through a reader.
         .pragma("query_only", "ON")

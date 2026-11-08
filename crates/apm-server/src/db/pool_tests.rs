@@ -68,95 +68,21 @@ async fn opens_in_wal_mode_with_the_documented_pragmas() {
 }
 
 #[test]
-fn journal_policy_uses_injected_mountinfo_and_falls_back_when_the_probe_fails() {
+fn rejects_an_injected_wal_unsafe_mount_with_local_volume_guidance() {
     let mount = apm_core::mounts::parse_mountinfo(b"42 31 0:42 / /data rw - 9p C:\\134 rw");
     let fs_type =
         apm_core::mounts::lookup(&mount, b"/data/apm.db").map(|entry| entry.fs_type.as_str());
-    let unsafe_mount = journal_policy(fs_type, Ok(()));
-    assert!(matches!(unsafe_mount, JournalPolicy::Rollback { .. }));
-
-    let failed_probe = journal_policy(Some("virtiofs"), Err("probe error".to_owned()));
-    assert!(matches!(
-        failed_probe,
-        JournalPolicy::Rollback { ref reason }
-            if reason.contains("virtiofs") && reason.contains("WAL probe failed")
-    ));
-    assert_eq!(journal_policy(None, Ok(())), JournalPolicy::Wal);
+    let error = wal_unsafe_error(fs_type).unwrap();
+    assert!(error.contains("filesystem type 9p"));
+    assert!(error.contains("local Docker named volume for /data"));
+    assert!(wal_unsafe_error(Some("ext4")).is_none());
 }
 
-#[tokio::test]
-async fn rollback_journal_and_wal_reopen_the_same_database_with_migrations() {
-    let temp = Db::open_temp().await.unwrap();
-    let path = temp.dir().join("journal-policy.db");
-    let fallback = "WAL probe failed on 9p".to_owned();
-
-    let rollback = Db::open_with(
-        &path,
-        JournalPolicy::Rollback {
-            reason: fallback.clone(),
-        },
-    )
-    .await
-    .unwrap();
-    assert_eq!(rollback.journal_mode(), "delete");
-    assert_eq!(rollback.journal_fallback_reason(), Some(fallback.as_str()));
-    assert_eq!(pragma(rollback.write(), "synchronous").await, 2, "FULL");
-    sqlx::query("INSERT INTO settings (key, value, updated_at) VALUES ('policy', '{}', 0)")
-        .execute(rollback.write())
-        .await
-        .unwrap();
-    assert_eq!(count(&rollback, "settings").await, 1);
-    rollback.close().await;
-
-    let wal = Db::open(&path).await.unwrap();
-    assert_eq!(wal.journal_mode(), "wal");
-    let value: String = sqlx::query_scalar("SELECT value FROM settings WHERE key = 'policy'")
-        .fetch_one(wal.read())
-        .await
-        .unwrap();
-    assert_eq!(value, "{}");
-    wal.close().await;
-
-    let rollback = Db::open_with(
-        &path,
-        JournalPolicy::Rollback {
-            reason: "the mount is known WAL-unsafe".to_owned(),
-        },
-    )
-    .await
-    .unwrap();
-    assert_eq!(rollback.journal_mode(), "delete");
-    assert_eq!(count(&rollback, "settings").await, 1);
-    rollback.close().await;
-}
-
-#[tokio::test]
-async fn rollback_journal_serializes_fixture_scale_readers_and_writes() {
-    let temp = Db::open_temp().await.unwrap();
-    let db = Db::open_with(
-        &temp.dir().join("rollback-concurrency.db"),
-        JournalPolicy::Rollback {
-            reason: "test policy".to_owned(),
-        },
-    )
-    .await
-    .unwrap();
-    let mut reader = db.read().begin().await.unwrap();
-    let _: i64 = sqlx::query_scalar("SELECT COUNT(*) FROM settings")
-        .fetch_one(&mut *reader)
-        .await
-        .unwrap();
-    let writer = db.clone();
-    let write = tokio::spawn(async move {
-        sqlx::query("INSERT INTO settings (key, value, updated_at) VALUES ('concurrent', '{}', 0)")
-            .execute(writer.write())
-            .await
-    });
-    tokio::time::sleep(Duration::from_millis(50)).await;
-    reader.commit().await.unwrap();
-    write.await.unwrap().unwrap();
-    assert_eq!(count(&db, "settings").await, 1);
-    db.close().await;
+#[test]
+fn failed_wal_probe_recommends_a_local_data_volume() {
+    let error = wal_probe_error(Some("virtiofs"));
+    assert!(error.contains("filesystem type virtiofs"));
+    assert!(error.contains("local Docker named volume for /data"));
 }
 
 #[tokio::test]

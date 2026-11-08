@@ -3,19 +3,17 @@
 use apm_core::dto::HostWarning;
 use apm_core::dto::SettingsDto;
 
-use crate::db::Db;
 use crate::indexer::VolumeRegistry;
 
 #[derive(Debug, Default)]
 pub struct WarningInputs {
-    pub journal_fallback_reason: Option<String>,
     pub polling_volumes: Vec<String>,
     pub unreliable_inode_volumes: Vec<String>,
     pub rescan_interval_minutes: u32,
     pub watch_enabled: bool,
 }
 
-pub fn for_state(db: &Db, volumes: &VolumeRegistry, settings: &SettingsDto) -> Vec<HostWarning> {
+pub fn for_state(volumes: &VolumeRegistry, settings: &SettingsDto) -> Vec<HostWarning> {
     let polling_volumes = if settings.index.watch_enabled {
         volumes
             .online()
@@ -39,7 +37,6 @@ pub fn for_state(db: &Db, volumes: &VolumeRegistry, settings: &SettingsDto) -> V
         })
         .collect();
     build(WarningInputs {
-        journal_fallback_reason: db.journal_fallback_reason().map(str::to_owned),
         polling_volumes,
         unreliable_inode_volumes,
         rescan_interval_minutes: settings.index.rescan_interval_minutes,
@@ -49,12 +46,6 @@ pub fn for_state(db: &Db, volumes: &VolumeRegistry, settings: &SettingsDto) -> V
 
 pub fn build(mut input: WarningInputs) -> Vec<HostWarning> {
     let mut warnings = Vec::new();
-    if let Some(reason) = input.journal_fallback_reason.take() {
-        warnings.push(HostWarning {
-            code: "database_rollback_journal".to_owned(),
-            message: reason,
-        });
-    }
     if input.watch_enabled {
         input.polling_volumes.sort();
         input.polling_volumes.dedup();
@@ -96,9 +87,6 @@ mod tests {
     #[test]
     fn warning_builder_is_deterministic_and_obeys_disabled_watch_and_zero_interval() {
         let warnings = build(WarningInputs {
-            journal_fallback_reason: Some(
-                "SQLite is using the rollback journal on filesystem type 9p because WAL is unsafe; the app works but is slower. Use a Docker named volume for /data to avoid this.".to_owned(),
-            ),
             polling_volumes: vec!["zeta".into(), "photos".into(), "photos".into()],
             unreliable_inode_volumes: vec!["zeta".into()],
             rescan_interval_minutes: 0,
@@ -109,18 +97,11 @@ mod tests {
                 .iter()
                 .map(|warning| warning.code.as_str())
                 .collect::<Vec<_>>(),
-            [
-                "database_rollback_journal",
-                "unreliable_volume_inodes",
-                "volumes_polling_only",
-            ]
+            ["unreliable_volume_inodes", "volumes_polling_only"]
         );
-        assert!(warnings[0].message.contains("9p"));
-        assert!(warnings[0].message.contains("slower"));
-        assert!(warnings[0].message.contains("named volume"));
-        assert!(warnings[2].message.contains("photos, zeta"));
-        assert!(warnings[2].message.contains("automatic rescans are off"));
-        assert!(warnings[2].message.contains("Re-index"));
+        assert!(warnings[1].message.contains("photos, zeta"));
+        assert!(warnings[1].message.contains("automatic rescans are off"));
+        assert!(warnings[1].message.contains("Re-index"));
 
         let disabled = build(WarningInputs {
             polling_volumes: vec!["photos".into()],

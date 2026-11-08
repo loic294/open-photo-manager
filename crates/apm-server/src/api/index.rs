@@ -38,7 +38,6 @@ async fn rescan(
 async fn status(State(state): State<AppState>) -> AppResult<Json<IndexStatusDto>> {
     let mut status = state.index_jobs.status().await?;
     status.watcher = Some(state.watcher.status());
-    status.warnings =
-        crate::hostfs::warnings::for_state(&state.db, &state.volumes, &state.settings.get());
+    status.warnings = crate::hostfs::warnings::for_state(&state.volumes, &state.settings.get());
     Ok(Json(status))
 }
