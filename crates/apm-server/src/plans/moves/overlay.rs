@@ -36,32 +36,65 @@ fn predicate(qb: &mut QueryBuilder<Sqlite>, plan: PlanId, view: &GhostView, recu
         qb.push("m.dst_dir = ")
             .push_bind(view.dir.as_str().to_owned());
     }
+
+    #[cfg(test)]
+    mod tests {
+        use super::*;
+        use sqlx::Execute;
+
+        #[tokio::test]
+        async fn name_page_and_exact_count_use_the_destination_index_without_a_temp_sort() {
+            let temp = Db::open_temp().await.unwrap();
+            let view = GhostView {
+                volume_id: 1,
+                dir: RelPath::new("out").unwrap(),
+                filter: Default::default(),
+                sort: SortKey::Name,
+                order: SortOrder::Asc,
+            };
+            let filter = filter(&view).unwrap();
+            for mut statement in [
+                count_statement(1, &view, &filter),
+                page_statement(1, &view, &filter, Window { skip: 0, take: 200 }),
+            ] {
+                let mut built = statement.build();
+                let arguments = built.take_arguments().unwrap().unwrap_or_default();
+                let sql = format!("EXPLAIN QUERY PLAN {}", built.sql().as_str());
+                let rows: Vec<(i64, i64, i64, String)> =
+                    sqlx::query_as_with(sqlx::AssertSqlSafe(sql), arguments)
+                        .fetch_all(temp.read())
+                        .await
+                        .unwrap();
+                let details: Vec<_> = rows.into_iter().map(|(_, _, _, detail)| detail).collect();
+                assert!(
+                    details.iter().any(|d| d.contains("move_items_destination")),
+                    "{details:?}"
+                );
+                assert!(
+                    !details.iter().any(|d| d.contains("TEMP B-TREE")),
+                    "{details:?}"
+                );
+            }
+        }
+    }
 }
 
-pub(super) async fn items(
-    db: &Db,
-    plan: PlanId,
-    side: PlanSide,
-    view: &GhostView,
-    window: Window,
-) -> Result<GhostPage, PlanError> {
-    if side == PlanSide::Source {
-        return Ok(GhostPage::default());
-    }
-    let filter = filter(view)?;
+fn count_statement(plan: PlanId, view: &GhostView, filter: &FileQuery) -> QueryBuilder<Sqlite> {
     let mut qb = QueryBuilder::<Sqlite>::new(
         "SELECT COUNT(*) FROM move_items m JOIN files f ON f.id = m.file_id WHERE ",
     );
     predicate(&mut qb, plan, view, false);
     qb.push(" AND ");
     filter.push_where(&mut qb, "f");
-    let total = qb.build_query_scalar().fetch_one(db.read()).await?;
-    if window.take == 0 {
-        return Ok(GhostPage {
-            total,
-            items: Vec::new(),
-        });
-    }
+    qb
+}
+
+fn page_statement(
+    plan: PlanId,
+    view: &GhostView,
+    filter: &FileQuery,
+    window: Window,
+) -> QueryBuilder<Sqlite> {
     let mut qb = QueryBuilder::<Sqlite>::new(format!(
         "SELECT {}, m.dst_volume_id, m.dst_dir, m.dst_name FROM move_items m JOIN files f ON f.id = m.file_id {ITEM_JOINS} WHERE ",
         item_columns("f")
@@ -91,6 +124,31 @@ pub(super) async fn items(
         .push_bind(window.take.max(0))
         .push(" OFFSET ")
         .push_bind(window.skip.max(0));
+    qb
+}
+
+pub(super) async fn items(
+    db: &Db,
+    plan: PlanId,
+    side: PlanSide,
+    view: &GhostView,
+    window: Window,
+) -> Result<GhostPage, PlanError> {
+    if side == PlanSide::Source {
+        return Ok(GhostPage::default());
+    }
+    let filter = filter(view)?;
+    let total = count_statement(plan, view, &filter)
+        .build_query_scalar()
+        .fetch_one(db.read())
+        .await?;
+    if window.take == 0 {
+        return Ok(GhostPage {
+            total,
+            items: Vec::new(),
+        });
+    }
+    let mut qb = page_statement(plan, view, &filter, window);
     let mut items = Vec::new();
     for row in qb.build().fetch_all(db.read()).await? {
         let mut item = item_from_row(&row)?;
