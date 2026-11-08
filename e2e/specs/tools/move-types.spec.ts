@@ -1,6 +1,7 @@
 import type { PlanDto } from '../../../web/src/api/generated/PlanDto';
 import type { SelectionDto } from '../../../web/src/api/generated/SelectionDto';
 import { formatFileSize } from '../../../web/src/util/format';
+import { ApiFailure } from '../../src/api';
 import { diffTrees, snapshotTree } from '../../src/disk';
 import { expect, test } from '../../src/test';
 import { expectedDestination } from '../../src/tool-oracles';
@@ -24,7 +25,8 @@ async function waitForTask(app: import('../../src/app-instance').AppInstance, id
 }
 
 for (const { value, label } of moveTypes) {
-  test(`@smoke asset move executes ${label} as previewed`, async ({
+  const smoke = value === 'keep_source' ? '@smoke ' : '';
+  test(`${smoke}asset move executes ${label} as previewed`, async ({
     app,
     page,
     manifest,
@@ -73,10 +75,18 @@ for (const { value, label } of moveTypes) {
     await expect(source.card(fileName).isSelected()).resolves.toBe(true);
 
     const destinationFolders = destination.split('/').slice(0, -1);
-    for (const folder of destinationFolders) await movePage.openDestinationFolder(folder);
-    const ghost = movePage.destinationCard(fileName);
-    await expect(ghost.element).toBeVisible();
-    await expect(ghost.isGhost()).resolves.toBe(true);
+    if (value === 'custom') {
+      const firstFolder = destinationFolders[0];
+      if (!firstFolder) throw new Error('Expected a custom destination folder');
+      await expect
+        .poll(() => movePage.destinationFolder(firstFolder).getAttribute('class'))
+        .toContain('border-dashed');
+    } else {
+      for (const folder of destinationFolders) await movePage.openDestinationFolder(folder);
+      const ghost = movePage.destinationCard(fileName);
+      await expect(ghost.element).toBeVisible();
+      await expect(ghost.isGhost()).resolves.toBe(true);
+    }
     const before = await snapshotTree(app.volumesDir, { hash: true });
 
     const selectionResponse = page.waitForResponse(isResponse(/^\/api\/plans\/\d+\/selection$/));
@@ -105,6 +115,24 @@ for (const { value, label } of moveTypes) {
     const planId = Number(new URL(executed.url()).pathname.split('/')[3]);
     const result = (await app.api.request<PlanDto>('GET', `/api/plans/${planId}`)).result;
     expect(result).toMatchObject({ done: 1, skipped: 0, failed: 0, bytes: file.size });
+    if (value === 'custom') {
+      const directory = destinationFolders.join('/');
+      await expect
+        .poll(async () => {
+          try {
+            return (await app.api.listing('archive', directory)).items.some(
+              (item) => item.name === fileName,
+            );
+          } catch (error) {
+            if (error instanceof ApiFailure && error.status === 404) return false;
+            throw error;
+          }
+        })
+        .toBe(true);
+      for (const folder of destinationFolders) await movePage.openDestinationFolder(folder);
+      await expect(movePage.destinationCard(fileName).element).toBeVisible();
+      await expect(movePage.destinationCard(fileName).isGhost()).resolves.toBe(false);
+    }
     await expect
       .poll(() => app.api.listing('photos', 'dupes/m1'))
       .toMatchObject({

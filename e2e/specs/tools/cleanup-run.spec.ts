@@ -6,7 +6,7 @@ import { expectedEmptyDirs } from '../../src/tool-oracles';
 // Navigating to the Trash page closes the server-sent events connection.
 test.use({ allowedErrors: [/^requestfailed: .*\/api\/events net::ERR_ABORTED$/] });
 
-test('@smoke cleanup removes confirmed empty folders and trashes their junk', async ({
+test('cleanup removes confirmed empty folders and trashes their junk', async ({
   app,
   page,
   manifest,

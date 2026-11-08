@@ -32,7 +32,8 @@ async function matchedNames(pane: import('../../src/pages/pane').PanePage) {
 }
 
 for (const { label, mode, number } of modes) {
-  test(`@smoke duplicate preview: ${label}`, async ({
+  const smoke = mode === 'hash' ? '@smoke ' : '';
+  test(`${smoke}duplicate preview: ${label}`, async ({
     app,
     page,
     manifest,

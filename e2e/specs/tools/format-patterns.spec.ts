@@ -15,7 +15,8 @@ function isResponse(path: RegExp) {
 }
 
 for (const { scenario, date } of dateFixtures) {
-  test(`@smoke format pattern uses the expected date for ${scenario}`, async ({
+  const smoke = scenario === 'exif.full_nikon' ? '@smoke ' : '';
+  test(`${smoke}format pattern uses the expected date for ${scenario}`, async ({
     app,
     page,
     manifest,

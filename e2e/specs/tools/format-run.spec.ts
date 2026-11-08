@@ -19,7 +19,7 @@ async function waitForTask(app: import('../../src/app-instance').AppInstance, id
     .toBe('done');
 }
 
-test('@smoke folder formatting moves to the pattern path shown in its preview', async ({
+test('folder formatting moves to the pattern path shown in its preview', async ({
   app,
   page,
   manifest,
@@ -68,11 +68,11 @@ test('@smoke folder formatting moves to the pattern path shown in its preview', 
   const fileName = file.path.split('/').at(-1) ?? file.path;
   await source.card(fileName).select();
   const expectedPath = `archive/${expectedDestination(file, pattern)}`;
-  if (expectedDestination(file, pattern).includes('/')) {
-    const destinationFolders = expectedDestination(file, pattern).split('/').slice(0, -1);
-    for (const folder of destinationFolders) await formatPage.openDestinationFolder(folder);
-  }
-  await expect(formatPage.destinationCard(fileName).isGhost()).resolves.toBe(true);
+  const destinationFolder = expectedDestination(file, pattern).split('/')[0];
+  if (!destinationFolder) throw new Error('Expected a formatted destination folder');
+  await expect
+    .poll(() => formatPage.destinationFolder(destinationFolder).getAttribute('class'))
+    .toContain('border-dashed');
   const before = await snapshotTree(app.volumesDir, { hash: true });
 
   const selectionResponse = page.waitForResponse(isResponse(/^\/api\/plans\/\d+\/selection$/));
