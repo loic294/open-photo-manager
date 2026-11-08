@@ -1,7 +1,7 @@
 # Browse, organize and recover files
 
 For a library owner reviewing media, planning changes and recovering deleted files.
-The four tools operate on the index and show a plan before a confirmed file operation starts.
+The five tools operate on the index and show a plan before a confirmed file operation starts.
 
 ## Tour the screen
 
@@ -107,6 +107,71 @@ The four tools operate on the index and show a plan before a confirmed file oper
    confirmation. It does not remove folders that become empty.
 
    You should see: a confirmation with the number of files and destination pattern.
+
+## Batch rename
+
+1. Open **Batch rename**. The source follows the current folder and uses its filters; turn on
+   recursive scope to include subfolders. **Filename match mode** can include **All files**, **Glob**
+   or **Regular expression**. Glob matches the whole filename (`*`, `?`, `[abc]`); regular expressions
+   use Rust syntax and search anywhere unless anchored with `^` and `$`. Matching ignores case by
+   default when a matcher pattern is used.
+
+   You should see: matching source files are marked, while the comparison pane shows the current
+   files and non-selectable new-name ghosts. Folder rows and counts remain real because files stay
+   in their current folders.
+
+2. **Clean numbered copies** optionally removes recognized copy suffixes from the stem, including
+   `(1)`, `-1`, `-1-1` and common `copy` suffixes; extensions are left alone. **Enable regex rewrite**
+   applies a find/replace expression to the cleaned stem. Rewrites replace all non-overlapping
+   matches; use `$1` or `${name}` for captures and `$$` for a literal dollar. Both cleaning and
+   rewriting are off by default. A single-digit tail such as `2024-12-5` can be removed by Clean;
+   `_1` is not cleaned.
+
+   You should see: the new stem in the live sample. The sample covers only the first matching
+   folder and is not a prediction of final conflicts; when truncated, counter values are approximate.
+
+3. Edit **Name pattern** to build the new filename from the
+   [rename token catalogue](#rename-pattern-tokens). `{count}` restarts at 1 for each folder and
+   name group; **Counter digits** uses **Exact number** for an unpadded counter, or 1–9 for that
+   minimum zero-padded width. Width never truncates. RAW/JPEG pairs normally share a count; a pattern
+   that varies between them, such as one using `{ext}`, can put them in separate groups. Without
+   `{ext}` or `{filename}`, the original extension is appended, and the extension cannot be changed.
+   Files needing metadata are not renamed until indexing has supplied it.
+
+   You should see: names in the sample and the comparison ghosts update after a successful preview.
+   The plan still uses full-scope conflicts and can differ from a sample limited to one folder.
+
+4. Choose **Smart**, **Skip** or **Rename** for name conflicts, then review the plan and confirm with
+   **Rename files**. Replace is not available: batch rename never trashes another file. Files retain
+   their directory and extension; sidecars follow the renamed asset. A name freed elsewhere in the
+   same batch is not reused.
+
+   You should see: a confirmation before any rename starts, then a background task and result.
+
+## Rename pattern tokens
+
+The rename name-pattern dialect supports the tokens below. The `{count}` token is rename-only; it is
+not accepted by **Folder formatting**. The examples use the generated sample file.
+
+<!-- rename-tokens:start -->
+| Group | Token | Meaning | Sample value |
+|---|---|---|---|
+| Date | `{YYYY}` | Year, 4 digits | `2026` |
+| Date | `{YY}` | Year, last 2 digits | `26` |
+| Date | `{mm}`, `{MM}` | Month number, 2 digits | `10` |
+| Date | `{MMM}` | Month name, abbreviated (English) | `Oct` |
+| Date | `{MMMM}` | Month name, in full (English) | `October` |
+| Date | `{dd}` | Day of the month, 2 digits | `05` |
+| Date | `{HH}` | Hour on the 24-hour clock, 2 digits | `14` |
+| Date | `{min}` | Minute, 2 digits | `07` |
+| Date | `{sec}` | Second, 2 digits | `09` |
+| File | `{filename}` | Original file name, with its extension | `IMG_0042.CR3` |
+| File | `{name}` | Original file name, without its extension | `IMG_0042` |
+| File | `{ext}` | File extension without the dot, in its original case | `CR3` |
+| File | `{count}` | Folder-local sequence number for files with the same rendered stem | `IMG_0042_1.CR3` |
+| Other | `{camera}` | Camera make and model, or a placeholder when unknown | `Canon EOS R5` |
+| Other | `{folder}` | Name of the folder the file is in now | `Holiday` |
+<!-- rename-tokens:end -->
 
 ## Empty folder cleanup
 
