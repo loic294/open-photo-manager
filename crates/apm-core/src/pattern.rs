@@ -416,7 +416,7 @@ pub fn examples() -> Vec<PatternExample> {
 }
 
 /// The file behind the catalogue examples.
-fn sample_context() -> FileContext {
+pub fn sample_context() -> FileContext {
     FileContext {
         file_name: "IMG_0042.CR3".to_owned(),
         captured: NaiveDate::from_ymd_opt(2026, 10, 5)

@@ -378,3 +378,30 @@ submits ONE `ImmichCleanup` task on the `immich` lane once file operations were 
   serves (about 9 KiB each), so long runs through the fake grow the test process.
 - Operating it: on-demand library scans need an administrator account (otherwise Immich's own
   schedule), and Immich must exclude `**/.apm-trash/**` from its libraries.
+
+## Move plans
+
+`plans/moves/` owns destinations, conflicts, ghosts, execution and formatting samples. Reuse
+`destination_for` for every destination calculation. `MoveParams` uses `SideParams` for source,
+`FolderRef` for destination, `move_type` (`keep_source`, `keep_destination`, `flat`, `custom`),
+custom-only `pattern`, build-time `conflict_policy`, and keep-destination-only matching options.
+Execute options are `{}`; `only` restricts owners, not their required sidecars.
+- Statuses: `move`, `already_in_place`, `identical_at_destination`, `skipped_by_policy`,
+  `metadata_pending`, `pattern_failed`, `reserved_destination`.
+- Stats: `candidates`, `to_move`, `bytes_to_move`, `already_in_place`, `identical_at_destination`,
+  `skipped_by_policy`, `metadata_pending`, `renamed`, `replaced`, `cross_volume_items`,
+  `cross_volume_bytes`, `new_folders`, `destination_folders`; per-file refusals also carry their status count.
+- Warnings: `renames`, `replaces_existing`, `cross_volume`, `metadata_pending`, `date_from_file_time`,
+  `ambiguous_counterpart`, `no_counterpart`, `unhashed_files`, `hash_unknown`, `pattern_failed`,
+  `reserved_destination`. Smart hashing has a shared 1 GiB / 20 s build budget.
+- Execution safety skips: `file_gone`, `stale_plan`, `stale_match`, `metadata_pending`, the three
+  non-move conflict statuses, and `sidecar_conflict`. Operation failures use `FsOpError::code()`.
+- Sidecar rule S: exact/single-owner sidecars move; shared sidecars copy with the first successful
+  owner of each derived destination path, and the final carrier moves only when every owner left.
+  Same-path copies are deduplicated by FsOps. If the final move is `AlreadyPresent`, retain the
+  original and report bounded `PlanResult.note` with `shared_sidecar_retained` and its path:
+  assets moved with metadata, while the original metadata copy remains. This preserves recovery
+  across failure, cancellation and restart without a deferred in-memory repair.
+- `POST /api/format/preview` samples the index (default 5, maximum 20); invalid patterns return
+  HTTP 200 with `PatternIssue` byte spans and full-span replacement suggestions. Malformed requests
+  return 400. `GET /api/format/tokens` exposes bare token names/aliases and core-rendered examples.

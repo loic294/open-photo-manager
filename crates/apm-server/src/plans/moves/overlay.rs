@@ -1,0 +1,239 @@
+use std::collections::{HashMap, HashSet};
+
+use apm_core::dto::{FolderEntry, Overlay, PlanSide, SortKey, SortOrder};
+use apm_core::names::normalize_name;
+use apm_core::paths::{FileId, PlanId, RelPath};
+use sqlx::{QueryBuilder, Row, Sqlite};
+
+use crate::db::{Db, subtree::Subtree};
+use crate::plans::PlanError;
+use crate::plans::overlay::{FolderOverlay, FolderPlanInfo, GhostPage, GhostView, Window};
+use crate::query::{
+    FileQuery, ITEM_JOINS, KindFilter, QueryScope, item_columns, item_from_row, push_child_segment,
+};
+
+fn filter(view: &GhostView) -> Result<FileQuery, PlanError> {
+    Ok(FileQuery::new(
+        QueryScope {
+            volume_id: None,
+            dir: RelPath::root(),
+            recursive: true,
+        },
+        &view.filter,
+    )?
+    .kinds(KindFilter::All))
+}
+
+fn predicate(qb: &mut QueryBuilder<Sqlite>, plan: PlanId, view: &GhostView, recursive: bool) {
+    qb.push("m.plan_id = ")
+        .push_bind(plan)
+        .push(" AND m.status = 'move' AND m.dst_volume_id = ")
+        .push_bind(view.volume_id)
+        .push(" AND ");
+    if recursive {
+        Subtree::new(&view.dir).push_predicate(qb, "m.dst_dir");
+    } else {
+        qb.push("m.dst_dir = ")
+            .push_bind(view.dir.as_str().to_owned());
+    }
+}
+
+pub(super) async fn items(
+    db: &Db,
+    plan: PlanId,
+    side: PlanSide,
+    view: &GhostView,
+    window: Window,
+) -> Result<GhostPage, PlanError> {
+    if side == PlanSide::Source {
+        return Ok(GhostPage::default());
+    }
+    let filter = filter(view)?;
+    let mut qb = QueryBuilder::<Sqlite>::new(
+        "SELECT COUNT(*) FROM move_items m JOIN files f ON f.id = m.file_id WHERE ",
+    );
+    predicate(&mut qb, plan, view, false);
+    qb.push(" AND ");
+    filter.push_where(&mut qb, "f");
+    let total = qb.build_query_scalar().fetch_one(db.read()).await?;
+    if window.take == 0 {
+        return Ok(GhostPage {
+            total,
+            items: Vec::new(),
+        });
+    }
+    let mut qb = QueryBuilder::<Sqlite>::new(format!(
+        "SELECT {}, m.dst_volume_id, m.dst_dir, m.dst_name FROM move_items m JOIN files f ON f.id = m.file_id {ITEM_JOINS} WHERE ",
+        item_columns("f")
+    ));
+    predicate(&mut qb, plan, view, false);
+    qb.push(" AND ");
+    filter.push_where(&mut qb, "f");
+    let direction = if view.order == SortOrder::Asc {
+        " ASC"
+    } else {
+        " DESC"
+    };
+    qb.push(" ORDER BY ")
+        .push(match view.sort {
+            SortKey::Name => "m.dst_name_norm",
+            SortKey::Date => "f.capture_ts",
+            SortKey::Size => "f.size",
+        })
+        .push(direction);
+    if view.sort == SortKey::Date {
+        qb.push(" NULLS LAST");
+    }
+    if view.sort != SortKey::Name {
+        qb.push(", m.dst_name_norm ASC");
+    }
+    qb.push(", f.id ASC LIMIT ")
+        .push_bind(window.take.max(0))
+        .push(" OFFSET ")
+        .push_bind(window.skip.max(0));
+    let mut items = Vec::new();
+    for row in qb.build().fetch_all(db.read()).await? {
+        let mut item = item_from_row(&row)?;
+        item.volume_id = row.try_get("dst_volume_id")?;
+        item.dir = row.try_get("dst_dir")?;
+        item.name = row.try_get("dst_name")?;
+        item.in_immich = false;
+        item.overlay.planned = true;
+        items.push(item);
+    }
+    Ok(GhostPage { total, items })
+}
+
+pub(super) async fn flags(
+    db: &Db,
+    plan: PlanId,
+    side: PlanSide,
+    ids: &[FileId],
+) -> Result<HashMap<FileId, Overlay>, PlanError> {
+    let mut result = HashMap::new();
+    for ids in ids.chunks(30_000) {
+        let mut qb = QueryBuilder::<Sqlite>::new(match side {
+            PlanSide::Source => {
+                "SELECT m.file_id, 1 AS matched, 0 AS will_delete FROM move_items m JOIN files f ON f.id = m.file_id WHERE m.status = 'move' AND m.plan_id = "
+            }
+            PlanSide::Comparison => {
+                "SELECT x.id, MAX(matched), MAX(will_delete) FROM (SELECT m.counterpart_id AS id, 1 AS matched, 0 AS will_delete FROM move_items m WHERE m.counterpart_id IS NOT NULL AND m.plan_id = "
+            }
+        });
+        qb.push_bind(plan);
+        if side == PlanSide::Comparison {
+            qb.push(" UNION ALL SELECT m.replaced_id, 0, 1 FROM move_items m WHERE m.replaced_id IS NOT NULL AND m.status = 'move' AND m.plan_id = ").push_bind(plan).push(") x JOIN files f ON f.id = x.id WHERE x.id IN (");
+        } else {
+            qb.push(" AND m.file_id IN (");
+        }
+        let mut sep = qb.separated(", ");
+        for id in ids {
+            sep.push_bind(*id);
+        }
+        sep.push_unseparated(")");
+        if side == PlanSide::Comparison {
+            qb.push(" GROUP BY x.id");
+        }
+        for (id, matched, will_delete) in qb
+            .build_query_as::<(FileId, bool, bool)>()
+            .fetch_all(db.read())
+            .await?
+        {
+            result.insert(
+                id,
+                Overlay {
+                    matched,
+                    will_delete,
+                    ..Overlay::default()
+                },
+            );
+        }
+    }
+    Ok(result)
+}
+
+pub(super) async fn ids(db: &Db, plan: PlanId, side: PlanSide) -> Result<Vec<FileId>, PlanError> {
+    if side == PlanSide::Comparison {
+        return Ok(Vec::new());
+    }
+    Ok(sqlx::query_scalar("SELECT m.file_id FROM move_items m JOIN files f ON f.id = m.file_id WHERE m.plan_id = ? AND m.status = 'move' ORDER BY m.file_id")
+        .bind(plan).fetch_all(db.read()).await?)
+}
+
+pub(super) async fn folders(
+    db: &Db,
+    plan: PlanId,
+    side: PlanSide,
+    view: &GhostView,
+    children: &[String],
+) -> Result<FolderOverlay, PlanError> {
+    if side == PlanSide::Source {
+        return Ok(FolderOverlay::default());
+    }
+    let filter = filter(view)?;
+    let mut qb = QueryBuilder::<Sqlite>::new(
+        "WITH per_dir AS (SELECT m.dst_dir, COUNT(*) AS total, SUM(CASE WHEN ",
+    );
+    filter.push_where(&mut qb, "f");
+    qb.push(" THEN 1 ELSE 0 END) AS cnt FROM move_items m JOIN files f ON f.id = m.file_id WHERE ");
+    predicate(&mut qb, plan, view, true);
+    qb.push(" GROUP BY m.dst_dir) SELECT ");
+    push_child_segment(&mut qb, "dst_dir", view.dir.as_str());
+    qb.push(" AS child, SUM(cnt), SUM(total) FROM per_dir GROUP BY child");
+    let rows: Vec<(String, i64, i64)> = qb.build_query_as().fetch_all(db.read()).await?;
+    let existing: Vec<String> =
+        sqlx::query_scalar("SELECT name FROM dirs WHERE volume_id = ? AND parent_path = ?")
+            .bind(view.volume_id)
+            .bind(view.dir.as_str())
+            .fetch_all(db.read())
+            .await?;
+    let existing: HashSet<_> = existing
+        .into_iter()
+        .map(|s| normalize_name(&s))
+        .chain(children.iter().map(|s| normalize_name(s)))
+        .collect();
+    let mut result = FolderOverlay::default();
+    for (child, count, total) in rows {
+        result.dir_planned |= total > 0;
+        if child.is_empty() {
+            result.ghosts.in_folder += count;
+        } else {
+            result.ghosts.in_subfolders += count;
+            if let Some(real) = children
+                .iter()
+                .find(|c| normalize_name(c) == normalize_name(&child))
+            {
+                result.per_child.insert(
+                    real.clone(),
+                    FolderPlanInfo {
+                        ghost_count: count,
+                        ghost_total: total,
+                        ..FolderPlanInfo::default()
+                    },
+                );
+            } else if !existing.contains(&normalize_name(&child)) {
+                result.ghost_folders.push(FolderEntry {
+                    path: view
+                        .dir
+                        .join(&child)
+                        .map_err(anyhow::Error::from)?
+                        .as_str()
+                        .to_owned(),
+                    name: child,
+                    volume_id: view.volume_id,
+                    count,
+                    total,
+                    matches: None,
+                    overlay: Overlay {
+                        planned: true,
+                        ..Overlay::default()
+                    },
+                });
+            }
+        }
+    }
+    result
+        .ghost_folders
+        .sort_by_key(|f| normalize_name(&f.name));
+    Ok(result)
+}

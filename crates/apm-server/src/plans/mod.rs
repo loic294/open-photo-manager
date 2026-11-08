@@ -187,6 +187,6 @@ fn planners(deps: &PlanDeps) -> Vec<Arc<dyn Planner>> {
     vec![
         Arc::new(cleanup::CleanupPlanner::new(deps)),
         Arc::new(duplicates::DuplicatesPlanner::new(deps)),
-        // Arc::new(moves::MovePlanner::new(deps)),
+        Arc::new(moves::MovePlanner::new(deps)),
     ]
 }

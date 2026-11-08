@@ -1,22 +1,30 @@
 //! `POST /api/format/preview`: previews the destination names a move pattern
 //! produces for sample files.
-//!
-//! Owned by todo `implementing-move-planner`, which also defines the request and
-//! response DTOs in `apm_core::dto::plans` and switches the handler to
-//! `ApiJson<Request>`.
+//! The read-only token catalogue and samples both use the core formatter.
 
-use axum::Router;
-use axum::routing::post;
+use apm_core::dto::{FormatPreviewRequest, FormatPreviewResponse, FormatTokensResponse};
+use axum::routing::{get, post};
+use axum::{Json, Router, extract::State};
 
+use super::extract::ApiJson;
 use crate::error::{AppError, AppResult};
 use crate::state::AppState;
 
-const OWNER: &str = "implementing-move-planner";
-
 pub fn routes() -> Router<AppState> {
-    Router::new().route("/format/preview", post(preview))
+    Router::new()
+        .route("/format/preview", post(preview))
+        .route("/format/tokens", get(tokens))
 }
 
-async fn preview() -> AppResult<()> {
-    Err(AppError::not_implemented(OWNER))
+async fn preview(
+    State(state): State<AppState>,
+    request: Result<ApiJson<FormatPreviewRequest>, AppError>,
+) -> AppResult<Json<FormatPreviewResponse>> {
+    let ApiJson(request) =
+        request.map_err(|e| AppError::bad_request("invalid_json", e.to_string()))?;
+    Ok(Json(crate::plans::moves::preview(&state, request).await?))
+}
+
+async fn tokens() -> Json<FormatTokensResponse> {
+    Json(crate::plans::moves::tokens())
 }
