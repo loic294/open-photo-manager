@@ -40,11 +40,13 @@ export async function waitForTask(app: AppInstance, id: number) {
 }
 
 /** Connect first; use this to map all private fixture volumes and sync them. */
-export async function mapAndSync(app: AppInstance) {
+export async function mapAndSync(app: AppInstance, names = ['photos', 'archive']) {
   const volumes = await app.api.volumes();
   const libraries = await app.api.request<ImmichLibrariesResponse>('GET', '/api/immich/libraries');
   expect(libraries.limited).toBe(false);
-  const mappings = volumes.map((volume) => {
+  const mappings = names.map((name) => {
+    const volume = volumes.find((entry) => entry.name === name);
+    if (!volume) throw new Error(`Missing fixture volume ${name}`);
     const path = `/mnt/${volume.name}`;
     const library = libraries.libraries.find((entry) => entry.import_paths.includes(path));
     if (!library) throw new Error(`Missing mock library for ${path}`);
