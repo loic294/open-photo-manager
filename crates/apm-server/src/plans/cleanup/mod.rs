@@ -4,6 +4,7 @@
 //! emptiness: every indexed kind, including orphan sidecars, prevents removal. Nonrecursive mode
 //! includes wholly empty direct-child branches and their descendants; recursive mode includes
 //! all empty folders strictly below base. The execution client sends `only: null`.
+//! Cleanup stores paths, not file IDs; file_identity snapshot tracking does not apply.
 //!
 //! The million-folder examination cap retains the generic TooLarge error; users must select a
 //! deeper source folder. Plan rows use rowid STRICT storage because generic chunked collection

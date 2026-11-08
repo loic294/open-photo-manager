@@ -32,19 +32,12 @@ fn push_empty(qb: &mut QueryBuilder<Sqlite>, directory: &str) {
 }
 
 pub(super) fn query(volume: i64, base: &RelPath, recursive: bool) -> QueryBuilder<Sqlite> {
-    // SQLite substr measures characters, not UTF-8 bytes.
-    let prefix = if base.is_root() {
-        0
-    } else {
-        base.as_str().chars().count() + 1
-    };
-    let branch = format!(
-        "substr(d.path, 1, {prefix} + instr(substr(d.path || '/', {}), '/') - 1)",
-        prefix + 1
-    );
     let mut qb = QueryBuilder::new("WITH scoped AS (SELECT d.volume_id, d.path, d.parent_path, ");
-    qb.push(branch)
-        .push(" AS branch FROM dirs d WHERE d.volume_id = ")
+    if !base.is_root() {
+        qb.push_bind(format!("{}/", base.as_str())).push(" || ");
+    }
+    crate::query::push_child_segment(&mut qb, "d.path", base.as_str());
+    qb.push(" AS branch FROM dirs d WHERE d.volume_id = ")
         .push_bind(volume)
         .push(" AND ");
     Subtree::new(base).push_predicate(&mut qb, "d.path");

@@ -259,6 +259,11 @@ async fn stale_index_new_content_links_system_dirs_and_gone_folders_are_safety_s
     assert_eq!(finished["result"]["done"], 1);
     assert_eq!(finished["result"]["skipped"], 5);
     assert_eq!(finished["result"]["failed"], 0);
+    let details = finished["result"]["failures"].as_array().unwrap();
+    assert_eq!(details.len(), 5);
+    assert_eq!(details.iter().filter(|detail| detail["code"] == "not_empty").count(), 4);
+    assert_eq!(details.iter().filter(|detail| detail["code"] == "already_gone").count(), 1);
+    assert!(details.iter().all(|detail| detail["file_id"].is_null()));
     assert!(tree.path("base").is_dir());
     assert!(tree.path("base/chain/deep/new.txt").is_file());
     assert!(tree.path("base/system/#snapshot").is_dir());
@@ -296,6 +301,10 @@ async fn file_selection_is_ignored_and_corrupt_paths_cannot_delete_the_base_or_e
     assert_eq!(finished["result"]["done"], 1);
     assert_eq!(finished["result"]["failed"], 2);
     assert_eq!(finished["result"]["skipped"], 1);
+    let details = finished["result"]["failures"].as_array().unwrap();
+    assert_eq!(details.len(), 3);
+    assert_eq!(details.iter().filter(|detail| detail["code"] == "invalid_plan_path").count(), 2);
+    assert_eq!(details.iter().filter(|detail| detail["code"] == "not_empty").count(), 1);
     assert!(tree.path("base").is_dir());
     assert!(tree.path("outside").is_dir());
     assert!(!tree.path("base/empty").exists());

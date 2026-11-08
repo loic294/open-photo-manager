@@ -53,16 +53,9 @@ pub(super) async fn folders(
             }
         }
     }
-    let mut qb = QueryBuilder::<Sqlite>::new("SELECT (CASE WHEN instr(substr(path, ");
-    let offset = if view.dir.is_root() {
-        1
-    } else {
-        view.dir.as_str().chars().count() as i64 + 2
-    };
-    qb.push_bind(offset).push("), '/') = 0 THEN substr(path, ").push_bind(offset)
-        .push(") ELSE substr(substr(path, ").push_bind(offset)
-        .push("), 1, instr(substr(path, ").push_bind(offset)
-        .push("), '/') - 1) END) COLLATE BINARY AS child, count(*) FROM cleanup_dirs WHERE plan_id = ");
+    let mut qb = QueryBuilder::<Sqlite>::new("SELECT (");
+    crate::query::push_child_segment(&mut qb, "path", view.dir.as_str());
+    qb.push(") COLLATE BINARY AS child, count(*) FROM cleanup_dirs WHERE plan_id = ");
     qb.push_bind(plan.id).push(" AND ");
     Subtree::new(&view.dir).push_predicate(&mut qb, "path");
     qb.push(" AND path <> ")

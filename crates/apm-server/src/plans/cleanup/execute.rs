@@ -75,7 +75,12 @@ pub(super) async fn execute(
             let rel = RelPath::new(&path).map_err(|err| PlanError::Internal(err.into()))?;
             let shown = display_path(&ctx.volumes, volume_id, &rel);
             if is_protected_path(&rel) {
-                result.skip();
+                result.skip_with_detail(
+                    None,
+                    shown,
+                    "not_empty",
+                    "Protected system folders cannot be removed",
+                );
                 ctx.item_processed();
                 continue;
             }
@@ -100,8 +105,22 @@ pub(super) async fn execute(
                 .await
             {
                 Ok(RmdirOutcome::Removed { .. }) => result.done(0),
-                Ok(RmdirOutcome::AlreadyGone) | Err(FsOpError::SourceMissing) => result.skip(),
-                Err(FsOpError::NotEmpty) => result.skip(),
+                Ok(RmdirOutcome::AlreadyGone) | Err(FsOpError::SourceMissing) => {
+                    result.skip_with_detail(
+                        None,
+                        shown,
+                        "already_gone",
+                        "The folder no longer exists",
+                    );
+                }
+                Err(FsOpError::NotEmpty) => {
+                    result.skip_with_detail(
+                        None,
+                        shown,
+                        "not_empty",
+                        "The folder contains protected or unrecognized content",
+                    );
+                }
                 Err(FsOpError::Cancelled) => {
                     result.mark_cancelled();
                     return Ok(result.finish());
