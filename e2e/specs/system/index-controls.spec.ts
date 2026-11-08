@@ -48,18 +48,22 @@ test('current re-index scopes both panes; all-assets confirmation and coalescing
     String(app.sql(`SELECT params_json FROM tasks WHERE id = ${task.id}`)[0]?.params_json),
   );
   const volumes = await app.api.volumes();
-  expect(request.targets).toEqual([
-    {
-      volume_id: volumes.find((volume) => volume.name === 'photos')?.id,
-      dir: 'stale',
-      recursive: true,
-    },
-    {
-      volume_id: volumes.find((volume) => volume.name === 'archive')?.id,
-      dir: 'inbox',
-      recursive: true,
-    },
-  ]);
+  // IndexJobs canonicalizes scopes; order is not part of the request contract.
+  expect(request.targets).toHaveLength(2);
+  expect(request.targets).toEqual(
+    expect.arrayContaining([
+      {
+        volume_id: volumes.find((volume) => volume.name === 'photos')?.id,
+        dir: 'stale',
+        recursive: true,
+      },
+      {
+        volume_id: volumes.find((volume) => volume.name === 'archive')?.id,
+        dir: 'inbox',
+        recursive: true,
+      },
+    ]),
+  );
   expect(request.force).toBe(true);
   expect((await terminalTask(app, task.id)).title).toBe('Re-indexing 2 folders');
   expect(
@@ -250,7 +254,7 @@ test('mass disappearance is held, restored, then explicitly removed without disk
   const before = await snapshotTree(app.volumesDir, { hash: true });
   await shell.notices().getByRole('button', { name: 'Remove from the index', exact: true }).click();
   await expect(confirmDialog.dialog()).toContainText(String(grid.length));
-  await expect(confirmDialog.dialog()).toContainText('No files on disk');
+  await expect(confirmDialog.dialog()).toContainText('no file on disk is touched');
   await confirmDialog.cancel();
   expect((await app.api.indexStatus()).held_removals[0].files).toBe(grid.length);
   await shell.notices().getByRole('button', { name: 'Remove from the index', exact: true }).click();
@@ -281,7 +285,12 @@ test('offline volume keeps identities and a reconnect restores live re-index con
   try {
     await app.rescan();
     await page.goto(`${app.url}/browse`);
-    await expect(page.locator('apm-folder-list').first()).toContainText('offline');
+    // Offline state is exposed by volume diagnostics, not folder-list text.
+    expect((await app.api.volumes()).find((volume) => volume.name === 'archive')?.online).toBe(
+      false,
+    );
+    await shell.navigate('Settings');
+    await expect(page.locator('apm-settings-general')).toContainText('offline');
     expect(app.sql(`SELECT id FROM files WHERE volume_id = ${archive.id} ORDER BY id`)).toEqual(
       ids,
     );

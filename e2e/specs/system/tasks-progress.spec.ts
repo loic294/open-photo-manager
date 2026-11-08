@@ -32,6 +32,9 @@ test.use({
     [
       /requestfailed: .*\/api\/(?:events|tasks|index\/status|volumes|browse\/\w+|facets|settings|immich\/status).* net::ERR_(?:ABORTED|CONNECTION_REFUSED|EMPTY_RESPONSE|CONNECTION_RESET)/,
       /requestfailed: .*\/api\/files\/\d+\/(?:thumb|preview).* net::ERR_ABORTED/,
+      // SIGKILL truncates the live chunked event stream before it can finish.
+      /requestfailed: .*\/api\/events net::ERR_INCOMPLETE_CHUNKED_ENCODING/,
+      /^console.error: Failed to load resource: net::ERR_INCOMPLETE_CHUNKED_ENCODING$/,
       /^console.error: (?:Failed to load resource: net::ERR_(?:CONNECTION_REFUSED|EMPTY_RESPONSE|CONNECTION_RESET)|EventSource's response has a MIME type)/,
     ],
     { scope: 'test' },
@@ -298,6 +301,7 @@ test('failed tasks retain the full error, dismiss persistently and raise a new b
       await row.getByRole('button', { name: /^Dismiss/ }).click();
       await expect(shell.taskTrigger()).toHaveCount(0);
       await page.reload();
+      await trashPage.tab('Items');
       await expect(trashPage.rows()).toHaveCount(1);
       await expect(shell.taskTrigger()).toHaveCount(0);
     }

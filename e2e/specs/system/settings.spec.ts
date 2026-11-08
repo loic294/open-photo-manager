@@ -121,9 +121,8 @@ test('native beforeunload protects edits; staying retains the draft and leaving 
     expect(dialog.type()).toBe('beforeunload');
     await dialog.dismiss();
   });
-  await page.reload().catch((error: Error) => {
-    if (!error.message.includes('net::ERR_ABORTED')) throw error;
-  });
+  // A dismissed beforeunload has no load event; do not await a cancelled navigation.
+  await page.evaluate(() => window.location.reload());
   await stay;
   await expect(settingsPage.field('Longest generated name')).toHaveValue(String(original - 1));
   const leave = page.waitForEvent('dialog').then(async (dialog) => {
