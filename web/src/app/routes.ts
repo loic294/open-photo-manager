@@ -53,7 +53,14 @@ export const routes: readonly AppRoute[] = [
   comingSoon('/move', 'Asset move', 'folder-input', 'tools'),
   comingSoon('/format', 'Folder formatting', 'folder-tree', 'tools'),
   comingSoon('/cleanup', 'Empty folder cleanup', 'folder-x', 'tools'),
-  comingSoon('/trash', 'Trash', 'trash-2', 'footer'),
+  {
+    path: '/trash',
+    tag: 'apm-trash-page',
+    load: () => import('@/tools/trash/apm-trash-page'),
+    label: 'Trash',
+    icon: 'trash-2',
+    menu: 'footer',
+  },
   {
     path: '/settings',
     tag: 'apm-settings-page',

@@ -161,10 +161,18 @@ describe('layout', () => {
   });
 
   it('shows the page of the current address inside main', async () => {
-    const app = await mountApp('/trash');
+    const soon: AppRoute = {
+      path: '/soon',
+      tag: 'apm-route-placeholder',
+      load: () => import('@/components/apm-route-placeholder'),
+      label: 'Coming soon',
+      icon: 'file',
+      props: { heading: 'Coming soon', icon: 'file' },
+    };
+    const app = await mountApp('/soon', { routes: [soon] });
 
     await until(() => expect(app.querySelector('main apm-route-placeholder')).not.toBeNull());
-    expect(text(app.querySelector('main h2'))).toBe('Trash');
+    expect(text(app.querySelector('main h2'))).toBe('Coming soon');
   });
 
   it('hosts the task indicator in the right-aligned part of the top bar', async () => {
@@ -292,16 +300,18 @@ describe('main menu', () => {
 
 describe('page heading and title', () => {
   it('shows the label of the current route as the heading and in the document title', async () => {
-    const app = await mountApp('/duplicates');
+    const first = stubRoute('/first', { label: 'First page' });
+    const second = stubRoute('/second', { label: 'Second page' });
+    const app = await mountApp('/first', { routes: [first, second] });
 
-    expect(heading(app)).toBe('Duplicate finder');
-    expect(document.title).toBe(`Duplicate finder${TITLE_SUFFIX}`);
+    expect(heading(app)).toBe('First page');
+    expect(document.title).toBe(`First page${TITLE_SUFFIX}`);
 
-    navigate('/trash');
+    navigate('/second');
     await app.updateComplete;
 
-    expect(heading(app)).toBe('Trash');
-    expect(document.title).toBe(`Trash${TITLE_SUFFIX}`);
+    expect(heading(app)).toBe('Second page');
+    expect(document.title).toBe(`Second page${TITLE_SUFFIX}`);
   });
 
   it('sends the root address to Browse without showing a not-found page on the way', async () => {

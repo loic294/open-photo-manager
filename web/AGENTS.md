@@ -929,3 +929,63 @@ queued or running, so asking twice is harmless.
   first mounts with the connection `reconnecting` (the shared client resyncs after `events.stop()`), so
   call `FakeEventSource.last().open()` before expecting an enabled Re-index entry or a notice without the
   connection banner above it. Call `resetIndexStatusForTests()` in `afterEach`.
+
+## Trash page (`tools/trash/`, `api/trash.ts`, `test/trash-fixtures.ts`)
+The `/trash` route (`apm-trash-page`, footer menu, icon `trash-2`) lists what is in the trash, restores
+it and empties it. The server side is the `trash` service (root AGENTS.md, "Trash"); the page only
+calls it and shows what it answers.
+- `@/api/trash`: `listTrash(query, signal?)` (`GET /api/trash`, `TrashListQuery`: send every field,
+  `null` for none; `order: null` is the natural direction of the sort), `listTrashBatches(query, signal?)`
+  (`GET /api/trash/batches`, the deletions), `restoreTrash(request, signal?)`, `emptyTrash(request,
+  signal?)` and `syncTrash(signal?)` (the POSTs answer the `TaskDto`). Both lists embed the GLOBAL
+  `summary` (items, bytes, `max_id`, `retention_days`, `conflict_policy`, and `volumes` that hold
+  trash with `online`/`writable`); the page takes its totals from whichever answer came last.
+- Files: `apm-trash-page.ts` is the only one that fetches, keeps state and runs actions.
+  `apm-trash-deletions.ts` and `apm-trash-items.ts` are presentational (properties down, bubbling
+  events up: `trash-restore-batch`, `trash-view-batch`; `trash-search`, `trash-volume`, `trash-sort`,
+  `trash-select`, `trash-select-page`, `trash-restore-items`, `trash-page`, `trash-clear-batch`,
+  `trash-clear-filters`). `trash-parts.ts` holds what both tabs share (volume `apm-select`, volume
+  badges, pager, skeleton, empty state). `trash-text.ts` holds EVERY sentence the page says
+  (retention rule, confirmations, why a button is disabled, task outcomes): the end-to-end tests key
+  off that wording, so change it only together with them.
+- Layout: heading "Trash", the totals (an em dash until the first answer), one badge per volume that
+  holds trash ("photos · 10 KB", plus "offline" or "read-only"), "Empty trash…" (a Unicode ellipsis;
+  "Empty trash on NAME…" while one volume is filtered), a "More actions" menu with "Look for
+  untracked items", the retention note with a "Change in Settings" link, then the tabs "Deletions"
+  and "Items" (`role=tablist`, arrow keys, Home and End; only the open panel is in the DOM, and the
+  Items tab loads the first time it opens).
+- Deletions: one row per deletion, newest first (age, volume, items, size, reason badges), "Restore
+  all" (a confirmation with the numbers, the volume and what the `conflict_policy` of the summary
+  does; the request is `{ target: { kind: 'batch', volume_id, batch }, conflict_policy: null }`) and
+  "View items", which opens the Items tab on that deletion with a chip, dismissed by "Show every
+  deletion" (the volume stays). Items: search ("Search by path", 300 ms debounce, trimmed), the
+  volume select (shared with Deletions; a volume that no longer holds trash falls back to all of
+  them), sortable columns "Name", "Original folder", "Size" and "Deleted" (a column starts in its
+  natural direction, a second click flips it), a checkbox per row and one for the page, "Restore
+  selected (N)" (no confirmation, `{ target: { kind: 'ids', ids } }`), a "Restore" per row and the
+  pager (`PAGE_SIZE` = 50). The selection is cleared by a page change, a sort, a search or a filter,
+  and a reload drops the ids that are no longer on the page. Rows of an offline or read-only volume
+  cannot be selected or restored; the `title` of the disabled control says why (`title` is the
+  tooltip here, as elsewhere in the app).
+- "Empty trash…" asks with the numbers on screen and sends `{ volume_id, up_to_id: summary.max_id }`:
+  both are taken BEFORE the dialog opens, so what is deleted is what the user was shown even when the
+  summary changes meanwhile. It is disabled, with the reason as a `title` on the button and on its
+  wrapper, while loading, when nothing is deletable, and for an offline or read-only volume; with
+  several volumes the question names those that stay behind. `409 trash_already_empty` is an info
+  toast plus a reload; any other failure is an error toast with the server's message.
+- Tasks: the page toasts the start of what it asked for ("Restoring 3 items from the trash"), then
+  the outcome from the task's title and `error` (`taskOutcome`): success, a warning when some items
+  stayed in the trash or a check kept or skipped something, an error for `failed` and `interrupted`,
+  an info for `cancelled`. It shows no progress of its own: the task indicator does. An ending that
+  arrives before the POST has answered is remembered, so its outcome still toasts once.
+- Reloading: the open tab reloads (the other one when it opens) 500 ms after an ended task of kind
+  `fs_move`, `fs_trash`, `plan_execute` or `trash_empty` (never `index`: a scan cannot change the
+  trash; bursts coalesce), after the event stream resyncs and when the window regains focus. A new
+  request supersedes the one in flight (its answer is ignored), a reload keeps the rows on screen, a
+  page that no longer exists steps back to the last one and a failed load is an `alert` with "Retry".
+- Tests: `apm-trash-page.test.ts` fakes the server with `vi.spyOn(api, 'get' | 'post')`, runs on
+  fake timers with the clock three days after `TRASHED_AT` (so ages read "3 days ago") and drives the
+  volume `<select>` by setting its `value` and dispatching `change`. `@/test/trash-fixtures` has
+  `makeTrashItem`, `makeTrashBatch`, `makeTrashVolume`, `makeTrashSummary` (items and bytes are the
+  sums over its volumes) and `TRASHED_AT`. Toasts expire after a few seconds of fake time and
+  identical ones do not stack: spy on `toast.success` and friends when a test advances the clock.

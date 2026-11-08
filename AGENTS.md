@@ -257,3 +257,45 @@ binary, browser checks, end-to-end and load tests. Never write a throwaway Immic
   fixture volumes `photos` and `archive` with the `fixtures` scenario.
 - `make check-tools` (Biome, `tsc`, `node --test`; `scripts/wt-land.sh` runs it when a path under
   `tools/` or `e2e/` changes). Other todos add their own `check-*` prerequisite to it.
+
+## Trash (`trash/`, `api/trash.rs`; reference: the module docs of `trash`)
+
+User-facing trash management over what `FsOps` puts in `<volume root>/.apm-trash/<batch>/<original
+relative path>`: one `trash_items` row per trashed file or per whole trashed folder. A batch
+(`YYYYMMDD-HHMMSS-t<task id>`, `-r<hex>` ad hoc, `-x<journal id>` for the source a copy-and-delete
+move keeps) is one deletion on one volume. `reason` is `user`, `replaced`, `junk`, `moved` or
+`NULL` (found on the disk, so it restores like a new file).
+- `AppState.trash: TrashService` (`new(db, settings, tasks, volumes, fsops)`, `with_clock` ages the
+  trash in a test): `list(TrashListQuery)`, `batches(TrashBatchesQuery)`, `summary()`,
+  `restore(TrashRestoreRequest)` and `empty(TrashEmptyRequest)` (each answers a `TaskId`; a refusal
+  is a `TrashError`), `sweep_retention()`, `start_background(shutdown)` (`main.rs` starts it;
+  `start_background_every` serves tests) and `sync()`.
+- Routes: `GET /api/trash` (`TrashListQuery` as a query string, `TrashListResponse`),
+  `GET /api/trash/batches` (`TrashBatchesQuery`, `TrashBatchesResponse`) and the 202 + `TaskDto`
+  POSTs `/api/trash/restore`, `/api/trash/empty`, `/api/trash/sync` (no body). Both lists embed
+  `summary` (`TrashSummary`: the GLOBAL items, bytes, `max_id`, `retention_days`, the
+  `conflict_policy` a restore uses and `volumes`, only those that hold trash, each with
+  `online`/`writable`). A bad query or body answers one 422 `validation_failed` listing every
+  field; `batch` needs `volume_id`; an unknown volume or deletion answers 404 (`batch_not_found`);
+  a restore whose items all sit on one offline volume, and an empty aimed at an offline volume,
+  answer 409 `volume_offline`.
+- Restore is ONE `fs_move` task through `FsOps::restore`; a name that is taken again follows the
+  request's `conflict_policy` (`null`: the `default_conflict_policy` setting), a skipped item stays
+  in the trash and a restored item gets a new id. Items are never merged into a restored folder.
+- Empty is a `trash_empty` task that deletes `id <= up_to_id`, the `max_id` the user was looking
+  at: what was trashed afterwards survives (ids are `AUTOINCREMENT`, migration 0047, never reused;
+  `409 trash_already_empty` when nothing matches). "Empty trash" and the retention sweeper
+  (`trash_retention_days`, off by default; first look 2 minutes after boot, then hourly and at once
+  when the setting changes) are the ONLY permanent deletes (A15), always through `FsOps::purge`.
+- `sync` is an `fs_trash` task on the `fs` lane, NOT an `index` task (`IndexJobs` counts those as
+  scans). It adopts untracked files, drops the rows whose file is gone (it keeps them when 50 or
+  more, and over a fifth of the rows, vanish together: an unmounted share) and repairs the totals.
+- Reads answer from the index and never touch the disk. The summary is the running totals of
+  `trash_volume_totals`, kept by three triggers on `trash_items` (migration 0048): never
+  `INSERT OR REPLACE` into `trash_items` (SQLite does not fire the delete trigger for the replaced
+  row, so the totals would drift); delete and insert instead. On a million items (release,
+  `tests/trash_perf.rs`, ignored by default): summary 0.06 ms, first page 0.23 ms, deletions
+  228 ms. Not indexed on purpose: sorting by size, path or name, a search and deep offsets.
+- Task outcomes: the title says what happened, a run with a failure ends `failed` and its `error`
+  names the first three items with their `FsOpError` code, and a skip never fails a task. A
+  client derives its toast from the title and the error (`TaskDto` has no result).
