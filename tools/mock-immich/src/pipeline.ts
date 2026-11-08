@@ -86,7 +86,10 @@ export function createRequestHandler(
       const readBacking =
         ctx.beforeAssetRead &&
         ((method === 'GET' &&
-          (apiPath.startsWith('/api/assets/') || apiPath.startsWith('/api/libraries'))) ||
+          (apiPath.startsWith('/api/assets/') ||
+            apiPath.startsWith('/api/libraries') ||
+            apiPath === '/api/albums' ||
+            apiPath === '/api/tags')) ||
           (method === 'POST' && apiPath === '/api/search/metadata'));
       const deleteBacking =
         method === 'DELETE' && apiPath === '/api/assets' && ctx.readOnlyBacking?.();

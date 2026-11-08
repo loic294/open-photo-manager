@@ -83,6 +83,39 @@ test('a complete backing snapshot updates API paths without changing asset ident
   assert.deepEqual(mock.state.violations(), []);
 });
 
+test('association views refresh the backing asset state before calculating counts', async (t) => {
+  let mock: MockImmich;
+  let rows: BackingAssetPath[] = [];
+  mock = await startMock(t, {
+    beforeAssetRead: async () => mock.control.reconcileAssetPaths(rows),
+  });
+  const { key } = await connect(mock);
+  const added = mock.control.addAssets([{ path: '/mnt/photo/old.jpg' }]);
+  const id = added.items[0]?.id;
+  const album = mock.state.albums()[0];
+  assert.ok(id && album);
+  const attached = await call(mock, 'PUT', `/api/albums/${album.id}/assets`, {
+    key,
+    body: { ids: [id] },
+  });
+  assert.equal(attached.status, 200);
+  rows = mock.state.assets().map((asset) => ({
+    id: String(asset.id),
+    ownerId: String(asset.ownerId),
+    libraryId: String(asset.libraryId),
+    originalPath: String(asset.originalPath),
+    originalFileName: String(asset.originalFileName),
+    checksum: String(asset.checksum),
+    updatedAt: String(asset.updatedAt),
+    isOffline: true,
+    deletedAt: '2026-11-08T11:00:00.000Z',
+  }));
+  const response = await call(mock, 'GET', `/api/albums?assetId=${id}`, { key });
+  assert.equal(response.status, 200);
+  assert.equal(response.body[0].assetCount, 0);
+  assert.equal(mock.state.assetByPath('/mnt/photo/old.jpg')?.isOffline, true);
+});
+
 test('backing refresh runs before asset reads and failures cannot return stale results', async (t) => {
   let mock: MockImmich;
   let rows: BackingAssetPath[] = [];
