@@ -17,6 +17,9 @@
 //!
 //! Scale gate: `CARGO_BUILD_JOBS=2 CARGO_PROFILE_RELEASE_STRIP=none CARGO_PROFILE_RELEASE_LTO=off
 //! cargo test --release -p apm-server --test plans_cleanup_perf -- --ignored --nocapture`.
+//! At 200k directories / 1M files: release build 1.165 s, root overlay 90.1 ms, typical 0.79 ms.
+//! Subsequent host sample: load averages 36.84/36.47/34.73, CPU idle 33.5% then 42.96%;
+//! these are adjacent observations, not measurements captured during the benchmark itself.
 
 mod build;
 mod execute;
