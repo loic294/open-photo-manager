@@ -54,8 +54,6 @@ impl AppState {
 
         let tasks = tasks::TaskEngine::new(db.clone(), shutdown.clone()).await?;
 
-        let fsops = fsops::FsOps::new();
-
         let volumes = indexer::VolumeRegistry::load(db.clone(), config.volumes_dir.clone()).await?;
 
         let media = media::MediaService::new(
@@ -72,6 +70,14 @@ impl AppState {
                 usize::from(settings.get().index.concurrency),
             )))
             .with_thumbnailer(Arc::new(media.clone()));
+
+        let fsops = fsops::FsOps::new(
+            db.clone(),
+            volumes.clone(),
+            settings.clone(),
+            indexer.clone(),
+        );
+        fsops.reconcile_at_startup(shutdown.clone()).await;
 
         let plans = plans::PlanService::new();
 
