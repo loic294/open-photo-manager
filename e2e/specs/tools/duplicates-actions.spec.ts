@@ -186,8 +186,10 @@ test('duplicate deletion can target the source while preserving its comparison c
   const task = (await executed.json()) as { id: number };
   await waitForTask(app, task.id);
 
-  const trash = await trashEntries(app);
-  expect(trash.some((entry) => entry.hash === sourceFile.sha1)).toBe(true);
+  const after = await snapshotTree(app.volumesDir, { hash: true });
+  expect(
+    after.some((entry) => entry.path.includes('/.apm-trash/') && entry.hash === sourceFile.sha1),
+  ).toBe(true);
   await expect.poll(() => matchedNames(source)).toEqual([]);
   await expect
     .poll(() => app.api.listing('photos', 'dupes/m1'))
