@@ -14,7 +14,7 @@ export async function captureScreens(page: Page, name: string) {
       .locator('html')
       .evaluate((element, value) => element.setAttribute('data-theme', value), theme);
     const path = join(directory, `${name}-${theme}.png`);
-    await page.screenshot({ path, fullPage: false });
+    await page.screenshot({ path, fullPage: false, animations: 'disabled' });
     paths.push(path);
   }
   await page

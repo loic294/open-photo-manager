@@ -81,7 +81,8 @@ for its observable double-click guard to clear before a pointer Close action.
 
 Every browser page fails on an uncaught error, console warning/error, failed request or error API
 response. `allowedErrors` accepts exact message fragments or regular expressions. Explain each
-allow-list at its spec: reload closes SSE and changing/closing the viewer cancels preloads. Allow
+allow-list at its spec: reload closes SSE, history navigation cancels pending thumbnails, and
+changing/closing the viewer cancels preloads. Allow
 only those named URLs with `net::ERR_ABORTED`, never general 4xx/5xx answers or connection failures.
 
 ## Acceptance rules for this and subsequent E2E work
