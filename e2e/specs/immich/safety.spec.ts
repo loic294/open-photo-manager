@@ -11,6 +11,7 @@ import { waitForIndexed } from '../../src/waits';
 
 test.use({
   appOptions: { env: { APM_IMMICH_DATABASE_URL_FILE: '', APM_IMMICH_QUIET_SECS: '1' } },
+  allowedErrors: [/^requestfailed: .*\/api\/events net::ERR_ABORTED$/],
 });
 
 test('a tracked move without database configuration refuses before changing files', async ({
@@ -19,6 +20,9 @@ test('a tracked move without database configuration refuses before changing file
   shell,
   settingsPage,
   mockImmich,
+  source,
+  movePage,
+  confirmDialog,
 }) => {
   test.setTimeout(180_000);
   const mock = await mockImmich({ serverVersion: '3.3.3', scanDelayMs: 0 });
@@ -33,39 +37,46 @@ test('a tracked move without database configuration refuses before changing file
     (entry) => entry.name === 'IMG_0010.JPG',
   );
   if (!item?.in_immich) throw new Error('Fixture is not indexed as an Immich asset');
-  const selection = await app.api.request<SelectionDto>('POST', '/api/selections', {
-    ids: [item.id],
-    label: 'missing database safety check',
-  });
-  const params: MoveParams = {
-    move_type: 'flat',
-    source: {
-      scope: { volume_id: volume.id, dir: 'sidecars', recursive: false },
-      filter: { ...emptyFilter, selection_id: selection.id },
-    },
-    destination: { volume_id: volume.id, dir: 'dupes/m1' },
-    pattern: null,
-    conflict_policy: null,
-    match_mode: null,
-    strict_prefix: false,
-  };
   const oldPhoto = app.volumePath('photos/sidecars/IMG_0010.JPG');
   const oldSidecar = app.volumePath('photos/sidecars/IMG_0010.JPG.xmp');
   const photoBytes = await readFile(oldPhoto);
   const sidecarBytes = await readFile(oldSidecar);
   const before = mock.state.requests().next;
-  const plan = await app.api.request<PlanDto>('POST', '/api/plans', {
-    kind: 'move',
-    params,
-    replaces: null,
-  });
-  const task = await app.api.request<TaskDto>('POST', `/api/plans/${plan.id}/execute`, {
-    options: {},
-    only: null,
-  });
+  const url = new URL('/move', app.url);
+  url.searchParams.set('src', 'photos/sidecars');
+  url.searchParams.set('cmp', 'photos/dupes/m1');
+  await page.goto(url.href);
+  await source.useFolder();
+  await movePage.destinationBase().getByRole('button', { name: 'Use this folder' }).click();
+  await movePage.chooseMoveType('flat');
+  await expect(source.card('IMG_0010.JPG').element).toHaveAttribute('aria-label', /In Immich/);
+  await source.card('IMG_0010.JPG').select();
+  await expect(movePage.actionButton()).toBeEnabled();
+  const selectionResponse = page.waitForResponse(
+    (response) =>
+      response.request().method() === 'POST' &&
+      /^\/api\/plans\/\d+\/selection$/.test(new URL(response.url()).pathname),
+  );
+  await movePage.actionButton().click();
+  expect(((await (await selectionResponse).json()) as SelectionDto).item_count).toBe(1);
+  const executing = page.waitForResponse(
+    (response) =>
+      response.request().method() === 'POST' &&
+      /^\/api\/plans\/\d+\/execute$/.test(new URL(response.url()).pathname),
+  );
+  await confirmDialog.confirm('Move 1 file');
+  const execution = await executing;
+  const task = (await execution.json()) as TaskDto;
+  const planId = Number(new URL(execution.url()).pathname.split('/')[3]);
   await waitForTask(app, task.id);
-  const result = await app.api.request<PlanDto>('GET', `/api/plans/${plan.id}`);
+  const result = await app.api.request<PlanDto>('GET', `/api/plans/${planId}`);
   expect(result.result).toMatchObject({ done: 0, skipped: 1, failed: 0 });
+  await page.getByRole('button', { name: /Last run: 0 failed, 1 skipped/ }).click();
+  const dialog = page.locator('apm-plan-result');
+  await expect(
+    dialog.getByText('Immich database update refused:', { exact: false }).first(),
+  ).toBeVisible();
+  await expect(dialog).toContainText('retry');
   const warning = result.result?.failures.find((entry) => entry.code === 'immich_move_refused');
   expect(warning?.message).toContain('No file was moved.');
   expect(warning?.message.toLowerCase()).toContain('retry');
