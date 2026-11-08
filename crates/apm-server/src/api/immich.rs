@@ -6,7 +6,8 @@
 //! - `GET /api/immich/status` (answered from the database; `?check=true` also asks Immich)
 //! - `GET /api/immich/libraries`, `PUT /api/immich/mappings` (replaces the whole set)
 //! - `POST /api/immich/exclude-trash`, `POST /api/immich/detect-prefix`
-//! - `POST /api/immich/sync`
+//! - `POST /api/immich/sync` (queues a sync and answers 202 with its task; the body `{"full":
+//!   bool}` may be omitted)
 //!
 //! A request whose fields are invalid is answered with the detailed 422 `ValidationErrorBody`;
 //! every other [`ImmichError`] becomes the usual `ErrorBody` (see `immich::error` for the table).
@@ -16,8 +17,9 @@ use apm_core::dto::{
     FieldError, ImmichConnectRequest, ImmichConnectionDto, ImmichDetectPrefixRequest,
     ImmichDetectPrefixResponse, ImmichDisconnectResult, ImmichExcludeTrashResult,
     ImmichLibrariesResponse, ImmichMappingsRequest, ImmichMappingsResponse, ImmichStatusDto,
-    ValidationErrorBody,
+    ImmichSyncRequest, TaskDto, ValidationErrorBody,
 };
+use axum::body::Bytes;
 use axum::extract::State;
 use axum::http::StatusCode;
 use axum::response::{IntoResponse, Response};
@@ -29,8 +31,6 @@ use crate::api::extract::{ApiJson, ApiQuery};
 use crate::error::{AppError, AppResult};
 use crate::immich::ImmichError;
 use crate::state::AppState;
-
-const SYNC_OWNER: &str = "syncing-immich-assets";
 
 pub fn routes() -> Router<AppState> {
     Router::new()
@@ -97,8 +97,29 @@ async fn status(
     Ok(Json(state.immich.status(query.check).await?))
 }
 
-async fn sync() -> AppResult<()> {
-    Err(AppError::not_implemented(SYNC_OWNER))
+/// Queues a sync of every mapped scope and answers 202 with its task. A request that arrives while
+/// a sync waits for its turn is merged into it and gets that task (see `immich::sync`). The body
+/// may be omitted or empty: an incremental sync. 409 `immich_not_connected`, 409
+/// `immich_needs_reconnect` and 409 `immich_not_mapped` when there is nothing to sync with.
+async fn sync(
+    State(state): State<AppState>,
+    body: Bytes,
+) -> AppResult<(StatusCode, Json<TaskDto>)> {
+    let request = if body.iter().all(u8::is_ascii_whitespace) {
+        ImmichSyncRequest::default()
+    } else {
+        serde_json::from_slice(&body).map_err(|err| {
+            let status = if err.is_data() {
+                StatusCode::UNPROCESSABLE_ENTITY
+            } else {
+                StatusCode::BAD_REQUEST
+            };
+            AppError::new(status, "invalid_json", err.to_string())
+        })?
+    };
+    let submitted = state.immich_sync.submit(request.into()).await?;
+    let task = state.tasks.get(submitted.task_id).await?;
+    Ok((StatusCode::ACCEPTED, Json(task)))
 }
 
 /// Why a request was refused: invalid fields get the detailed 422 body, everything else the usual

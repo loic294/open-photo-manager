@@ -17,10 +17,16 @@
 //! The fake runs on a wiremock `MockServer` built outside the pool: dropping it closes its port
 //! ([`FakeImmich::stop`]), which is how a test makes Immich unreachable.
 //!
+//! `POST /search/metadata` follows the request generation of the client (the typed filter and a
+//! cursor from Immich 3.2, the flat fields and a page number before) and shows the flags an asset
+//! has; see `search.rs` for what a test can shape: flags, `updatedAt`, short, empty, slow and
+//! failing pages.
+//!
 //! [`Fixture`] adds a `TestApp`, the capture of the log of the test and the checks that no secret
-//! reaches a response, the log or a file of the data directory.
+//! reaches a response, the log or a file of the data directory; `sync.rs` adds what the tests of
+//! the asset sync need on top of it.
 
-#![allow(dead_code, clippy::unwrap_used, clippy::expect_used)]
+#![allow(dead_code, unused_imports, clippy::unwrap_used, clippy::expect_used)]
 
 use std::cell::RefCell;
 use std::io;
@@ -37,6 +43,12 @@ use wiremock::{Mock, MockServer, Request, Respond, ResponseTemplate};
 
 use crate::common::TestApp;
 use crate::common::seed::Seed;
+
+mod search;
+mod sync;
+
+pub use search::{START_MS, rfc3339};
+pub use sync::{StoredAsset, StoredScope, eventually, updated_after};
 
 pub const EMAIL: &str = "me@example.org";
 pub const USER_NAME: &str = "Test User";
@@ -86,6 +98,15 @@ pub struct Asset {
     pub id: String,
     pub library_id: String,
     pub original_path: String,
+    /// Immich found the file missing.
+    pub is_offline: bool,
+    pub is_trashed: bool,
+    /// `timeline`, `archive`, `hidden` or `locked`.
+    pub visibility: String,
+    /// Epoch milliseconds.
+    pub updated_at_ms: i64,
+    /// The order the assets were added in, which is the order of a search.
+    seq: u64,
 }
 
 impl Asset {
@@ -153,6 +174,8 @@ pub struct State {
     /// The password and every credential this server ever handed out, for the leak checks.
     pub issued: Vec<String>,
     faults: Vec<Fault>,
+    /// How the searches behave on top of the data; see `search.rs`.
+    search: search::Behaviour,
 }
 
 type Reply = (u16, Option<Value>);
@@ -235,6 +258,7 @@ impl State {
             calls: Vec::new(),
             issued: vec![password],
             faults: Vec::new(),
+            search: search::Behaviour::default(),
         }
     }
 
@@ -484,57 +508,6 @@ impl State {
         (200, Some(self.library_json(&self.libraries[position])))
     }
 
-    fn search(&self, who: &Who, body: &Value) -> Reply {
-        if let Some(refusal) = self.guard(who, needs("asset.read")) {
-            return refusal;
-        }
-        let filter = &body["filter"];
-        let library = filter["libraryId"]["eq"].as_str();
-        let name = filter["originalFileName"]["eq"].as_str();
-        let prefix = filter["originalPath"]["startsWith"].as_str();
-        let items: Vec<Value> = self
-            .assets
-            .iter()
-            .filter(|asset| {
-                library.is_none_or(|library| asset.library_id == library)
-                    && name.is_none_or(|name| asset.file_name() == name)
-                    && prefix.is_none_or(|prefix| asset.original_path.starts_with(prefix))
-            })
-            .map(|asset| {
-                json!({
-                    "id": asset.id,
-                    "libraryId": asset.library_id,
-                    "ownerId": self.user_id,
-                    "originalPath": asset.original_path,
-                    "originalFileName": asset.file_name(),
-                    "checksum": "AAAAAAAAAAAAAAAAAAAAAAAAAAA=",
-                    "isOffline": false,
-                    "isTrashed": false,
-                    "isFavorite": false,
-                    "visibility": "timeline",
-                    "type": "IMAGE",
-                    "fileCreatedAt": TIMESTAMP,
-                    "updatedAt": TIMESTAMP,
-                    "deletedAt": null,
-                })
-            })
-            .collect();
-        let total = items.len();
-        (
-            200,
-            Some(json!({
-                "albums": { "total": 0, "count": 0, "items": [], "facets": [] },
-                "assets": {
-                    "total": total,
-                    "count": total,
-                    "items": items,
-                    "facets": [],
-                    "nextCursor": null,
-                },
-            })),
-        )
-    }
-
     fn library_json(&self, library: &Library) -> Value {
         let assets = self
             .assets
@@ -563,8 +536,14 @@ struct Responder(Arc<Mutex<State>>);
 
 impl Respond for Responder {
     fn respond(&self, request: &Request) -> ResponseTemplate {
-        let (status, body) = self.0.lock().unwrap().handle(request);
-        let template = ResponseTemplate::new(status);
+        let mut state = self.0.lock().unwrap();
+        let (status, body) = state.handle(request);
+        let delay = state.search.delay_for(request);
+        drop(state);
+        let mut template = ResponseTemplate::new(status);
+        if !delay.is_zero() {
+            template = template.set_delay(delay);
+        }
         match body {
             Some(body) => template.set_body_json(body),
             None => template,
@@ -641,14 +620,7 @@ impl FakeImmich {
     }
 
     pub fn add_asset(&self, library_id: &str, original_path: &str) -> String {
-        let asset = Asset {
-            id: new_id(),
-            library_id: library_id.to_owned(),
-            original_path: original_path.to_owned(),
-        };
-        let id = asset.id.clone();
-        self.state().assets.push(asset);
-        id
+        self.add_asset_with(library_id, original_path, |_| {})
     }
 
     pub fn library(&self, id: &str) -> Library {
@@ -671,7 +643,10 @@ impl FakeImmich {
     }
 
     pub fn heal(&self) {
-        self.state().faults.clear();
+        let mut state = self.state();
+        state.faults.clear();
+        state.search.fail_after = None;
+        state.search.delay = Duration::ZERO;
     }
 
     pub fn calls(&self) -> Vec<Call> {

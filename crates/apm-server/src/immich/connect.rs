@@ -11,7 +11,10 @@
 //! 3. The new key reads `/users/me` and `/server/about`: this proves that the key works and tells
 //!    the account, whether it is an administrator (full mode) or not (limited mode) and the server
 //!    version.
-//! 4. The key is encrypted and the connection stored, replacing a previous one.
+//! 4. The key is encrypted and the connection stored, replacing a previous one. When that one was
+//!    another server or another account, the assets the sync read from it are dropped; otherwise
+//!    they stay, and a sync that was backing off after failures may try again at once (see
+//!    `assets`).
 //! 5. The login session is ended (`POST /auth/logout`), so no session stays behind in Immich, and
 //!    the key of a replaced connection is revoked.
 //!
@@ -25,7 +28,8 @@
 //!
 //! # Disconnecting
 //!
-//! Revokes the key in Immich, removes the connection and forgets the client. The connection is
+//! Revokes the key in Immich, removes the connection, forgets the client and drops the assets the
+//! sync read (`assets::clear`; the next connection starts from nothing). The connection is
 //! removed even when the key could not be revoked (Immich is down, the key cannot be read any more);
 //! the result then says so, and the user is told which key to remove by hand. The mappings stay, so
 //! connecting again does not mean entering them again.
@@ -41,6 +45,7 @@ use apm_core::dto::{
 use crate::db::now_secs;
 use crate::security::Redacted;
 
+use super::assets;
 use super::client::{API_KEY_NAME, ClientOptions, ImmichClient, KEY_PERMISSIONS};
 use super::crypto::SecretBox;
 use super::error::ImmichError;
@@ -253,6 +258,7 @@ impl ImmichService {
             me.email.as_str()
         };
         let server_version = (!about.version.is_empty()).then_some(about.version.as_str());
+        let previous = store::load(&self.inner.db).await?;
         store::replace(
             &self.inner.db,
             &NewConnection {
@@ -269,6 +275,20 @@ impl ImmichService {
             },
         )
         .await?;
+        // Another server or account owns other assets. The old key can no longer write (the sync
+        // guards its writes by the key), so this ends with an empty store; the sync reads again.
+        // The same account with a new key keeps its assets, and a scope that was backing off
+        // (a rejected key is why people connect again) tries at the next look of the loop.
+        let other_account =
+            previous.is_some_and(|old| old.server_url != keyed.base_url() || old.user_id != me.id);
+        let outcome = if other_account {
+            assets::clear(&self.inner.db).await
+        } else {
+            assets::retry_now(&self.inner.db).await
+        };
+        if let Err(err) = outcome {
+            tracing::warn!(error = %err, "updating the Immich assets of the replaced connection failed");
+        }
 
         let stored = self.stored().await?;
         Ok(connection_dto(&stored))
@@ -340,8 +360,9 @@ impl ImmichService {
 
         store::delete(&self.inner.db).await?;
         self.inner.cache.lock().await.take();
-        // Seam for `syncing-immich-assets`: remove here what the sync keeps about the connection
-        // (its cursor, the mirrored asset ids). The mappings stay on purpose.
+        // Without its connection a running sync can no longer write (every write of the sync is
+        // guarded by it), so what is cleared here stays cleared. The mappings stay on purpose.
+        assets::clear(&self.inner.db).await?;
         Ok(result)
     }
 }

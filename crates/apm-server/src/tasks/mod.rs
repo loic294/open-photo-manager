@@ -398,6 +398,18 @@ impl TaskEngine {
             .ok_or_else(|| unknown_task(id))
     }
 
+    /// Whether a task that has not ended was told to stop, by [`TaskEngine::cancel`] or by a
+    /// shutdown. It still reads `running` until its runner returns (or before its runner got a
+    /// look at the token), so this is how a caller learns that it will do no more work. `false`
+    /// for a task that ended and for an unknown id.
+    pub fn is_stopping(&self, id: TaskId) -> bool {
+        self.inner
+            .core()
+            .live
+            .get(&id)
+            .is_some_and(|live| live.cancel.is_cancelled())
+    }
+
     /// Cancels a task and returns it as it is now (see the module docs for what that means for
     /// each state).
     pub async fn cancel(&self, id: TaskId) -> Result<TaskDto, AppError> {

@@ -2,6 +2,7 @@
 import type { ImmichConnectionDto } from "./ImmichConnectionDto";
 import type { ImmichMappingDto } from "./ImmichMappingDto";
 import type { ImmichMode } from "./ImmichMode";
+import type { SyncSummary } from "./SyncSummary";
 
 /**
  * Connection state for the Immich page.
@@ -34,10 +35,15 @@ server_version: string | null,
  */
 version_warning: string | null, mappings: Array<ImmichMappingDto>, 
 /**
- * Epoch seconds of the last completed asset sync. Filled by the asset sync; `null`
- * until then.
+ * Epoch seconds of the newest completed asset sync (the same as `sync.last_sync_at`);
+ * `null` until a sync completed.
  */
 last_sync_at: number | null, 
+/**
+ * What the asset sync found, from stored data only (no network). `null` when
+ * disconnected and before the first sync attempt.
+ */
+sync: SyncSummary | null, 
 /**
  * File operations waiting to be mirrored to Immich. Filled by the Immich outbox; `0`
  * until then.

@@ -1,11 +1,13 @@
 //! Immich integration: the API client, the stored connection, the volume-to-library mapping, the
 //! asset sync and the outbox that mirrors local file operations to Immich.
 //!
-//! Everything except `sync` and `outbox` is owned by todo `building-immich-client`; `sync` belongs
-//! to `syncing-immich-assets` and `outbox` to `reflecting-file-ops-in-immich`.
+//! Everything except `assets`, `sync` and `outbox` is owned by todo `building-immich-client`;
+//! `assets` and `sync` belong to `syncing-immich-assets` and `outbox` to
+//! `reflecting-file-ops-in-immich`.
 //!
 //! | module    | what it holds                                                                    |
 //! |-----------|----------------------------------------------------------------------------------|
+//! | `assets`  | the tables `immich_assets` and `immich_sync_state`: what the sync read of Immich |
 //! | `client`  | [`ImmichClient`]: every HTTP request to Immich goes through it                   |
 //! | `connect` | connecting (login, API key, verification) and disconnecting                      |
 //! | `crypto`  | encryption at rest of the API key                                                |
@@ -13,8 +15,10 @@
 //! | `error`   | [`ImmichError`] and its mapping to HTTP                                          |
 //! | `mapping` | libraries, the volume-to-library mappings, the trash exclusion                   |
 //! | `models`  | the shapes of what Immich sends and receives                                     |
+//! | `outbox`  | mirroring local file operations to Immich                                        |
 //! | `paths`   | [`PathMap`]: the one translation between Immich paths and files                  |
 //! | `store`   | the tables `immich_connection` and `immich_volume_map`                           |
+//! | `sync`    | [`ImmichSync`]: the read-only sync of the assets, and the loop that triggers it  |
 //!
 //! # Rules for everything that talks to Immich
 //!
@@ -40,20 +44,41 @@
 //! was built, and makes no request unless asked to (`check`). When the key cannot be decrypted
 //! (the key file was lost or replaced) or Immich rejects it, the status says `needs_reconnect`.
 //!
-//! # Seams for the later todos
+//! # The asset sync
 //!
-//! `syncing-immich-assets` (migration block 0110-0119):
-//! - get the client from [`ImmichService::client`] and the mapping from [`ImmichService::path_map`];
-//! - fill `last_sync_at` of the status in [`ImmichService::status`] (one line, marked there);
-//! - sync with `include_trashed = true`: Immich keeps an offline asset in its trash;
-//! - clean up the sync's data on disconnect in the disconnect flow of `connect` (marked there).
+//! `sync` reads the assets of Immich into `immich_assets` (see `assets`), so that the `in_immich`
+//! badge of the item pages and the outbox know which files Immich has. It only reads: nothing is
+//! ever sent to Immich, and nothing changes on disk.
+//!
+//! - **What**: pages of 1,000 from the metadata search, trashed and offline assets included (Immich
+//!   trashes an asset whose file went missing and flags it offline, so without them a deletion is
+//!   invisible). With an administrator account one *scope* per mapped library, otherwise one per
+//!   mapped path prefix. A pass is full (everything, then the rows it did not see are dropped) or
+//!   incremental (what was updated since the last pass). Locked assets (an API key never sees
+//!   them) and assets that were uploaded instead of read from a library are out of scope; an asset
+//!   that is deleted from Immich for good leaves the store at the next full pass, a day at most.
+//! - **When**: the loop `main` starts looks every 30 s; a scope is read again 15 minutes after its
+//!   last pass, in full after a day, and at once when it is new or its mappings, account or server
+//!   changed. `POST /api/immich/sync` and [`ImmichSync::submit`] ask for every scope: the Settings
+//!   page calls the endpoint after it saved mappings, the outbox calls `submit` when its queue
+//!   drains. One sync runs at a time, and requests that arrive while one waits are merged into it.
+//! - **Cost**: 200,000 assets in 2.5 s, and the badge adds 0.4 ms to a page of 200 files (the
+//!   numbers are in the docs of `sync`).
+//! - **Status**: `last_sync_at` and `sync` of [`ImmichService::status`] come from `assets`.
+//!   Disconnecting, or connecting to another server or account, clears what was read.
+//!
+//! # Seams for the outbox
 //!
 //! `reflecting-file-ops-in-immich` (migration block 0120-0139):
 //! - same client and `PathMap` rules; it calls `OfflineAssetId::confirm` on a fresh `get_asset`
 //!   right before any delete;
+//! - `assets::find_by_location` tells which assets stand for a file and `assets::forget` drops the
+//!   ones it removed; the rows are what the last pass saw, so it asks [`ImmichSync::submit`] for a
+//!   sync after it changed Immich (the docs of `assets` list the rest);
 //! - fill `outbox_pending` and `needs_attention` of the status in [`ImmichService::status`];
 //! - the Immich page of Settings lists the mappings from `GET /api/immich/status`.
 
+pub mod assets;
 pub mod client;
 mod connect;
 pub mod crypto;
@@ -85,6 +110,7 @@ pub use client::ImmichClient;
 pub use connect::ConnectInput;
 pub use error::ImmichError;
 pub use paths::PathMap;
+pub use sync::{ImmichSync, SyncRequest, SyncSubmitted};
 
 use client::{API_KEY_NAME, ClientOptions, Health};
 use connect::Timing;
@@ -230,6 +256,7 @@ impl ImmichService {
                 version_warning: None,
                 mappings,
                 last_sync_at: None,
+                sync: None,
                 outbox_pending: 0,
                 needs_attention: 0,
             });
@@ -249,6 +276,7 @@ impl ImmichService {
 
         let reachable = (!key_unreadable)
             .then(|| server_answered(stored.last_error.as_deref(), stored.key_rejected));
+        let sync = assets::status_summary(db, &stored, &mappings).await?;
         Ok(ImmichStatusDto {
             connected: true,
             mode: if stored.is_admin {
@@ -262,8 +290,8 @@ impl ImmichService {
             version_warning: version_warning(stored.server_version.as_deref()),
             connection: Some(connection_dto(&stored)),
             mappings,
-            // Filled by `syncing-immich-assets`: the end of the last completed sync.
-            last_sync_at: None,
+            last_sync_at: sync.as_ref().and_then(|summary| summary.last_sync_at),
+            sync,
             // Filled by `reflecting-file-ops-in-immich`: the pending and the stuck outbox rows.
             outbox_pending: 0,
             needs_attention: 0,

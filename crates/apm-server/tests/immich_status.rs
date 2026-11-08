@@ -34,6 +34,7 @@ async fn without_a_connection_the_status_says_so_and_asks_nobody() {
         "version_warning": null,
         "mappings": [],
         "last_sync_at": null,
+        "sync": null,
         "outbox_pending": 0,
         "needs_attention": 0,
     });
@@ -61,6 +62,7 @@ async fn a_status_without_a_check_makes_no_request() {
     assert_eq!(status["connection"]["last_error"], Value::Null);
     assert_eq!(status["mappings"], json!([]));
     assert_eq!(status["last_sync_at"], Value::Null);
+    assert_eq!(status["sync"], Value::Null);
     assert_eq!(status["outbox_pending"], 0);
     assert_eq!(status["needs_attention"], 0);
 }

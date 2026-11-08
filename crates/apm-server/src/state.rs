@@ -27,6 +27,7 @@ pub struct AppState {
     pub db: db::Db,
     pub fsops: fsops::FsOps,
     pub immich: immich::ImmichService,
+    pub immich_sync: immich::ImmichSync,
     pub indexer: indexer::Indexer,
     pub media: media::MediaService,
     pub plans: plans::PlanService,
@@ -76,6 +77,8 @@ impl AppState {
 
         let immich = immich::ImmichService::new(db.clone(), config.data_dir.clone());
 
+        let immich_sync = immich::ImmichSync::new(db.clone(), immich.clone(), tasks.clone());
+
         let trash = trash::TrashService::new();
 
         Ok(Self {
@@ -83,6 +86,7 @@ impl AppState {
             db,
             fsops,
             immich,
+            immich_sync,
             indexer,
             media,
             plans,

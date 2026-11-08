@@ -20,12 +20,27 @@ const IN_IMMICH_COLUMN: &str = "in_immich";
 /// [`ITEM_JOINS`]) and the Immich flag (`in_immich`). Decode the rows with [`item_from_row`].
 /// `alias` must be a literal, never user input.
 ///
-/// The Immich flag is the constant `0` until the Immich sync tables are populated; the Immich todo
-/// replaces it here by an `EXISTS` over its own table, and every listing follows.
+/// The Immich flag is true when the Immich sync holds a live asset (neither offline nor trashed)
+/// at the file's location: an `EXISTS` over `immich_assets` by `(volume_id, dir_path, name)`,
+/// answered by its index `immich_assets_location` alone (0.4 ms more for a page of 200 files with
+/// 200,000 assets stored; see the numbers in `immich::sync`). It is empty, so the flag false, until a
+/// sync has run, after a disconnect and for files outside every mapping. Only the item projection
+/// reads that table: counts, id lists, facets and filters never do, and the ghost items of the plan
+/// overlay are not rows of `files` and say false.
 pub fn item_columns(alias: &str) -> String {
     format!(
-        "{}, cam.name AS {CAMERA_COLUMN}, 0 AS {IN_IMMICH_COLUMN}",
-        file_columns(alias)
+        "{}, cam.name AS {CAMERA_COLUMN}, {} AS {IN_IMMICH_COLUMN}",
+        file_columns(alias),
+        in_immich_expression(alias)
+    )
+}
+
+/// The Immich flag for the `files` table aliased `alias`.
+fn in_immich_expression(alias: &str) -> String {
+    format!(
+        "EXISTS (SELECT 1 FROM immich_assets ia WHERE ia.volume_id = {alias}.volume_id \
+         AND ia.dir_path = {alias}.dir_path AND ia.name = {alias}.name \
+         AND ia.is_offline = 0 AND ia.is_trashed = 0)"
     )
 }
 
@@ -177,5 +192,128 @@ impl FileQuery {
         let mut qb = QueryBuilder::new("SELECT COUNT(*) FROM files f WHERE ");
         self.push_where(&mut qb, "f");
         qb
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::db::testing::{insert_file, insert_volume};
+
+    /// The `detail` lines of the `EXPLAIN QUERY PLAN` of a statement.
+    async fn plan_of(db: &Db, sql: String) -> Vec<String> {
+        let rows: Vec<(i64, i64, i64, String)> =
+            QueryBuilder::<Sqlite>::new(format!("EXPLAIN QUERY PLAN {sql}"))
+                .build_query_as()
+                .fetch_all(db.read())
+                .await
+                .unwrap();
+        rows.into_iter().map(|(.., detail)| detail).collect()
+    }
+
+    #[tokio::test]
+    async fn the_immich_flag_is_one_lookup_of_the_location_index_per_item() {
+        let temp = Db::open_temp().await.unwrap();
+        let db = temp.handle();
+        let volume_id = insert_volume(&db, "photos").await;
+        let file_id = insert_file(&db, volume_id, "trip", "a.jpg").await;
+
+        let plan = plan_of(
+            &db,
+            format!(
+                "SELECT {} FROM files f {ITEM_JOINS} WHERE f.id = {file_id}",
+                item_columns("f")
+            ),
+        )
+        .await;
+        let lookup = plan.iter().find(|line| line.contains("immich_assets"));
+        assert!(
+            lookup.is_some_and(|line| line.starts_with("SEARCH ia USING COVERING INDEX")
+                && line.contains("immich_assets_location")
+                && line.ends_with(
+                    "(volume_id=? AND dir_path=? AND name=? AND is_offline=? AND is_trashed=?)"
+                )),
+            "the Immich flag must search the location index with all of its columns:\n{plan:#?}"
+        );
+    }
+
+    /// Inserts the asset `id` at `(volume_id, dir_path, name)` with the given flags.
+    async fn insert_asset(
+        db: &Db,
+        id: &str,
+        location: (apm_core::paths::VolumeId, &str, &str),
+        flags: (bool, bool),
+    ) {
+        sqlx::query(
+            "INSERT INTO immich_assets (asset_id, scope, original_path, is_offline, is_trashed, \
+             updated_at, sync_run, volume_id, dir_path, name) VALUES (?, 'all', ?, ?, ?, 0, 1, ?, ?, ?)",
+        )
+        .bind(id)
+        .bind(format!("/mnt/{}/{}", location.1, location.2))
+        .bind(flags.0)
+        .bind(flags.1)
+        .bind(location.0)
+        .bind(location.1)
+        .bind(location.2)
+        .execute(db.write())
+        .await
+        .unwrap();
+    }
+
+    #[tokio::test]
+    async fn the_immich_flag_is_true_for_a_live_asset_at_the_location_only() {
+        let temp = Db::open_temp().await.unwrap();
+        let db = temp.handle();
+        let volume = insert_volume(&db, "photos").await;
+        let other = insert_volume(&db, "other").await;
+        let live = insert_file(&db, volume, "trip", "live.jpg").await;
+        let offline = insert_file(&db, volume, "trip", "offline.jpg").await;
+        let trashed = insert_file(&db, volume, "trip", "trashed.jpg").await;
+        let elsewhere = insert_file(&db, volume, "trip/sub", "live.jpg").await;
+        let renamed = insert_file(&db, volume, "trip", "Live.jpg").await;
+        let other_volume = insert_file(&db, other, "trip", "live.jpg").await;
+        let unknown = insert_file(&db, volume, "trip", "unknown.jpg").await;
+        insert_asset(&db, "live", (volume, "trip", "live.jpg"), (false, false)).await;
+        insert_asset(
+            &db,
+            "offline",
+            (volume, "trip", "offline.jpg"),
+            (true, false),
+        )
+        .await;
+        insert_asset(
+            &db,
+            "trashed",
+            (volume, "trip", "trashed.jpg"),
+            (false, true),
+        )
+        .await;
+
+        let sql = format!(
+            "SELECT {} FROM files f {ITEM_JOINS} ORDER BY f.id",
+            item_columns("f")
+        );
+        let rows = QueryBuilder::<Sqlite>::new(sql)
+            .build()
+            .fetch_all(db.read())
+            .await
+            .unwrap();
+        let flags: Vec<(FileId, bool)> = rows
+            .iter()
+            .map(|row| item_from_row(row).unwrap())
+            .map(|item| (item.id, item.in_immich))
+            .collect();
+        assert_eq!(
+            flags,
+            vec![
+                (live, true),
+                (offline, false),
+                (trashed, false),
+                (elsewhere, false),
+                (renamed, false),
+                (other_volume, false),
+                (unknown, false),
+            ]
+        );
     }
 }

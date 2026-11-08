@@ -239,3 +239,48 @@ async fn returning_cancelled_without_a_request_is_a_cancellation_too() {
     assert_eq!(done.state, TaskState::Cancelled);
     assert_eq!(done.error, None);
 }
+
+#[tokio::test]
+async fn a_task_that_was_told_to_stop_says_so_until_it_ends() {
+    let h = Harness::new().await;
+    let mut gate = Gate::new();
+    let id = h.engine.submit(fs(), gate.runner()).await.unwrap();
+    assert_eq!(gate.started().await, id);
+    assert!(!h.engine.is_stopping(id));
+
+    h.engine.cancel(id).await.unwrap();
+    assert!(h.engine.is_stopping(id));
+    assert_eq!(
+        h.engine.get(id).await.unwrap().state,
+        TaskState::Running,
+        "the state only changes when its runner returns"
+    );
+
+    h.finished(id).await;
+    assert!(!h.engine.is_stopping(id), "an ended task is not stopping");
+    assert!(!h.engine.is_stopping(id + 1000), "nor is an unknown one");
+}
+
+#[tokio::test]
+async fn a_task_cancelled_before_its_runner_looked_is_stopping_and_never_runs() {
+    let h = Harness::new().await;
+    let started = Arc::new(AtomicBool::new(false));
+    let id = h
+        .engine
+        .submit(fs(), {
+            let started = Arc::clone(&started);
+            move |_ctx| async move {
+                started.store(true, Ordering::SeqCst);
+                Ok(json!({}))
+            }
+        })
+        .await
+        .unwrap();
+
+    // The engine started the task (it reads `running`), but its driver has not run yet.
+    h.engine.cancel(id).await.unwrap();
+    assert!(h.engine.is_stopping(id));
+
+    assert_eq!(h.finished(id).await.state, TaskState::Cancelled);
+    assert!(!started.load(Ordering::SeqCst));
+}

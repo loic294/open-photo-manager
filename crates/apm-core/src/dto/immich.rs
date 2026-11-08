@@ -20,6 +20,7 @@ mod connection {
     use serde::{Deserialize, Serialize};
     use ts_rs::TS;
 
+    use super::asset_sync::SyncSummary;
     use crate::paths::VolumeId;
 
     /// Body of `POST /api/immich/connect`.
@@ -126,9 +127,12 @@ mod connection {
         /// Set when the Immich version is older or newer than what this application supports.
         pub version_warning: Option<String>,
         pub mappings: Vec<ImmichMappingDto>,
-        /// Epoch seconds of the last completed asset sync. Filled by the asset sync; `null`
-        /// until then.
+        /// Epoch seconds of the newest completed asset sync (the same as `sync.last_sync_at`);
+        /// `null` until a sync completed.
         pub last_sync_at: Option<i64>,
+        /// What the asset sync found, from stored data only (no network). `null` when
+        /// disconnected and before the first sync attempt.
+        pub sync: Option<SyncSummary>,
         /// File operations waiting to be mirrored to Immich. Filled by the Immich outbox; `0`
         /// until then.
         pub outbox_pending: u32,
@@ -336,12 +340,14 @@ mod connection {
                 version_warning: None,
                 mappings: vec![mapping()],
                 last_sync_at: None,
+                sync: None,
                 outbox_pending: 0,
                 needs_attention: 0,
             };
             let wire = roundtrip(&connected);
             assert_eq!(wire["mode"], "full");
             assert_eq!(wire["mappings"][0]["path_prefix"], "/mnt/photo");
+            assert_eq!(wire["sync"], json!(null));
 
             let disconnected = ImmichStatusDto {
                 connected: false,
@@ -353,6 +359,7 @@ mod connection {
                 version_warning: None,
                 mappings: Vec::new(),
                 last_sync_at: None,
+                sync: None,
                 outbox_pending: 0,
                 needs_attention: 0,
             };
@@ -429,3 +436,137 @@ mod connection {
 }
 
 // ---- Asset sync (todo `syncing-immich-assets`) ----
+//
+// Own module, like the section above: its imports and tests never collide with the other sections.
+
+pub use asset_sync::*;
+
+mod asset_sync {
+    use serde::{Deserialize, Serialize};
+    use ts_rs::TS;
+
+    /// Body of `POST /api/immich/sync`. The body may be omitted: that is `{"full": false}`.
+    #[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Serialize, Deserialize, TS)]
+    #[ts(export)]
+    pub struct ImmichSyncRequest {
+        /// Read every asset again instead of only what changed since the last sync. A full read
+        /// also notices assets that disappeared from Immich.
+        #[serde(default)]
+        pub full: bool,
+    }
+
+    /// What the asset sync knows about one scope: the part of Immich it reads in one go. In full
+    /// mode a scope is a mapped library, in limited mode (no library can be named) it is a mapped
+    /// path prefix.
+    #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, TS)]
+    #[ts(export)]
+    pub struct SyncScopeSummary {
+        /// Opaque key of the scope: the library id, or `path:` followed by the prefix.
+        pub scope: String,
+        /// The Immich library of the scope; `null` for a path prefix scope.
+        pub library_id: Option<String>,
+        /// Library name as last seen in Immich; `null` when unknown.
+        pub library_name: Option<String>,
+        /// The mapped path prefix of a path prefix scope; `null` for a library scope.
+        pub path_prefix: Option<String>,
+        /// Assets of the scope known to the application: live, offline and trashed ones.
+        pub assets_total: i64,
+        /// Assets that are neither offline nor trashed in Immich.
+        pub assets_live: i64,
+        /// Assets whose path maps to a volume AND to a file the index knows. A wrong path
+        /// mapping shows up here as `0` next to a large `assets_total`.
+        pub assets_matched: i64,
+        /// Assets whose path is outside every mapped volume (only counted in full mode, where the
+        /// whole library is read).
+        pub assets_unmapped: i64,
+        /// Epoch seconds of the last completed read of the scope; `null` before the first one.
+        pub last_sync_at: Option<i64>,
+        /// Epoch seconds of the last completed FULL read of the scope.
+        pub last_full_at: Option<i64>,
+        /// Why the last attempt failed; `null` after a success.
+        pub last_error: Option<String>,
+        /// Failed attempts since the last success; the sync waits longer after each one.
+        pub consecutive_failures: i64,
+    }
+
+    /// What the asset sync found in Immich, summed over every current scope, with one row per
+    /// scope so the page can say which library is failing. Also the result of a sync task.
+    #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, TS)]
+    #[ts(export)]
+    pub struct SyncSummary {
+        pub assets_total: i64,
+        pub assets_live: i64,
+        pub assets_matched: i64,
+        pub assets_unmapped: i64,
+        /// Epoch seconds of the newest completed read of any scope; `null` before the first one.
+        pub last_sync_at: Option<i64>,
+        /// Epoch seconds of the newest completed FULL read of any scope.
+        pub last_full_at: Option<i64>,
+        /// The message of the first scope whose last attempt failed; `null` when none did.
+        pub last_error: Option<String>,
+        pub scopes: Vec<SyncScopeSummary>,
+    }
+
+    #[cfg(test)]
+    mod tests {
+        use serde_json::json;
+
+        use super::*;
+        use crate::dto::testing::roundtrip;
+
+        fn scope(key: &str) -> SyncScopeSummary {
+            SyncScopeSummary {
+                scope: key.to_owned(),
+                library_id: Some("lib-1".to_owned()),
+                library_name: Some("Photos".to_owned()),
+                path_prefix: None,
+                assets_total: 12,
+                assets_live: 9,
+                assets_matched: 8,
+                assets_unmapped: 2,
+                last_sync_at: Some(1_700_000_200),
+                last_full_at: Some(1_700_000_100),
+                last_error: None,
+                consecutive_failures: 0,
+            }
+        }
+
+        #[test]
+        fn the_sync_request_defaults_to_an_incremental_sync() {
+            roundtrip(&ImmichSyncRequest { full: true });
+            let parsed: ImmichSyncRequest = serde_json::from_value(json!({})).unwrap();
+            assert_eq!(parsed, ImmichSyncRequest::default());
+            assert!(!parsed.full);
+        }
+
+        #[test]
+        fn the_summary_round_trips_with_its_scopes() {
+            let failing = SyncScopeSummary {
+                scope: "path:/mnt/photo".to_owned(),
+                library_id: None,
+                library_name: None,
+                path_prefix: Some("/mnt/photo".to_owned()),
+                last_sync_at: None,
+                last_full_at: None,
+                last_error: Some("Immich is unreachable".to_owned()),
+                consecutive_failures: 3,
+                ..scope("path:/mnt/photo")
+            };
+            let summary = SyncSummary {
+                assets_total: 24,
+                assets_live: 18,
+                assets_matched: 16,
+                assets_unmapped: 4,
+                last_sync_at: Some(1_700_000_200),
+                last_full_at: Some(1_700_000_100),
+                last_error: failing.last_error.clone(),
+                scopes: vec![scope("lib-1"), failing],
+            };
+            let wire = roundtrip(&summary);
+            assert_eq!(wire["scopes"][0]["library_id"], "lib-1");
+            assert_eq!(wire["scopes"][1]["library_id"], json!(null));
+            assert_eq!(wire["scopes"][1]["consecutive_failures"], 3);
+            assert_eq!(wire["last_error"], "Immich is unreachable");
+        }
+    }
+}
