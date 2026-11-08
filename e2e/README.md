@@ -86,6 +86,18 @@ cleanup. These are host-binary checks, not Docker or actual Windows evidence. Th
 requires macOS `hdiutil`; tests must explicitly report unsupported platforms without claiming copy
 coverage. Never add a production EXDEV knob, symlink volume or force-detach workaround.
 
+The mock exposes `control.reconcileAssetPaths(rows, associations?)` as a backing-state seam. Each
+asset row includes its stable identity, path, checksum, capture and local dates, update timestamp,
+offline/favorite state, rating, description, visibility, and deletion timestamp. Supply a complete
+snapshot from the disposable PostgreSQL database; mismatched identities, missing rows, duplicate
+paths, invalid rows, or inconsistent associations fail before changing mock state.
+`ImmichPostgres.start()` creates a task-owned Compose project from pinned Immich v3.3.3 images and
+migrations, with a disposable TLS secret and auto-assigned loopback port. `seedMock()` writes mock
+identities and assets into that schema; `refreshMock()` reads asset and album/tag state from a
+single SQL snapshot. The `backedImmich` fixture owns the database, app, mock and teardown, and
+requires one Playwright worker. Its focused real-schema test and the backed browser scenarios must
+be run to verify SQL coherence before claiming database-backed acceptance.
+
 ## Adding coverage
 
 Import `test` and `expect` from `src/test.ts`, not a second fixture implementation. Use `sharedApp`

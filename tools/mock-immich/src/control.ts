@@ -41,6 +41,17 @@ export interface AddedAssets {
   items: Array<{ id: string; path: string; created: boolean }>;
 }
 
+/** A row read from the disposable Immich database, not an instruction to write to it. */
+export interface BackingAssetPath {
+  id: string;
+  ownerId: string;
+  libraryId: string;
+  originalPath: string;
+  originalFileName: string;
+  checksum: string;
+  updatedAt: string;
+}
+
 export interface StateQuery {
   /** Keeps the assets whose original path contains this text. */
   path?: string;
@@ -141,6 +152,8 @@ export interface MockControl {
   generate(options: GenerateOptions): Generated;
   /** Creates the assets, or changes the fields given of the ones that exist (matched by path). */
   addAssets(inputs: readonly AssetOptions[]): AddedAssets;
+  /** Atomically reflect a complete database snapshot for all currently modelled assets. */
+  reconcileAssetPaths(rows: readonly BackingAssetPath[]): void;
 }
 
 const DEFAULT_LIMIT = 100;
@@ -273,6 +286,49 @@ export function runAddAssets(ctx: MockContext, raw: unknown): AddedAssets {
   return { created, updated: items.length - created, items };
 }
 
+function reconcileAssetPaths(ctx: MockContext, rows: readonly BackingAssetPath[]): void {
+  const { data } = ctx;
+  if (rows.length !== data.assets.size) {
+    throw new Error('backing snapshot must contain every mock asset exactly once');
+  }
+  const ids = new Set<string>();
+  const paths = new Set<string>();
+  for (const row of rows) {
+    const asset = data.assets.get(row.id);
+    if (
+      !asset ||
+      ids.has(row.id) ||
+      asset.ownerId !== row.ownerId ||
+      asset.libraryId !== row.libraryId
+    ) {
+      throw new Error(`backing asset identity mismatch: ${row.id}`);
+    }
+    if (
+      !row.originalPath.startsWith('/') ||
+      row.originalPath.endsWith('/') ||
+      row.originalFileName !== row.originalPath.slice(row.originalPath.lastIndexOf('/') + 1) ||
+      !row.checksum ||
+      !Number.isFinite(Date.parse(row.updatedAt)) ||
+      paths.has(row.originalPath)
+    ) {
+      throw new Error(`invalid or duplicate backing asset path: ${row.originalPath}`);
+    }
+    ids.add(row.id);
+    paths.add(row.originalPath);
+  }
+
+  data.assetsByPath.clear();
+  for (const row of rows) {
+    const asset = data.assets.get(row.id);
+    if (!asset) throw new Error(`backing asset disappeared: ${row.id}`);
+    asset.originalPath = row.originalPath;
+    asset.originalFileName = row.originalFileName;
+    asset.checksum = row.checksum;
+    asset.updatedAt = Date.parse(row.updatedAt);
+    data.assetsByPath.set(row.originalPath, asset);
+  }
+}
+
 export function createControl(ctx: MockContext): MockControl {
   return {
     async scan(ref) {
@@ -311,5 +367,6 @@ export function createControl(ctx: MockContext): MockControl {
     },
     generate: (options) => runGenerate(ctx, options),
     addAssets: (inputs) => runAddAssets(ctx, inputs),
+    reconcileAssetPaths: (rows) => reconcileAssetPaths(ctx, rows),
   };
 }
