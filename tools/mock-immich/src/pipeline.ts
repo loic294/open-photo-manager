@@ -82,6 +82,14 @@ export function createRequestHandler(
         return;
       }
 
+      if (
+        ctx.beforeAssetRead &&
+        ((method === 'GET' &&
+          (path.startsWith('/api/assets/') || path.startsWith('/api/libraries'))) ||
+          (method === 'POST' && path === '/api/search/metadata'))
+      ) {
+        await ctx.beforeAssetRead();
+      }
       const reply = await router.dispatch(ctx, req, path, url.searchParams, body, entry);
       handle.done(reply.status);
       sendJson(res, reply.status, reply.body);

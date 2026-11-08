@@ -131,7 +131,7 @@ export interface MockState {
   snapshot(query?: StateQuery): StateSnapshot;
 }
 
-/** Changes the mock while it runs; every method has an HTTP twin under `/__mock`. */
+/** Changes the mock while it runs. The backing-state seam is programmatic only. */
 export interface MockControl {
   /** Scans one library (id or name) or all of them now; settles when every scan is over. */
   scan(library?: string): Promise<Job[]>;

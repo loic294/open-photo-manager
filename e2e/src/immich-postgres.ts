@@ -1,16 +1,21 @@
 import { execFile } from 'node:child_process';
-import { randomBytes } from 'node:crypto';
-import { mkdir, mkdtemp, readFile, rm, writeFile } from 'node:fs/promises';
+import { randomBytes, randomUUID } from 'node:crypto';
+import { chmod, mkdir, mkdtemp, readFile, rm, writeFile } from 'node:fs/promises';
 import { join } from 'node:path';
 import { setTimeout as delay } from 'node:timers/promises';
 import { promisify } from 'node:util';
 import type { BackingAssetPath, MockImmich } from '../../tools/mock-immich/index.ts';
-import { cache, root } from './paths';
+import { cache, root } from './paths.ts';
 
 const exec = promisify(execFile);
 const DATABASE = 'apm_immich_test_v333';
 const MARKER = 'apm-immich-v3.3.3-disposable';
 const LAST_MIGRATION = '1790693088454-AddPersonUserTableSharedBySharedWithConstraint';
+
+function sqlJson(value: unknown): string {
+  const encoded = Buffer.from(JSON.stringify(value)).toString('base64');
+  return `convert_from(decode('${encoded}', 'base64'), 'UTF8')::jsonb`;
+}
 
 async function command(program: string, args: string[], env: NodeJS.ProcessEnv): Promise<string> {
   try {
@@ -154,6 +159,7 @@ export class ImmichPostgres {
       ],
       this.env,
     );
+    await Promise.all([chmod(key, 0o600), chmod(caKey, 0o600)]);
     const template = await readFile(join(root, 'docker/immich-postgres-test.compose.yml'), 'utf8');
     const binding = '127.0.0.1:25432:5432';
     if (!template.includes(binding)) throw new Error('Pinned Compose port binding changed');
@@ -182,6 +188,14 @@ export class ImmichPostgres {
       if (Date.now() >= deadline) throw new Error('Immich v3.3.3 migrations did not finish');
       await delay(500);
     }
+    const contract = await readFile(
+      join(root, 'crates/apm-server/src/immich/direct_db/contract.rs'),
+      'utf8',
+    );
+    const expected = /const MIGRATIONS: &str = "\\\n([\s\S]*?)";/.exec(contract)?.[1];
+    if (!expected) throw new Error('Cannot read the direct-writer migration contract');
+    const actual = await this.rawSql('SELECT name FROM public.kysely_migrations ORDER BY name');
+    if (actual !== expected) throw new Error('Immich migration list does not match v3.3.3');
     await this.compose(['stop', 'server', 'redis']);
     await this.rawSql(`COMMENT ON DATABASE ${DATABASE} IS '${MARKER}'`);
     const portText = await this.compose(['port', 'database', '5432']);
@@ -221,6 +235,41 @@ export class ImmichPostgres {
        WHERE datname = current_database()) IS DISTINCT FROM '${MARKER}'
       THEN RAISE EXCEPTION 'disposable database marker missing'; END IF; END $$;`;
     return this.rawSql(`BEGIN; ${guard} ${sql}; COMMIT;`);
+  }
+
+  /** Seed mock identities and scanned assets into the upstream schema, with matching UUIDs. */
+  async seedMock(mock: MockImmich) {
+    const group = randomUUID();
+    const users = mock.state.users();
+    const libraries = mock.state.libraries();
+    const assets = mock.state.assets();
+    await this.sql(`
+      INSERT INTO public.cluster_group (id) VALUES ('${group}'::uuid);
+      INSERT INTO public."user" (id, email, "clusterGroupId")
+      SELECT id::uuid, email, '${group}'::uuid
+      FROM jsonb_to_recordset(${sqlJson(users)}) AS x(id text, email text);
+      INSERT INTO public.library (id, name, "ownerId", "importPaths", "exclusionPatterns")
+      SELECT id::uuid, name, "ownerId"::uuid,
+        ARRAY(SELECT jsonb_array_elements_text("importPaths")),
+        ARRAY(SELECT jsonb_array_elements_text("exclusionPatterns"))
+      FROM jsonb_to_recordset(${sqlJson(libraries)})
+        AS x(id text, name text, "ownerId" text, "importPaths" jsonb, "exclusionPatterns" jsonb)
+    `);
+    for (let offset = 0; offset < assets.length; offset += 40) {
+      await this.sql(`
+        INSERT INTO public.asset
+          (id, "ownerId", "libraryId", "isExternal", type, "originalPath", "originalFileName",
+           checksum, "checksumAlgorithm", "fileCreatedAt", "fileModifiedAt", "localDateTime")
+        SELECT id::uuid, "ownerId"::uuid, "libraryId"::uuid, true,
+          (jsonb_populate_record(NULL::public.asset, jsonb_build_object('type', type))).type,
+          "originalPath", "originalFileName", decode(checksum, 'base64'), 'sha1-path',
+          "fileCreatedAt"::timestamptz, "fileModifiedAt"::timestamptz, "fileCreatedAt"::timestamp
+        FROM jsonb_to_recordset(${sqlJson(assets.slice(offset, offset + 40))})
+          AS x(id text, "ownerId" text, "libraryId" text, type text, "originalPath" text,
+               "originalFileName" text, checksum text, "fileCreatedAt" text, "fileModifiedAt" text)
+      `);
+    }
+    await this.refreshMock(mock);
   }
 
   /** Refresh mock paths from SQL after a direct write and before observing the API. */

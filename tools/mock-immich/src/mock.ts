@@ -31,4 +31,5 @@ export interface MockContext {
   scans: Map<string, Promise<void>>;
   /** Aborted by `stop()`: cuts the waits of scans. */
   stopSignal: AbortSignal;
+  beforeAssetRead?: () => Promise<void>;
 }

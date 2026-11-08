@@ -39,6 +39,8 @@ export interface MockImmichOptions {
   latencyMs?: number;
   /** Serve https with a self-signed certificate (needs the `openssl` command). */
   tls?: boolean;
+  /** Refresh external backing state before API reads that expose asset paths. */
+  beforeAssetRead?: () => Promise<void>;
 }
 
 export interface MockImmich {
@@ -69,6 +71,7 @@ const OPTION_KEYS = [
   'scanDelayMs',
   'latencyMs',
   'tls',
+  'beforeAssetRead',
 ];
 
 function checkOptions(options: MockImmichOptions): void {
@@ -80,6 +83,9 @@ function checkOptions(options: MockImmichOptions): void {
   c.integer('scanDelayMs', { min: 0 });
   c.integer('latencyMs', { min: 0 });
   c.boolean('tls');
+  if (options.beforeAssetRead !== undefined && typeof options.beforeAssetRead !== 'function') {
+    c.fail('beforeAssetRead', 'must be a function');
+  }
   if (c.errors.length > 0) {
     throw new Error(`invalid options:\n  - ${c.errors.join('\n  - ')}`);
   }
@@ -137,6 +143,7 @@ export async function startMockImmich(options: MockImmichOptions = {}): Promise<
     log: createRequestLog(),
     scans: new Map(),
     stopSignal: abort.signal,
+    beforeAssetRead: options.beforeAssetRead,
   };
   seedData(ctx);
 

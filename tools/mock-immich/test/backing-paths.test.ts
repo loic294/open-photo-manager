@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict';
 import { test } from 'node:test';
-import type { BackingAssetPath } from '../index.ts';
+import type { BackingAssetPath, MockImmich } from '../index.ts';
 import { call, connect, startMock } from './helpers.ts';
 
 test('a complete backing snapshot updates API paths without changing asset identities', async (t) => {
@@ -74,4 +74,35 @@ test('a complete backing snapshot updates API paths without changing asset ident
   assert.deepEqual(mock.state.albumsOf(first.id), [{ id: album.id, name: album.name }]);
   assert.deepEqual(mock.state.tags()[0]?.assetIds, [first.id]);
   assert.deepEqual(mock.state.violations(), []);
+});
+
+test('backing refresh runs before asset reads and failures cannot return stale results', async (t) => {
+  let mock: MockImmich;
+  let rows: BackingAssetPath[] = [];
+  let fail = false;
+  mock = await startMock(t, {
+    beforeAssetRead: async () => {
+      if (fail) throw new Error('test backing unavailable');
+      mock.control.reconcileAssetPaths(rows);
+    },
+  });
+  const { key } = await connect(mock);
+  mock.control.addAssets([{ path: '/mnt/photo/old.jpg' }]);
+  rows = mock.state.assets().map((asset) => ({
+    id: String(asset.id),
+    ownerId: String(asset.ownerId),
+    libraryId: String(asset.libraryId),
+    originalPath: '/mnt/photo/new.jpg',
+    originalFileName: 'new.jpg',
+    checksum: String(asset.checksum),
+    updatedAt: String(asset.updatedAt),
+  }));
+  const id = rows[0]?.id;
+  assert.ok(id);
+  const result = await call(mock, 'GET', `/api/assets/${id}`, { key });
+  assert.equal(result.status, 200);
+  assert.equal(result.body.originalPath, '/mnt/photo/new.jpg');
+  fail = true;
+  const rejected = await call(mock, 'GET', `/api/assets/${id}`, { key });
+  assert.equal(rejected.status, 500);
 });
