@@ -69,7 +69,8 @@ moves there rename rather than copy. The shared `CrossDevice` helper creates a *
 image** under the app's directory and mounts it inside that app's private volumes before discovery.
 It preflights host free space (copy size plus 1 GiB), verifies actual `st_dev` and an `EXDEV` rename,
 and exposes the discovered destination volume name. Use it before creating the source/plan.
-Always `await device.close()` in `finally`: stop/quiesce the app before detach. The
+Always `await device.close()` in `finally`: stop/quiesce the app before detach.
+The app remains stopped after `close()`; call `await app.restart()` before further UI/API use. The
 `AppInstance.beforeCleanup()` hook detaches after process shutdown and **before any permission walk
 or recursive cleanup**. A busy/failed detach throws with the exact mount/image/directory paths and
 preserves them; never force detach or remove a still-mounted tree.
