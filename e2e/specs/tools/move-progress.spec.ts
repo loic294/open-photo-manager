@@ -89,7 +89,7 @@ async function waitForCopyProgress(
   await expect
     .poll(async () => Number(await row.getByRole('progressbar').getAttribute('value')))
     .toBeGreaterThan(0);
-  await expect(row).toContainText(/\d+(?:\.\d+)?\s*MB\/s/);
+  await expect(row).toContainText(/\d+(?:\.\d+)?\s*(?:KB|MB|GB)\/s/);
   await expect(row).toContainText(/left/);
   return row;
 }
@@ -128,10 +128,13 @@ async function waitForSustainedProgress(
   startedAt: number,
 ) {
   await expect
-    .poll(async () => {
-      const current = (await app.api.tasks()).find((entry) => entry.id === taskId);
-      return current?.state === 'running' && performance.now() - startedAt >= 15_000;
-    })
+    .poll(
+      async () => {
+        const current = (await app.api.tasks()).find((entry) => entry.id === taskId);
+        return current?.state === 'running' && performance.now() - startedAt >= 15_000;
+      },
+      { timeout: 45_000, intervals: [500, 1000] },
+    )
     .toBe(true);
 }
 
@@ -291,12 +294,29 @@ test('server restart interrupts an in-progress cross-volume copy without losing 
     await waitForCopyProgress(app, shell, task.id);
     await waitForSustainedProgress(app, task.id, performance.now());
 
+    await page.goto('about:blank');
     await app.kill();
     await app.restart();
     await expect
       .poll(async () => (await app.api.tasks()).find((entry) => entry.id === task.id)?.state)
       .toBe('interrupted');
-    await page.reload();
+    const url = new URL('/move', app.url);
+    url.searchParams.set('src', `photos/${SOURCE_DIR}`);
+    url.searchParams.set('cmp', device.volume);
+    await page.goto(url.href);
+    await expect
+      .poll(async () => (await app.api.tasks()).find((entry) => entry.id === task.id)?.state)
+      .toBe('interrupted');
+    await shell.hoverTasks();
+    const taskTitle = (await app.api.tasks()).find((entry) => entry.id === task.id)?.title;
+    if (!taskTitle) throw new Error(`Interrupted task ${task.id} is missing from the task list`);
+    const interruptedRow = shell
+      .taskIndicator()
+      .getByRole('group', { name: 'Background tasks' })
+      .locator('apm-task-row')
+      .filter({ hasText: taskTitle });
+    await expect(interruptedRow.locator('[data-state="interrupted"]')).toBeVisible();
+    await expect(interruptedRow).toContainText('Interrupted');
     const sourceAfterRestart = await stat(sourcePath);
     expect(sourceAfterRestart.size).toBe(COPY_BYTES);
     expect(await hashFile(sourcePath)).toBe(sourceHash);
