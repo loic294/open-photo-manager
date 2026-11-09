@@ -158,6 +158,32 @@ and successful UTC file-time/video extraction records offset `0` rather than the
 The extractor's failure contract is documented in `indexer/extract.rs`; these discrepancies remain
 fixture follow-up work, not changed product behavior.
 
+## Shared real-copy fs-lane boundary
+
+`src/fs-lane.ts` shares the Tools move mechanism with queued cancellation/restart suites:
+
+- `startFileMove(app, page, source, movePage, confirmDialog, options)` starts a **UI-confirmed**
+  single-file move and returns `{ id, planId }`. Options are `sourceVolume`, `sourceDir`,
+  `fileName`, `destinationVolume` and `fileBytes`. It checks the server selection count/bytes
+  and confirmation before executing; it does not create files, mount devices or hide errors.
+- `observeRunningCopy(app, id)` returns `{ task, observedAt }` only after observing a running
+  task with positive, incomplete byte progress. Use only a real cross-device copy as the blocker.
+- `expectQueuedBehindCopy(app, copy, queuedId)` checks, in the **same task-list response**,
+  that the blocker is still running with positive, incomplete progress and the caller is queued.
+  Checking the queued task alone is not evidence that the copy occupied the lane.
+- `waitForSustainedCopy(app, copy)` requires the task still to be running at least 15 seconds
+  after observation (45-second polling budget). A copy finishing early fails; no fake occupancy
+  or production throttling is used.
+
+The caller owns one `CrossDevice.create(app, copyBytes)` lifecycle, writes its private source
+with `makeSparseFile`, rescans, then calls `startFileMove` toward `device.volume`. Use one worker
+and at most 4 GiB. Keep `await device.close()` in `finally`; its existing fail-closed shutdown/
+detach and `beforeCleanup` hook remain authoritative. Do not mount a second fixture to queue
+another task. Tools retains its own visible progress/speed/ETA, UI cancellation, source integrity,
+successful copy and SIGKILL recovery assertions; this helper is not a substitute for those checks.
+This extraction is static preparation; runtime proof and landing are still required before reuse
+as acceptance evidence.
+
 ## Adding coverage
 
 Import `test` and `expect` from `src/test.ts`, not a second fixture implementation. Use `sharedApp`

@@ -2,9 +2,14 @@ import { createHash } from 'node:crypto';
 import { createReadStream } from 'node:fs';
 import { readdir, stat } from 'node:fs/promises';
 import type { PlanDto } from '../../../web/src/api/generated/PlanDto';
-import { formatFileSize } from '../../../web/src/util/format';
 import { CrossDevice } from '../../src/cross-device';
 import { makeSparseFile, writeFile } from '../../src/disk';
+import {
+  expectQueuedBehindCopy,
+  observeRunningCopy,
+  startFileMove,
+  waitForSustainedCopy,
+} from '../../src/fs-lane';
 import { expect, test } from '../../src/test';
 
 const COPY_BYTES = 4 * 1024 ** 3;
@@ -28,44 +33,13 @@ async function startMove(
     fileBytes?: number;
   } = {},
 ) {
-  const sourceDir = options.sourceDir ?? SOURCE_DIR;
-  const fileName = options.fileName ?? FILE_NAME;
-  const destinationVolume = options.destinationVolume ?? 'system-cross-device';
-  const fileBytes = options.fileBytes ?? COPY_BYTES;
-  const url = new URL('/move', app.url);
-  url.searchParams.set('src', `photos/${sourceDir}`);
-  url.searchParams.set('cmp', destinationVolume);
-  await page.goto(url.href);
-  await source.useFolder();
-  const destinationPlan = page.waitForResponse(
-    (response) =>
-      response.request().method() === 'POST' && new URL(response.url()).pathname === '/api/plans',
-  );
-  await movePage.destinationBase().getByRole('button', { name: 'Use this folder' }).click();
-  await destinationPlan;
-  await source.card(fileName).select();
-  const selectionResponse = page.waitForResponse(
-    (response) =>
-      response.request().method() === 'POST' &&
-      /^\/api\/plans\/\d+\/selection$/.test(new URL(response.url()).pathname),
-  );
-  await movePage.actionButton().click();
-  const selection = await (await selectionResponse).json();
-  expect(selection).toMatchObject({ item_count: 1, total_size: fileBytes });
-  await expect(confirmDialog.dialog()).toContainText('1 file');
-  await expect(confirmDialog.dialog()).toContainText(formatFileSize(fileBytes));
-  const executeResponse = page.waitForResponse(
-    (response) =>
-      response.request().method() === 'POST' &&
-      /^\/api\/plans\/\d+\/execute$/.test(new URL(response.url()).pathname),
-  );
-  await confirmDialog.confirm('Move 1 file');
-  const response = await executeResponse;
-  const task = (await response.json()) as { id: number };
-  return {
-    id: task.id,
-    planId: Number(new URL(response.url()).pathname.split('/')[3]),
-  };
+  return startFileMove(app, page, source, movePage, confirmDialog, {
+    sourceVolume: 'photos',
+    sourceDir: options.sourceDir ?? SOURCE_DIR,
+    fileName: options.fileName ?? FILE_NAME,
+    destinationVolume: options.destinationVolume ?? 'system-cross-device',
+    fileBytes: options.fileBytes ?? COPY_BYTES,
+  });
 }
 
 async function waitForCopyProgress(
@@ -73,11 +47,8 @@ async function waitForCopyProgress(
   shell: import('../../src/pages/shell').ShellPage,
   taskId: number,
 ) {
-  await expect
-    .poll(async () => (await app.api.tasks()).find((task) => task.id === taskId)?.state)
-    .toBe('running');
-  const taskTitle = (await app.api.tasks()).find((task) => task.id === taskId)?.title;
-  if (!taskTitle) throw new Error(`Running task ${taskId} is missing from the task list`);
+  const copy = await observeRunningCopy(app, taskId);
+  const taskTitle = copy.task.title;
   await shell.hoverTasks();
   const row = shell
     .taskIndicator()
@@ -91,7 +62,7 @@ async function waitForCopyProgress(
     .toBeGreaterThan(0);
   await expect(row).toContainText(/\d+(?:\.\d+)?\s*(?:KB|MB|GB)\/s/);
   await expect(row).toContainText(/left/);
-  return row;
+  return { row, copy };
 }
 
 async function writeCopySource(app: import('../../src/app-instance').AppInstance) {
@@ -122,22 +93,6 @@ async function partFiles(volumePath: string) {
   return visit(volumePath);
 }
 
-async function waitForSustainedProgress(
-  app: import('../../src/app-instance').AppInstance,
-  taskId: number,
-  startedAt: number,
-) {
-  await expect
-    .poll(
-      async () => {
-        const current = (await app.api.tasks()).find((entry) => entry.id === taskId);
-        return current?.state === 'running' && performance.now() - startedAt >= 15_000;
-      },
-      { timeout: 45_000, intervals: [500, 1000] },
-    )
-    .toBe(true);
-}
-
 test('cross-volume move reports progress, queues later work, and preserves a cancelled source', async ({
   app,
   page,
@@ -163,19 +118,16 @@ test('cross-volume move reports progress, queues later work, and preserves a can
       ),
     );
     const task = await startMove(app, page, source, movePage, confirmDialog);
-    await waitForCopyProgress(app, shell, task.id);
-    const copyStartedAt = performance.now();
+    const { copy } = await waitForCopyProgress(app, shell, task.id);
 
     const queuedTask = await startMove(app, page, source, movePage, confirmDialog, {
       fileName: queuedName,
       destinationVolume: 'archive',
       fileBytes: queuedBytes.length,
     });
-    await expect
-      .poll(async () => (await app.api.tasks()).find((entry) => entry.id === queuedTask.id)?.state)
-      .toBe('queued');
-    await waitForSustainedProgress(app, task.id, copyStartedAt);
-    const row = await waitForCopyProgress(app, shell, task.id);
+    await expectQueuedBehindCopy(app, copy, queuedTask.id);
+    await waitForSustainedCopy(app, copy);
+    const { row } = await waitForCopyProgress(app, shell, task.id);
     const cancel = row.getByRole('button', { name: /^Cancel / });
     await cancel.click();
     await expect
@@ -229,8 +181,8 @@ test('cross-volume move reports progress, queues later work, and preserves a can
     ).toEqual(partFilesBefore);
 
     const completedTask = await startMove(app, page, source, movePage, confirmDialog);
-    await waitForCopyProgress(app, shell, completedTask.id);
-    await waitForSustainedProgress(app, completedTask.id, performance.now());
+    const { copy: completedCopy } = await waitForCopyProgress(app, shell, completedTask.id);
+    await waitForSustainedCopy(app, completedCopy);
     await expect
       .poll(
         async () => (await app.api.tasks()).find((entry) => entry.id === completedTask.id)?.state,
@@ -291,8 +243,8 @@ test('server restart interrupts an in-progress cross-volume copy without losing 
       ),
     );
     const task = await startMove(app, page, source, movePage, confirmDialog);
-    await waitForCopyProgress(app, shell, task.id);
-    await waitForSustainedProgress(app, task.id, performance.now());
+    const { copy } = await waitForCopyProgress(app, shell, task.id);
+    await waitForSustainedCopy(app, copy);
 
     await page.goto('about:blank');
     await app.kill();
