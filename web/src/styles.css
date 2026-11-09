@@ -3,7 +3,21 @@
 @source not "./**/*.test.ts";
 @source not "./api/generated";
 @plugin "daisyui" {
-  themes:
-    light --default,
-    dark --prefersdark;
+  themes: dark --prefersdark;
+}
+@plugin "daisyui/theme" {
+  name: "light";
+  default: true;
+  --color-error: #b91c1c;
+  --color-error-content: #ffffff;
+}
+
+/* Interpolating both foreground and background briefly makes outlined errors unreadable. */
+:where(.btn-error:is(.btn-outline, .btn-dash, .btn-soft)) {
+  transition-property: box-shadow, transform;
+}
+
+/* Keep pattern-editor actions readable when the theme changes. */
+:where(apm-pattern-editor .btn-ghost) {
+  transition-property: box-shadow, transform;
 }
