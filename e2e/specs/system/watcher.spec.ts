@@ -134,6 +134,7 @@ test('junk, trash and product moves do not schedule redundant watcher scans @slo
 
 test('watch settings disable and re-enable registration without restarting @slow', async ({
   app,
+  filterBar,
   page,
   shell,
   settingsPage,
@@ -155,6 +156,8 @@ test('watch settings disable and re-enable registration without restarting @slow
     { forMs: 6_000 },
   );
   await shell.navigate('Browse');
+  // Finish initial facets before index completion intentionally supersedes an in-flight request.
+  await filterBar.waitForCountedFacets();
   await shell.reindex();
   await expect(source.card('disabled-watch.txt').element).toBeVisible({ timeout: 30_000 });
   await shell.navigate('Settings');
