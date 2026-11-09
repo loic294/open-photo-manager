@@ -1,6 +1,7 @@
 import { scenarioFiles, startMockImmich } from '../../tools/mock-immich/index.ts';
 import { AppInstance } from './app-instance';
 import { snapshotTree } from './disk';
+import { capacitySkip } from './docker-capacity';
 import { ImmichPostgres } from './immich-postgres';
 import { Manifest } from './manifest';
 import { test as base, expect } from './test';
@@ -22,7 +23,16 @@ export const test = base.extend<{ backedImmich: BackedImmich }>({
       if (info.config.workers !== 1) {
         throw new Error('Backed Immich tests require E2E_WORKERS=1 for one Docker stack at a time');
       }
-      const database = await ImmichPostgres.start();
+      let database: ImmichPostgres;
+      try {
+        database = await ImmichPostgres.start();
+      } catch (error) {
+        const skip = capacitySkip(error);
+        if (!skip) throw error;
+        info.annotations.push(skip);
+        info.skip(true, skip.description);
+        throw error;
+      }
       let app: AppInstance | undefined;
       let mock: Mock | undefined;
       let before: Set<string> | undefined;

@@ -101,9 +101,18 @@ single SQL snapshot. The `backedImmich` fixture owns the database, app, mock and
 requires one Playwright worker. Its focused real-schema test and the backed browser scenarios must
 be run to verify SQL coherence before claiming database-backed acceptance.
 
-The experimental `backedImmich` Playwright fixture in `src/immich-test.ts` owns its PostgreSQL,
-APM process and fixture-mounted mock. It requires `E2E_WORKERS=1` to avoid overlapping Compose
-stacks. Its setup and scan-backed SQL are not yet runtime-verified.
+The host-verified Immich browser coverage is 10 specs / 18 cases: `immich-a11y`,
+`limited-mode`, `sync-nonblocking`, `connect`, `connect-errors`, `connection-boundaries`, `mapping`,
+`reconnect`, `safety` and `tls`. The `backedImmich` Playwright fixture in `src/immich-test.ts`
+owns PostgreSQL, the APM process and fixture-mounted mock, and requires `E2E_WORKERS=1` to avoid
+overlapping Compose stacks. Its real-PostgreSQL coverage (`backed-move-outside`, `backed-rename`,
+`backed-sync`, `mirror-delete`, `mirror-move` and `src/immich-postgres.test.ts`) is not
+runtime-verified. A run below the 3.00 GiB Docker VM startup floor is explicitly skipped and is
+not a pass; all six must run with sufficient capacity before database-backed acceptance is claimed.
+The fixture fails closed if its pinned PostgreSQL image is not already local, measures Docker VM
+free space without pulling, and tears down its task-owned stack if initialization leaves less than
+1.50 GiB free. Its Docker-free guard tests run with `node --test src/docker-capacity.test.ts`
+from `e2e/`.
 
 ## Adding coverage
 

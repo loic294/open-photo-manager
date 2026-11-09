@@ -10,6 +10,12 @@ import type {
   MockImmich,
   MockImmichOptions,
 } from '../../tools/mock-immich/index.ts';
+import {
+  type CapacityMeasurer,
+  measureDockerVmFreeKiB,
+  requirePostStartCapacity,
+  requireStartCapacity,
+} from './docker-capacity.ts';
 import { cache, root } from './paths.ts';
 
 const exec = promisify(execFile);
@@ -94,7 +100,8 @@ export class ImmichPostgres {
     };
   }
 
-  static async start(): Promise<ImmichPostgres> {
+  static async start(measure: CapacityMeasurer = measureDockerVmFreeKiB): Promise<ImmichPostgres> {
+    const initialCapacity = await requireStartCapacity(measure);
     await mkdir(cache, { recursive: true });
     const directory = await mkdtemp(join(cache, 'immich-postgres-'));
     const database = new ImmichPostgres(
@@ -104,6 +111,7 @@ export class ImmichPostgres {
     );
     try {
       await database.initialise();
+      await requirePostStartCapacity(initialCapacity, measure);
       return database;
     } catch (error) {
       try {
