@@ -203,6 +203,7 @@ test('mass disappearance is held, restored, then explicitly removed without disk
   page,
   shell,
   confirmDialog,
+  allowedErrors,
   source,
   bottomBar,
 }) => {
@@ -259,6 +260,13 @@ test('mass disappearance is held, restored, then explicitly removed without disk
   await confirmDialog.cancel();
   expect((await app.api.indexStatus()).held_removals[0].files).toBe(grid.length);
   await shell.notices().getByRole('button', { name: 'Remove from the index', exact: true }).click();
+  // Deleting the displayed indexed folder causes its documented 404/ancestor walk-up.
+  const allowanceStart = allowedErrors.length;
+  allowedErrors.push(
+    `API 404: ${app.url}/api/browse/folders`,
+    /^console.error: Failed to load resource: the server responded with a status of 404 \(Not Found\)$/,
+    `requestfailed: ${app.url}/api/browse/items net::ERR_ABORTED`,
+  );
   await confirmDialog.confirm('Remove from the index');
   await expect(shell.notices()).not.toContainText('could not be found on disk', {
     timeout: 30_000,
@@ -269,6 +277,10 @@ test('mass disappearance is held, restored, then explicitly removed without disk
     )[0]?.n,
   ).toBe(0);
   expect(await snapshotTree(app.volumesDir, { hash: true })).toEqual(before);
+  await expect(page.getByRole('region', { name: 'Source', exact: true })).not.toContainText(
+    'Could not load',
+  );
+  allowedErrors.splice(allowanceStart);
 });
 
 test('offline volume keeps identities and a reconnect restores live re-index controls', async ({
@@ -276,6 +288,7 @@ test('offline volume keeps identities and a reconnect restores live re-index con
   page,
   shell,
   source,
+  allowedErrors,
 }) => {
   test.setTimeout(120_000);
   const volumes = await app.api.volumes();
@@ -325,6 +338,10 @@ test('offline volume keeps identities and a reconnect restores live re-index con
   expect((await app.api.volumes()).find((volume) => volume.name === 'archive')?.online).toBe(true);
   expect(app.sql(`SELECT id FROM files WHERE volume_id = ${archive.id} ORDER BY id`)).toEqual(ids);
   await page.goto(`${app.url}/browse?src=photos/stale&cmp=photos/stale`);
+  const allowanceStart = allowedErrors.length;
+  for (const path of ['browse/folders', 'browse/items', 'facets'])
+    for (const error of ['CONNECTION_RESET', 'EMPTY_RESPONSE'])
+      allowedErrors.push(`requestfailed: ${app.url}/api/${path} net::ERR_${error}`);
   await app.suspend();
   await expect(shell.reindexButton()).toBeDisabled({ timeout: 30_000 });
   await expect(shell.reindexButton(true)).toBeDisabled();
@@ -333,4 +350,5 @@ test('offline volume keeps identities and a reconnect restores live re-index con
   await app.resume();
   await expect(shell.reindexButton()).toBeEnabled({ timeout: 45_000 });
   await expect(shell.reindexButton(true)).toBeEnabled();
+  allowedErrors.splice(allowanceStart);
 });
