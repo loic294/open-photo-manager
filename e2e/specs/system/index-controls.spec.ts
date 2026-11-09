@@ -290,6 +290,7 @@ test('offline volume keeps identities and a reconnect restores live re-index con
   source,
   allowedErrors,
   manifest,
+  comparison,
 }) => {
   test.setTimeout(120_000);
   const volumes = await app.api.volumes();
@@ -354,7 +355,7 @@ test('offline volume keeps identities and a reconnect restores live re-index con
     source.card(basename(manifest.filesOf('stale.rename')[0].path)).element,
   ).toBeVisible();
   await expect(
-    page.getByRole('region', { name: 'Comparison', exact: true }).getByRole('option').first(),
+    comparison.card(basename(manifest.filesOf('stale.rename')[0].path)).element,
   ).toBeVisible();
   const allowanceStart = allowedErrors.length;
   for (const path of ['browse/folders', 'browse/items', 'facets'])
