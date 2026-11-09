@@ -14,7 +14,7 @@ export async function connectThroughUi(
   settings: SettingsPage,
   mockUrl: string,
 ) {
-  await page.goto(app.url);
+  if (new URL(page.url()).origin !== new URL(app.url).origin) await page.goto(app.url);
   await shell.navigate('Settings');
   await settings.tab('Immich');
   await settings.fill('Server URL', mockUrl);
