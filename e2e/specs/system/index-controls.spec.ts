@@ -289,6 +289,7 @@ test('offline volume keeps identities and a reconnect restores live re-index con
   shell,
   source,
   allowedErrors,
+  manifest,
 }) => {
   test.setTimeout(120_000);
   const volumes = await app.api.volumes();
@@ -337,7 +338,24 @@ test('offline volume keeps identities and a reconnect restores live re-index con
   await app.rescan();
   expect((await app.api.volumes()).find((volume) => volume.name === 'archive')?.online).toBe(true);
   expect(app.sql(`SELECT id FROM files WHERE volume_id = ${archive.id} ORDER BY id`)).toEqual(ids);
+  // Exercise disconnected controls only after both panes' initial requests have completed.
+  const initialResponses = ['folders', 'items']
+    .map((kind) => `/api/browse/${kind}`)
+    .concat('/api/facets')
+    .map((path) =>
+      page.waitForResponse(
+        (response) => new URL(response.url()).pathname === path && response.ok(),
+      ),
+    );
   await page.goto(`${app.url}/browse?src=photos/stale&cmp=photos/stale`);
+  await Promise.all((await Promise.all(initialResponses)).map((response) => response.finished()));
+  await expect(source.element.locator('[aria-busy="true"]')).toHaveCount(0);
+  await expect(
+    source.card(basename(manifest.filesOf('stale.rename')[0].path)).element,
+  ).toBeVisible();
+  await expect(
+    page.getByRole('region', { name: 'Comparison', exact: true }).getByRole('option').first(),
+  ).toBeVisible();
   const allowanceStart = allowedErrors.length;
   for (const path of ['browse/folders', 'browse/items', 'facets'])
     for (const error of ['CONNECTION_RESET', 'EMPTY_RESPONSE', 'CONNECTION_REFUSED'])
