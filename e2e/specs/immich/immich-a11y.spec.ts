@@ -27,6 +27,15 @@ test('Immich settings remain accessible through keyboard connection and reconnec
     }
     await captureScreens(page, name);
   };
+  const waitForAttentionOutbox = () =>
+    page.waitForResponse((response) => {
+      const url = new URL(response.url());
+      return (
+        response.request().method() === 'GET' &&
+        url.pathname === '/api/immich/outbox' &&
+        url.searchParams.get('state') === 'attention'
+      );
+    });
   await check('immich-disconnected');
   await settingsPage.field('Server URL').focus();
   await page.keyboard.type(mock.url);
@@ -40,13 +49,19 @@ test('Immich settings remain accessible through keyboard connection and reconnec
   await expect(page.getByLabel('Allow a self-signed certificate')).toBeFocused();
   await page.keyboard.press('Tab');
   await expect(page.getByRole('button', { name: 'Connect', exact: true })).toBeFocused();
+  const connectedOutbox = waitForAttentionOutbox();
   await page.keyboard.press('Enter');
   await expect(page.getByText('Full mode:', { exact: false })).toBeVisible();
+  await (await connectedOutbox).finished();
+  await expect(page.locator('apm-immich-outbox')).toContainText('No changes needing attention.');
   await check('immich-connected');
   expect(mock.control.revokeKey()).toBe(1);
+  const reconnectOutbox = waitForAttentionOutbox();
   await page.getByRole('button', { name: 'Check connection', exact: true }).click();
   await expect(
     page.getByText('Immich no longer accepts the stored key.', { exact: false }),
   ).toBeVisible();
+  await (await reconnectOutbox).finished();
+  await expect(page.locator('apm-immich-outbox')).toContainText('No changes needing attention.');
   await check('immich-reconnect');
 });
