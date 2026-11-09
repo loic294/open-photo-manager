@@ -6,7 +6,7 @@
     "node": ">=24"
   },
   "scripts": {
-    "check": "biome check . && tsc --noEmit && node src/check-waits.mjs",
+    "check": "biome check . && tsc --noEmit && node src/check-waits.mjs && node --test src/http.test.ts",
     "format": "biome check --write .",
     "test": "playwright test"
   },

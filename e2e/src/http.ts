@@ -20,6 +20,21 @@ export function rawRequest(options: RawRequest) {
     text: string;
     json<T = unknown>(): T;
   }>((resolve, reject) => {
+    const signal = options.signal;
+    const abortError = () =>
+      Object.assign(new Error('The operation was aborted', { cause: signal?.reason }), {
+        name: 'AbortError',
+        code: 'ABORT_ERR',
+      });
+    if (signal?.aborted) {
+      reject(abortError());
+      return;
+    }
+    const cleanup = () => signal?.removeEventListener('abort', abort);
+    const fail = (error: Error) => {
+      cleanup();
+      reject(error);
+    };
     const origin = new URL(options.url);
     const req = request(
       {
@@ -30,12 +45,12 @@ export function rawRequest(options: RawRequest) {
         headers: options.headers ?? { Host: origin.host },
         setHost: false,
         agent: options.agent ?? false,
-        signal: options.signal,
       },
       (response) => {
         const chunks: Buffer[] = [];
         let size = 0;
         const finish = () => {
+          cleanup();
           const bytes = Buffer.concat(chunks);
           const text = bytes.toString('utf8');
           resolve({
@@ -60,12 +75,19 @@ export function rawRequest(options: RawRequest) {
           }
           chunks.push(chunk);
         });
-        response.on('error', reject);
+        response.on('error', fail);
         response.on('end', finish);
       },
     );
+    const abort = () => {
+      const error = abortError();
+      req.destroy(error);
+      fail(error);
+    };
+    signal?.addEventListener('abort', abort, { once: true });
+    if (signal?.aborted) abort();
     req.setTimeout(15_000, () => req.destroy(new Error('Raw HTTP request timed out')));
-    req.on('error', reject);
+    req.on('error', fail);
     req.end(options.body);
   });
 }

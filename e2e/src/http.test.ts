@@ -1,5 +1,5 @@
 import assert from 'node:assert/strict';
-import { once } from 'node:events';
+import { getEventListeners, once } from 'node:events';
 import { Agent, createServer, type RequestListener } from 'node:http';
 import { test } from 'node:test';
 import { rawRequest } from './http.ts';
@@ -117,18 +117,33 @@ test('rawRequest absolute deadline aborts a queued request before socket assignm
   const first = rawRequest({ url: app.url, path: '/held', agent });
   try {
     await once(app.server, 'request');
-    const signal = AbortSignal.timeout(50);
+    const controller = new AbortController();
+    const { signal } = controller;
     const queued = rawRequest({
       url: app.url,
       path: '/queued',
       agent,
       signal,
     });
-    const rejection = assert.rejects(queued, { name: 'AbortError', code: 'ABORT_ERR' });
-    await once(signal, 'abort');
+    let rejected = false;
+    const rejection = assert.rejects(queued, (error: unknown) => {
+      rejected = true;
+      return (
+        error instanceof Error &&
+        error.name === 'AbortError' &&
+        'code' in error &&
+        error.code === 'ABORT_ERR' &&
+        error.cause === signal.reason
+      );
+    });
+    controller.abort(new Error('Queued deadline'));
+    await new Promise<void>((resolve) => setImmediate(resolve));
+    assert.equal(rejected, true, 'Queued request rejects while the blocker is still held');
+    await rejection;
+    assert.equal(arrived, 1);
+    assert.equal(getEventListeners(signal, 'abort').length, 0);
     release?.();
     await first;
-    await rejection;
     assert.equal(arrived, 1);
   } finally {
     release?.();
@@ -143,11 +158,42 @@ test('rawRequest absolute deadline aborts an active response and closes its sock
     response.writeHead(200);
     response.write('{');
   });
+
   try {
     await assert.rejects(
       rawRequest({ url: app.url, path: '/held', signal: AbortSignal.timeout(50) }),
       { code: 'ABORT_ERR' },
     );
+  } finally {
+    await app.close();
+  }
+});
+
+test('rawRequest removes signal listeners on success, socket failure and pre-abort', async () => {
+  let arrived = 0;
+  const app = await fixture((request, response) => {
+    arrived++;
+    if (request.url === '/reset') request.socket.destroy();
+    else response.end('{}');
+  });
+  try {
+    const success = new AbortController();
+    await rawRequest({ url: app.url, path: '/', signal: success.signal });
+    assert.equal(getEventListeners(success.signal, 'abort').length, 0);
+    const reset = new AbortController();
+    await assert.rejects(rawRequest({ url: app.url, path: '/reset', signal: reset.signal }), {
+      code: 'ECONNRESET',
+    });
+    assert.equal(getEventListeners(reset.signal, 'abort').length, 0);
+    const aborted = new AbortController();
+    const reason = new Error('Already expired');
+    aborted.abort(reason);
+    await assert.rejects(
+      rawRequest({ url: app.url, path: '/never', signal: aborted.signal }),
+      (error: unknown) => error instanceof Error && error.cause === reason,
+    );
+    assert.equal(getEventListeners(aborted.signal, 'abort').length, 0);
+    assert.equal(arrived, 2);
   } finally {
     await app.close();
   }
