@@ -10,6 +10,7 @@
   default: true;
   --color-error: #b91c1c;
   --color-error-content: #ffffff;
+  --color-warning-content: #422006;
 }
 
 /* Interpolating both foreground and background briefly makes outlined errors unreadable. */
@@ -20,4 +21,46 @@
 /* Keep pattern-editor actions readable when the theme changes. */
 :where(apm-pattern-editor .btn-ghost) {
   transition-property: box-shadow, transform;
+}
+
+/* Preserve DaisyUI motion and dimming without fading readable modal content. */
+:where(apm-modal dialog.modal) {
+  transition:
+    overlay 0.3s allow-discrete,
+    visibility 0.3s allow-discrete,
+    background-color 0.3s ease-out;
+}
+
+:where(apm-modal .modal-box) {
+  transition:
+    translate 0.3s ease-out,
+    scale 0.3s ease-out,
+    box-shadow 0.3s ease-out;
+}
+
+/* Keep amber warning surfaces while using an accessible foreground on light soft/outline styles. */
+@media (prefers-color-scheme: light) {
+  :root:not([data-theme]) {
+    --color-warning-text: #78350f;
+  }
+}
+
+:root[data-theme="light"] {
+  --color-warning-text: #78350f;
+}
+
+:where(
+  .alert-warning.alert-soft,
+  .badge-warning:is(.badge-outline, .badge-dash, .badge-soft),
+  .text-warning
+) {
+  color: var(--color-warning-text, var(--color-warning));
+}
+
+:where(.alert-warning:is(.alert-outline, .alert-dash)) {
+  color: var(--color-warning-content);
+}
+
+:where(.badge-warning:is(.badge-outline, .badge-dash)) {
+  border-color: var(--color-warning);
 }

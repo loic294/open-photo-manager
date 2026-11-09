@@ -39,3 +39,18 @@ describe('light theme error tokens', () => {
     expect(contrast(errorLuminance, luminance(content))).toBeGreaterThanOrEqual(4.5);
   });
 });
+
+describe('light theme warning foregrounds', () => {
+  it('keeps DaisyUI amber fills while defining separate readable text foregrounds', () => {
+    const light = styles.match(/@plugin "daisyui\/theme"\s*\{([^}]*name:\s*"light"[^}]*)\}/)?.[1];
+    expect(light).toBeDefined();
+    expect(light).not.toMatch(/--color-warning\s*:/);
+    expect(light).toMatch(/--color-warning-content:\s*#422006\s*;/i);
+    expect(styles).toMatch(
+      /:root\[data-theme="light"\]\s*\{\s*--color-warning-text:\s*#78350f\s*;/i,
+    );
+    expect(styles).toMatch(
+      /@media \(prefers-color-scheme: light\)[\s\S]*?:root:not\(\[data-theme\]\)\s*\{\s*--color-warning-text:\s*#78350f\s*;/i,
+    );
+  });
+});

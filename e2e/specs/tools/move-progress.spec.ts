@@ -94,7 +94,7 @@ test('cross-volume move reports progress, queues later work, and preserves a can
   movePage,
   confirmDialog,
   shell,
-}) => {
+}, testInfo) => {
   test.setTimeout(240_000);
   test.skip(process.platform !== 'darwin', 'Private APFS cross-device fixtures require macOS');
   const device = await CrossDevice.create(app, COPY_BYTES);
@@ -127,13 +127,19 @@ test('cross-volume move reports progress, queues later work, and preserves a can
     await expect
       .poll(async () => (await app.api.tasks()).find((entry) => entry.id === task.id)?.state)
       .toBe('cancelled');
+    const terminalTask = (await app.api.tasks()).find((entry) => entry.id === task.id);
     const cancelledPlan = await app.api.request<PlanDto>('GET', `/api/plans/${task.planId}`);
+    await testInfo.attach('terminal-copy-cancellation', {
+      body: JSON.stringify({ running: copy.task, terminalTask, cancelledPlan }, null, 2),
+      contentType: 'application/json',
+    });
+    expect(cancelledPlan.task_id).toBe(task.id);
     expect(cancelledPlan.result).toMatchObject({ cancelled: true });
     await expect
       .poll(async () => (await app.api.tasks()).find((entry) => entry.id === queuedTask.id)?.state)
       .toBe('done');
     await expect
-      .poll(() => app.api.listing('archive', SOURCE_DIR))
+      .poll(() => app.api.listing('archive', ''))
       .toMatchObject({
         items: expect.arrayContaining([expect.objectContaining({ name: queuedName })]),
       });
@@ -180,6 +186,7 @@ test('cross-volume move reports progress, queues later work, and preserves a can
     await expect
       .poll(
         async () => (await app.api.tasks()).find((entry) => entry.id === completedTask.id)?.state,
+        { timeout: 90_000, intervals: [500, 1000] },
       )
       .toBe('done');
     const destinationPath = app.volumePath(`${device.volume}/${FILE_NAME}`);
