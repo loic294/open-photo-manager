@@ -1,7 +1,7 @@
 import { type ChildProcess, spawn } from 'node:child_process';
 import { once } from 'node:events';
 import { cp, mkdir, mkdtemp, readFile, rm } from 'node:fs/promises';
-import { createServer, type Server } from 'node:net';
+import type { Server } from 'node:net';
 import { join, relative, resolve, sep } from 'node:path';
 import { DatabaseSync } from 'node:sqlite';
 import { expect } from '@playwright/test';
@@ -10,6 +10,7 @@ import type { SettingsDto } from '../../web/src/api/generated/SettingsDto';
 import { Api } from './api';
 import { fixturePermissions } from './fixture-copy';
 import { binary, cache, golden, root } from './paths';
+import { reservePort } from './ports.ts';
 import { waitForTasksIdle } from './waits';
 
 export interface AppOptions {
@@ -17,15 +18,6 @@ export interface AppOptions {
   settings?: (settings: SettingsDto) => SettingsDto;
   watcher?: boolean;
   cold?: boolean;
-}
-
-export async function reservePort(port = 0): Promise<Server> {
-  const server = createServer((socket) => socket.destroy());
-  await new Promise<void>((resolve, reject) => {
-    server.once('error', reject);
-    server.listen(port, '127.0.0.1', resolve);
-  });
-  return server;
 }
 
 export async function run(command: string, args: string[]) {

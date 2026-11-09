@@ -1,6 +1,8 @@
 import { cpus } from 'node:os';
 import { defineConfig } from '@playwright/test';
 
+const IMMICH_POSTGRES_WORKERS = 1;
+
 export default defineConfig({
   testDir: './specs',
   fullyParallel: true,
@@ -22,4 +24,24 @@ export default defineConfig({
     screenshot: 'only-on-failure',
     video: 'retain-on-failure',
   },
+  projects: [
+    {
+      name: 'browser',
+      testIgnore: [
+        '**/immich/backed-*.spec.ts',
+        '**/immich/mirror-delete.spec.ts',
+        '**/immich/mirror-move.spec.ts',
+      ],
+    },
+    {
+      name: 'immich-postgres',
+      testMatch: [
+        '**/immich/backed-*.spec.ts',
+        '**/immich/mirror-delete.spec.ts',
+        '**/immich/mirror-move.spec.ts',
+      ],
+      workers: IMMICH_POSTGRES_WORKERS,
+      metadata: { immichPostgresWorkers: IMMICH_POSTGRES_WORKERS },
+    },
+  ],
 });

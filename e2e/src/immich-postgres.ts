@@ -17,6 +17,7 @@ import {
   requireStartCapacity,
 } from './docker-capacity.ts';
 import { cache, root } from './paths.ts';
+import { reservePort } from './ports.ts';
 
 const exec = promisify(execFile);
 const DATABASE = 'apm_immich_test_v333';
@@ -208,7 +209,18 @@ export class ImmichPostgres {
     const template = await readFile(join(root, 'docker/immich-postgres-test.compose.yml'), 'utf8');
     const binding = '127.0.0.1:25432:5432';
     if (!template.includes(binding)) throw new Error('Pinned Compose port binding changed');
-    await writeFile(this.composeFile, template.replace(binding, '127.0.0.1::5432'));
+    const reservation = await reservePort();
+    const address = reservation.address();
+    if (!address || typeof address === 'string') {
+      await new Promise<void>((resolve, reject) =>
+        reservation.close((error) => (error ? reject(error) : resolve())),
+      );
+      throw new Error('Cannot determine a private PostgreSQL host port');
+    }
+    await new Promise<void>((resolve, reject) =>
+      reservation.close((error) => (error ? reject(error) : resolve())),
+    );
+    await writeFile(this.composeFile, template.replace(binding, `127.0.0.1:${address.port}:5432`));
     this.started = true;
     await this.compose(['up', '-d', '--wait']);
     const version = await this.compose([
@@ -503,7 +515,18 @@ export class ImmichPostgres {
   }
 
   async resumeDatabase() {
-    await this.compose(['up', '-d', '--wait', 'database']);
+    await this.compose(['start', '--wait', 'database']);
+  }
+
+  async mappedPort() {
+    const binding = await this.compose(['port', 'database', '5432']);
+    const port = /^127\.0\.0\.1:(\d+)$/.exec(binding)?.[1];
+    if (!port) throw new Error(`Unexpected disposable PostgreSQL binding: ${binding}`);
+    return Number(port);
+  }
+
+  async databaseContainerId() {
+    return this.compose(['ps', '-q', 'database']);
   }
 
   async stop() {

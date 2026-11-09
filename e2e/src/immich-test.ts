@@ -20,8 +20,11 @@ export const test = base.extend<{ backedImmich: BackedImmich }>({
   backedImmich: [
     // biome-ignore lint/correctness/noEmptyPattern: Playwright requires destructured fixture dependencies.
     async ({}, use, info) => {
-      if (info.config.workers !== 1) {
-        throw new Error('Backed Immich tests require E2E_WORKERS=1 for one Docker stack at a time');
+      if (
+        info.project.name !== 'immich-postgres' ||
+        info.project.metadata.immichPostgresWorkers !== 1
+      ) {
+        throw new Error('Backed Immich tests require the one-worker immich-postgres project');
       }
       let database: ImmichPostgres;
       try {

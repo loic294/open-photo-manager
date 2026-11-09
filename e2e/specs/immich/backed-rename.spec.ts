@@ -29,6 +29,10 @@ test('same-folder rename preserves the Immich identity, album, sidecar and curso
   const album = mock.state.albums()[0]?.id;
   const tag = mock.state.tags()[0]?.id;
   if (!album || !tag) throw new Error('Expected fixture album and tag');
+  const configuredDatabasePort = Number(
+    new URL((await readFile(database.secretFile, 'utf8')).trim()).port,
+  );
+  const databaseContainerId = await database.databaseContainerId();
   await database.sql(`INSERT INTO public.album_asset ("albumId", "assetId")
     VALUES ('${album}'::uuid, '${id}'::uuid);
     INSERT INTO public.tag_asset ("tagId", "assetId") VALUES ('${tag}'::uuid, '${id}'::uuid);
@@ -88,13 +92,19 @@ test('same-folder rename preserves the Immich identity, album, sidecar and curso
   } finally {
     await database.resumeDatabase();
   }
+  expect(await database.databaseContainerId()).toBe(databaseContainerId);
+  expect(await database.mappedPort()).toBe(configuredDatabasePort);
   expect(
     await database.sql(`SELECT "originalPath" FROM public.asset WHERE id = '${id}'::uuid`),
   ).toBe('/mnt/photos/sidecars/IMG_0010.JPG');
   // The old photo path is recreated below to verify Immich can import it again.
   expectRemovedFiles(['photos/sidecars/IMG_0010.JPG.xmp']);
   const finished = await execute(await build());
-  expect(finished.result).toMatchObject({ done: 1, skipped: 0, failed: 0 });
+  expect(finished.result, JSON.stringify(finished.result?.failures, null, 2)).toMatchObject({
+    done: 1,
+    skipped: 0,
+    failed: 0,
+  });
   expect(await readFile(newPhoto)).toEqual(photoBytes);
   expect(await readFile(newSidecar)).toEqual(sidecarBytes);
   await expect(stat(oldPhoto)).rejects.toMatchObject({ code: 'ENOENT' });

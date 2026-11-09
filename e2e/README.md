@@ -10,6 +10,14 @@ Use Node 24+, Rust and the media tools listed in [fixtures](../fixtures/README.m
 `make check-e2e` checks formatting, types and the fixed-sleep guard; `make check-tools` includes it.
 `make e2e-smoke` runs the five quickest acceptance cases. `E2E_ARGS` passes Playwright selectors,
 for example `make e2e E2E_ARGS="specs/selection.spec.ts"`.
+Playwright's `browser` project runs non-backed specs at the global worker limit. The
+`immich-postgres` project contains exactly `backed-*.spec.ts`, `mirror-delete.spec.ts` and
+`mirror-move.spec.ts` under `specs/immich`, and is capped at one worker even when
+`E2E_WORKERS=2`; these projects do not duplicate discovery. Use
+`make e2e E2E_ARGS="--project=immich-postgres"` for only those SQL-backed browser specs or
+`make e2e E2E_ARGS="--project=browser"` to exclude them. The real-schema helper is a Node test
+outside Playwright's `testDir`; run it explicitly with
+`cd e2e && node --test src/immich-postgres.test.ts` when Docker capacity allows.
 
 Use `make e2e-headed` to watch Chromium or `make e2e-report` to inspect failure screenshots,
 videos, traces and backend logs. `E2E_KEEP=1` preserves private instances under `e2e/.cache/instance-*`;
@@ -102,7 +110,7 @@ offline/favorite state, rating, description, visibility, and deletion timestamp.
 snapshot from the disposable PostgreSQL database; mismatched identities, missing rows, duplicate
 paths, invalid rows, or inconsistent associations fail before changing mock state.
 `ImmichPostgres.start()` creates a task-owned Compose project from pinned Immich v3.3.3 images and
-migrations, with a disposable TLS secret and auto-assigned loopback port. `seedMock()` writes mock
+migrations, with a disposable TLS secret and a private loopback port. `seedMock()` writes mock
 identities and assets into that schema; `refreshMock()` reads asset and album/tag state from a
 single SQL snapshot. The `backedImmich` fixture owns the database, app, mock and teardown, and
 requires one Playwright worker. Its focused real-schema test and the backed browser scenarios must
@@ -111,11 +119,15 @@ be run to verify SQL coherence before claiming database-backed acceptance.
 The host-verified Immich browser coverage is 10 specs / 18 cases: `immich-a11y`,
 `limited-mode`, `sync-nonblocking`, `connect`, `connect-errors`, `connection-boundaries`, `mapping`,
 `reconnect`, `safety` and `tls`. The `backedImmich` Playwright fixture in `src/immich-test.ts`
-owns PostgreSQL, the APM process and fixture-mounted mock, and requires `E2E_WORKERS=1` to avoid
-overlapping Compose stacks. Its real-PostgreSQL coverage (`backed-move-outside`, `backed-rename`,
-`backed-sync`, `mirror-delete`, `mirror-move` and `src/immich-postgres.test.ts`) is not
-runtime-verified. A run below the 3.00 GiB Docker VM startup floor is explicitly skipped and is
-not a pass; all six must run with sufficient capacity before database-backed acceptance is claimed.
+owns PostgreSQL, the APM process and fixture-mounted mock. Its five browser cases are isolated in
+the `immich-postgres` project capped at one worker; they can run alongside ordinary browser tests
+with `E2E_WORKERS=2`. On 2026-11-09, all five were discovered once and passed with 6.30 GiB free:
+`backed-move-outside`, `backed-rename`, `backed-sync`, `mirror-delete` and `mirror-move` (5/5).
+The separate `src/immich-postgres.test.ts` Node helper passed 1/1 via `node --test`, and the
+documented Rust real-v3.3.3 direct-database gate passed 1/1. These runs verified the real schema,
+same-UUID SQL/mock backing, disk outcomes and UI flows. A run below the 3.00 GiB Docker VM startup
+floor is explicitly skipped and is not a pass; skipped runs do not establish database-backed
+acceptance.
 The fixture fails closed if its pinned PostgreSQL image is not already local, measures Docker VM
 free space without pulling, and tears down its task-owned stack if initialization leaves less than
 1.50 GiB free. Its Docker-free guard tests run with `node --test src/docker-capacity.test.ts`

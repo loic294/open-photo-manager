@@ -170,9 +170,17 @@ test('real v3.3.3 SQL path updates are visible through the mock API', {
     headers: { 'x-api-key': key.secret },
   });
   assert.equal(restored.status, 200);
-  const restoredBody = (await restored.json()) as { isOffline: boolean; deletedAt: string | null };
+  const restoredBody = (await restored.json()) as {
+    isOffline: boolean;
+    deletedAt?: string | null;
+  };
   assert.equal(restoredBody.isOffline, false);
-  assert.equal(restoredBody.deletedAt, null);
+  assert.equal(
+    await database.sql(`SELECT ("deletedAt" IS NULL)::text
+      FROM public.asset WHERE id = '${scannedId}'::uuid`),
+    'true',
+  );
+  assert.equal(restoredBody.deletedAt, undefined, 'Immich asset responses omit deletedAt');
   const deletion = await fetch(`${mock.url}/api/assets`, {
     method: 'DELETE',
     headers: { 'x-api-key': key.secret, 'content-type': 'application/json' },
