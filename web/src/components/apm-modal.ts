@@ -153,7 +153,7 @@ export class ApmModal extends ApmElement {
         @cancel=${this.onCancel}
         @close=${this.onNativeClose}
       >
-        <div class="modal-box ${SIZE_CLASS[this.size] ?? SIZE_CLASS.md}">
+        <div class="modal-box relative ${SIZE_CLASS[this.size] ?? SIZE_CLASS.md}">
           ${
             this.heading || closable
               ? html`<div class="flex items-start justify-between gap-4">
@@ -183,9 +183,7 @@ export class ApmModal extends ApmElement {
         ${
           closable
             ? html`<form method="dialog" class="modal-backdrop">
-                <button type="submit" tabindex="-1" aria-hidden="true" @click=${this.onBackdropClick}>
-                  close
-                </button>
+                <button type="submit" tabindex="-1" aria-hidden="true" aria-label="Close dialog" @click=${this.onBackdropClick}></button>
               </form>`
             : nothing
         }

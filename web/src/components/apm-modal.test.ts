@@ -23,6 +23,7 @@ describe('apm-modal: markup', () => {
     expect(dialog.classList.contains('modal')).toBe(true);
     expect(dialog.open).toBe(false);
     expect(modal.querySelector('.modal-box')).not.toBeNull();
+    expect(modal.querySelector('.modal-box')?.classList.contains('relative')).toBe(true);
   });
 
   it('labels the dialog with its heading', async () => {
@@ -236,6 +237,12 @@ describe('apm-modal: dismissing', () => {
     const button = modal.querySelector('.modal-backdrop button');
     expect(button?.getAttribute('tabindex')).toBe('-1');
     expect(button?.getAttribute('aria-hidden')).toBe('true');
+  });
+
+  it('does not place transparent backdrop text over the modal content', async () => {
+    const modal = await mount('apm-modal', { open: true });
+
+    expect(modal.querySelector('.modal-backdrop button')?.textContent?.trim()).toBe('');
   });
 
   it('closes from the X button, which has an accessible name', async () => {
