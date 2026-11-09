@@ -47,6 +47,8 @@ test('sync adopts timestamped untracked bytes, removes missing rows and restores
   ).toBe('done');
   await expect(trashPage.rows()).toHaveCount(0);
   expect(await readFile(app.volumePath('photos/recovered/adopted.jpg'))).toEqual(bytes);
+  // FsOps creates adopted restores with pending pipeline data, processed by IndexJobs.
+  await app.rescan();
   await expect
     .poll(async () => (await indexedFile(app, 'photos', 'recovered/adopted.jpg')).hash)
     .toBe(template.sha1);
@@ -76,12 +78,14 @@ test('changing retention immediately sweeps only old trash; turning it off retai
   await shell.navigate('Settings');
   await settingsPage.toggle('Delete trashed files automatically', true);
   await settingsPage.fill('Delete after', '1');
+  const tasksBefore = (await app.api.tasks()).map((task) => task.id);
   await settingsPage.saveGeneral();
   await expect
     .poll(
       async () =>
-        (await app.api.tasks()).find((task) => task.title === 'Removing trash older than 1 day')
-          ?.state,
+        (await app.api.tasks()).find(
+          (task) => !tasksBefore.includes(task.id) && task.kind === 'trash_empty',
+        )?.state,
       { timeout: 30_000 },
     )
     .toBe('done');
@@ -104,6 +108,7 @@ test('changing retention immediately sweeps only old trash; turning it off retai
   expect((await taskAction(app, page, '/api/trash/sync', () => trashPage.sync())).state).toBe(
     'done',
   );
+  await trashPage.tab('Items');
   await expect(trashPage.row('kept.txt')).toBeVisible();
   await expect(page.locator('apm-trash-page')).toContainText(
     'Items stay in the trash until you empty it',

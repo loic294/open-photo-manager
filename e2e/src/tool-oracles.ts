@@ -213,9 +213,12 @@ export async function trashFixtures(app: AppInstance, files: readonly FixtureFil
   const comparisonId = volumes.find((volume) => volume.name === targetVolume)?.id;
   if (sourceId === undefined || comparisonId === undefined)
     throw new Error('Fixture volumes missing');
-  const ids = await Promise.all(
-    files.map(async (file) => (await indexedFile(app, file.volume, file.path)).item.id),
-  );
+  const listing = await app.api.listing(first.volume, dirname(first.path));
+  const ids = files.map((file) => {
+    const item = listing.items.find((item) => item.name === basename(file.path));
+    if (!item) throw new Error(`Trash setup file missing from listing: ${file.path}`);
+    return item.id;
+  });
   const selection = await app.api.request<{ id: number }>('POST', '/api/selections', {
     ids,
     label: 'system trash setup',

@@ -199,6 +199,18 @@ test('250 real deletions paginate, sort with the keyboard, search and filter by 
     expect(listing.total).toBe(250);
   }
   await trashPage.sort('Name');
+  await expect
+    .poll(() =>
+      trashPage
+        .rows()
+        .getByRole('checkbox')
+        .evaluateAll((nodes) =>
+          nodes.map((node) => node.getAttribute('aria-label')?.replace(/^Select /, '')),
+        ),
+    )
+    .toEqual(
+      (await trashList(app, 'sort=name&order=asc')).items.slice(0, 50).map((item) => item.name),
+    );
   const seen = new Set<string>();
   for (let offset = 0; offset < 250; offset += 50) {
     const names = await trashPage
@@ -215,7 +227,17 @@ test('250 real deletions paginate, sort with the keyboard, search and filter by 
           new URL(response.url()).searchParams.get('offset') === String(offset + 50),
       );
       await trashPage.next();
-      await next;
+      const nextItems = await (await next).json();
+      await expect
+        .poll(() =>
+          trashPage
+            .rows()
+            .getByRole('checkbox')
+            .evaluateAll((nodes) =>
+              nodes.map((node) => node.getAttribute('aria-label')?.replace(/^Select /, '')),
+            ),
+        )
+        .toEqual(nextItems.items.map((item: { name: string }) => item.name));
       await expect(page.locator('apm-trash-items')).toContainText(`${offset + 51}`);
     }
   }

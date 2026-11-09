@@ -90,6 +90,7 @@ test('volume-filtered empty cannot destroy another volume; trash is hidden from 
   trashPage,
   confirmDialog,
   source,
+  comparison,
 }) => {
   test.setTimeout(120_000);
   const photos = manifest.filesOf('deep.grid_500').slice(0, 1);
@@ -136,7 +137,13 @@ test('volume-filtered empty cannot destroy another volume; trash is hidden from 
     await expect(page.getByRole('button', { name: /delete permanently/i })).toHaveCount(0);
     await expect(page.getByText('.apm-trash', { exact: true })).toHaveCount(0);
   }
-  await page.goto(`${app.url}/browse?src=archive&cmp=photos`);
+  await shell.navigate('Browse');
+  if (await source.breadcrumbs().getByRole('button', { name: 'Volumes', exact: true }).count())
+    await source.breadcrumbs().getByRole('button', { name: 'Volumes', exact: true }).click();
+  if (await comparison.breadcrumbs().getByRole('button', { name: 'Volumes', exact: true }).count())
+    await comparison.breadcrumbs().getByRole('button', { name: 'Volumes', exact: true }).click();
+  await source.openFolder('archive');
+  await comparison.openFolder('photos');
   await expect(source.folder('.apm-trash')).toHaveCount(0);
   const volumes = await app.api.volumes();
   for (const volume of volumes) {

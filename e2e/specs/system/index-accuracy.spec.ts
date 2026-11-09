@@ -125,6 +125,7 @@ test('UI facet values and counts match the manifest, including XMP-only filters'
   page,
   filterBar,
   source,
+  comparison,
   bottomBar,
 }) => {
   const volume = (await sharedApp.api.volumes()).find((volume) => volume.name === 'photos');
@@ -183,13 +184,14 @@ test('UI facet values and counts match the manifest, including XMP-only filters'
     ).toBeVisible();
   const xmp = manifest.filesOf('sidecar.exact').find((file) => file.kind === 'raw');
   expect(xmp).toBeDefined();
-  await page.goto(`${sharedApp.url}/browse?src=photos/sidecars&cmp=photos/sidecars`);
+  await source.openFolder('sidecars');
+  await comparison.openFolder('sidecars');
   await filterBar.rating(4);
   await filterBar.flag('Selected');
   await filterBar.tag('Rome');
   await expect(source.card(basename(xmp?.path ?? '')).element).toBeVisible();
   await expect.poll(() => source.names()).toEqual([basename(xmp?.path ?? '')]);
-  expect(await bottomBar.counts('source')).toMatch(/1 item/);
+  await expect(bottomBar.side('source').getByText('1 in folder', { exact: true })).toBeVisible();
 });
 
 for (const key of [
