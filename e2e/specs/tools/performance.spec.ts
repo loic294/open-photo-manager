@@ -1,3 +1,4 @@
+import type { ItemsRequest } from '../../../web/src/api/generated/ItemsRequest';
 import { formatFileSize } from '../../../web/src/util/format';
 import { writeFile } from '../../src/disk';
 import { expect, test } from '../../src/test';
@@ -14,6 +15,24 @@ declare global {
 function isResponse(path: RegExp) {
   return (response: import('@playwright/test').Response) =>
     response.request().method() === 'POST' && path.test(new URL(response.url()).pathname);
+}
+
+async function waitForPlanItems(
+  page: import('@playwright/test').Page,
+  planResponse: Promise<import('@playwright/test').Response>,
+) {
+  const plan = planResponse.then((response) => response.json() as Promise<{ id: number }>);
+  await Promise.all(
+    ['source', 'comparison'].map(async (side) => {
+      const response = await page.waitForResponse(async (response) => {
+        if (!isResponse(/^\/api\/browse\/items$/)(response)) return false;
+        const request = response.request().postDataJSON() as ItemsRequest;
+        return request.plan?.plan_id === (await plan).id && request.plan?.side === side;
+      });
+      expect(await response.finished()).toBeNull();
+    }),
+  );
+  await expect(page.locator('apm-pane [data-pane-body][aria-busy="true"]')).toHaveCount(0);
 }
 
 test('duplicate and move tools stay responsive with 3,000 indexed files', async ({
@@ -78,11 +97,15 @@ test('duplicate and move tools stay responsive with 3,000 indexed files', async 
   await source.useFolder();
   await expect(movePage.planNotices()).toContainText('Choose the destination folder');
   const destinationPlan = page.waitForResponse(isResponse(/^\/api\/plans$/));
+  const destinationItems = waitForPlanItems(page, destinationPlan);
   await movePage.destinationBase().getByRole('button', { name: 'Use this folder' }).click();
   await destinationPlan;
+  await destinationItems;
   const customPlan = page.waitForResponse(isResponse(/^\/api\/plans$/));
+  const customItems = waitForPlanItems(page, customPlan);
   await movePage.chooseMoveType('custom');
   await customPlan;
+  await customItems;
   await movePage.openPattern();
 
   const requestCounts = { plans: 0, previews: 0 };
@@ -97,11 +120,13 @@ test('duplicate and move tools stay responsive with 3,000 indexed files', async 
   });
   const finalPreview = page.waitForResponse(isResponse(/^\/api\/format\/preview$/));
   const finalPlan = page.waitForResponse(isResponse(/^\/api\/plans$/));
+  const finalItems = waitForPlanItems(page, finalPlan);
   await movePage.pattern().fill('first/{name}');
   await movePage.pattern().fill('second/{name}');
   await movePage.pattern().fill('formatted/{filename}');
   await finalPreview;
   await finalPlan;
+  await finalItems;
   await expect(movePage.actionButton()).toBeEnabled();
   expect(requestCounts.previews).toBe(1);
   expect(requestCounts.plans).toBeLessThanOrEqual(1);
