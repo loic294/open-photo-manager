@@ -84,6 +84,13 @@ Calibration on this contended macOS host measured 1 GiB at 12 seconds (below acc
 validation. Compare pre-existing `.apm-part` paths because a deliberate junk fixture already has
 that suffix: copy/cancel/recovery must introduce no leftover parts.
 
+The copy responsiveness check submits 200 logical browse/facet requests over at most 16 live
+keep-alive connections, not 200 simultaneous TCP connects. Same-transport host controls observed
+283 `ECONNRESET` read failures with unlimited Node HTTP sockets versus none in 1,200 requests
+with 16 sockets; default Fetch separately produced connect resets. This is empirical connection-burst
+sensitivity, not proof of kernel backlog overflow. Requests retain absolute 15-second deadlines,
+must return HTTP 200 and valid JSON, and all settle before agent cleanup; no retries hide failures.
+
 `specs/system/cross-device.spec.ts` tests discovery, shutdown/detach and busy-mount fail-closed
 cleanup. These are host-binary checks, not Docker or actual Windows evidence. This APFS helper
 requires macOS `hdiutil`; tests must explicitly report unsupported platforms without claiming copy

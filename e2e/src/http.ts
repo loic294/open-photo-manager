@@ -1,4 +1,4 @@
-import { type IncomingHttpHeaders, request } from 'node:http';
+import { type Agent, type IncomingHttpHeaders, request } from 'node:http';
 
 export interface RawRequest {
   url: string;
@@ -7,6 +7,8 @@ export interface RawRequest {
   headers?: Record<string, string | string[]> | string[];
   body?: string | Uint8Array;
   headersOnly?: boolean;
+  agent?: Agent;
+  signal?: AbortSignal;
 }
 
 /** Node HTTP preserves controlled and duplicate headers without Fetch's URL normalization. */
@@ -27,7 +29,8 @@ export function rawRequest(options: RawRequest) {
         path: options.path,
         headers: options.headers ?? { Host: origin.host },
         setHost: false,
-        agent: false,
+        agent: options.agent ?? false,
+        signal: options.signal,
       },
       (response) => {
         const chunks: Buffer[] = [];

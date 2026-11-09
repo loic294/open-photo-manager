@@ -1,11 +1,13 @@
 import { createHash } from 'node:crypto';
 import { createReadStream } from 'node:fs';
 import { chmod, readFile } from 'node:fs/promises';
+import { Agent } from 'node:http';
 import { basename } from 'node:path';
 import { expectNoSeriousA11yViolations } from '../../src/a11y';
 import { emptyFilter } from '../../src/api';
 import { CrossDevice } from '../../src/cross-device';
 import { makeSparseFile, snapshotTree, writeFile } from '../../src/disk';
+import { rawRequest } from '../../src/http';
 import { captureScreens } from '../../src/screens';
 import { expect, test } from '../../src/test';
 import {
@@ -77,12 +79,42 @@ test('real cross-device copy preserves bytes and exposes measured progress @slow
       .toBeGreaterThan(firstProgress);
     const started = performance.now();
     const browse = { volume_id: null, dir: '', filter: emptyFilter, plan: null };
-    const flood = await Promise.all(
-      Array.from({ length: 200 }, (_, index) =>
-        index % 2 === 0 ? app.api.folders(browse) : app.api.facets(browse),
-      ),
-    );
-    expect(flood).toHaveLength(200);
+    const agent = new Agent({ keepAlive: true, maxSockets: 16 });
+    try {
+      const flood = await Promise.allSettled(
+        Array.from({ length: 200 }, async (_, index) => {
+          const response = await rawRequest({
+            url: app.url,
+            method: 'POST',
+            path: index % 2 === 0 ? '/api/browse/folders' : '/api/facets',
+            headers: {
+              Host: new URL(app.url).host,
+              Origin: app.url,
+              'x-apm-request': '1',
+              'Content-Type': 'application/json',
+            },
+            body: JSON.stringify(browse),
+            agent,
+            signal: AbortSignal.timeout(15_000),
+          });
+          expect(response.status).toBe(200);
+          const result = response.json();
+          expect(result).toMatchObject(
+            index % 2 === 0
+              ? { folders: expect.any(Array), counts: expect.any(Object) }
+              : { cameras: expect.any(Array), tags: expect.any(Array), ratings: expect.any(Array) },
+          );
+          return result;
+        }),
+      );
+      const failures = flood.flatMap((outcome) =>
+        outcome.status === 'rejected' ? [outcome.reason] : [],
+      );
+      if (failures.length) throw new AggregateError(failures, 'Copy-load requests failed');
+      expect(flood).toHaveLength(200);
+    } finally {
+      agent.destroy();
+    }
     expect(await app.api.request('GET', '/api/health')).toMatchObject({ status: 'ok' });
     expect(
       performance.now() - started,
