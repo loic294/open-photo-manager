@@ -1215,6 +1215,127 @@ async fn live_counterpart_revalidation_refuses_gone_or_changed_match() {
 }
 
 #[tokio::test]
+async fn cancellation_during_final_copy_matches_terminal_task_and_preserves_completed_work() {
+    use apm_server::fsops::{FailAction, Failpoints, Step};
+    use apm_server::plans::{PlanDeps, PlanService};
+    use std::sync::atomic::{AtomicUsize, Ordering};
+    use std::sync::{Arc, Mutex, mpsc};
+
+    for completed in [0, 1] {
+        let mut app = TestApp::new().await;
+        let (src, source) = app.add_volume("source").await;
+        let (dst, destination) = app.add_volume("destination").await;
+        if completed == 1 {
+            source.write("src/a.jpg", b"first");
+        }
+        source.write("src/z.jpg", b"last");
+        let seed = Seed::new(&app.state.db);
+        if completed == 1 {
+            seed.file(src, "src", "a.jpg").size(5).insert().await;
+        }
+        seed.file(src, "src", "z.jpg").size(4).insert().await;
+        ready(&app).await;
+
+        let entered = Arc::new(tokio::sync::Notify::new());
+        let notify = entered.clone();
+        let (release, blocked) = mpsc::channel();
+        let blocked = Mutex::new(blocked);
+        let copies = AtomicUsize::new(0);
+        let points = Failpoints::new(move |step| {
+            if step == Step::AfterPartCreate && copies.fetch_add(1, Ordering::SeqCst) == completed {
+                notify.notify_one();
+                blocked
+                    .lock()
+                    .unwrap()
+                    .recv_timeout(Duration::from_secs(10))
+                    .unwrap();
+            }
+            FailAction::Continue
+        });
+        let fsops = app
+            .state
+            .fsops
+            .clone()
+            .with_mover(Arc::new(common::fsops::SplitMover::new(&[
+                &source,
+                &destination,
+            ])))
+            .with_failpoints(points);
+        app.state.plans = PlanService::new(PlanDeps {
+            db: app.state.db.clone(),
+            fsops,
+            settings: app.state.settings.clone(),
+            shutdown: app.state.shutdown.clone(),
+            tasks: app.state.tasks.clone(),
+            volumes: app.state.volumes.clone(),
+        })
+        .await
+        .unwrap();
+        app.router = apm_server::app::router(app.state.clone());
+        let plan = build(&app, &params(MoveType::Flat, src, dst)).await;
+        let (status, body) = app
+            .call(
+                Method::POST,
+                &format!("/api/plans/{}/execute", plan.id),
+                Some(json!({"options":{}, "only":null})),
+            )
+            .await;
+        assert_eq!(status, StatusCode::ACCEPTED, "{body}");
+        let id = body["id"].as_i64().unwrap();
+        tokio::time::timeout(Duration::from_secs(10), entered.notified())
+            .await
+            .unwrap();
+        assert_eq!(
+            app.state.tasks.get(id).await.unwrap().state,
+            TaskState::Running
+        );
+        assert!(app.state.plans.get(plan.id).await.unwrap().result.is_none());
+        app.state.tasks.cancel(id).await.unwrap();
+        release.send(()).unwrap();
+        let task = tokio::time::timeout(Duration::from_secs(10), app.state.tasks.wait_finished(id))
+            .await
+            .unwrap()
+            .unwrap();
+        let terminal = app.state.plans.get(plan.id).await.unwrap();
+        assert_eq!(task.state, TaskState::Cancelled);
+        assert_eq!(terminal.task_id, Some(id));
+        let result = terminal.result.unwrap();
+        assert!(result.cancelled, "{result:?}");
+        assert_eq!(
+            (result.done, result.bytes, result.failed, result.skipped),
+            (completed as u64, completed as u64 * 5, 0, 0)
+        );
+        assert!(result.failures.is_empty());
+        assert_eq!(std::fs::read(source.path("src/z.jpg")).unwrap(), b"last");
+        assert!(!destination.path("out/z.jpg").exists());
+        if completed == 1 {
+            assert!(!source.path("src/a.jpg").exists());
+            assert_eq!(
+                std::fs::read(destination.path("out/a.jpg")).unwrap(),
+                b"first"
+            );
+        }
+        let journal: String = sqlx::query_scalar(
+            "SELECT state FROM fs_journal WHERE task_id = ? ORDER BY id DESC LIMIT 1",
+        )
+        .bind(id)
+        .fetch_one(app.state.db.read())
+        .await
+        .unwrap();
+        assert_eq!(journal, "failed");
+        assert!(
+            std::fs::read_dir(destination.path("out"))
+                .unwrap()
+                .all(|entry| !entry
+                    .unwrap()
+                    .file_name()
+                    .to_string_lossy()
+                    .ends_with(".apm-part"))
+        );
+    }
+}
+
+#[tokio::test]
 async fn cancellation_after_first_move_keeps_partial_result_and_finishes_exact_sidecar() {
     use apm_server::fsops::{AppliedOp, OpHook};
     use apm_server::plans::{PlanDeps, PlanService};

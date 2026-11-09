@@ -16,8 +16,8 @@ use super::{COLUMNS, Source, Wanted};
 use super::{params, sidecars};
 use crate::db::Db;
 use crate::fsops::{
-    Expect, MoveGroup, MoveOutcome, MoveRequest, SidecarAction, SidecarOutcome, SidecarSkip,
-    SkipReason,
+    Expect, FsOpError, MoveGroup, MoveOutcome, MoveRequest, SidecarAction, SidecarOutcome,
+    SidecarSkip, SkipReason,
 };
 use crate::plans::{ExecContext, Plan, PlanError, ResultBuilder, display_path};
 
@@ -385,9 +385,16 @@ pub(crate) async fn run(
             Err(err) if err.code() == "immich_move_refused" => {
                 result.skip_with_detail(Some(item.file_id), display, err.code(), err.to_string());
             }
+            Err(FsOpError::Cancelled) => {
+                result.mark_cancelled();
+                break;
+            }
             Err(err) => result.fail_fs(Some(item.file_id), display, &err),
         }
         ctx.item_processed();
+    }
+    if ctx.cancelled() {
+        result.mark_cancelled();
     }
     if retained_count > 0 {
         result.note(format!(
