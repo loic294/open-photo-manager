@@ -1,9 +1,9 @@
 import { createHash } from 'node:crypto';
 import { createReadStream } from 'node:fs';
-import { readdir, stat } from 'node:fs/promises';
+import { stat } from 'node:fs/promises';
 import type { PlanDto } from '../../../web/src/api/generated/PlanDto';
 import { CrossDevice } from '../../src/cross-device';
-import { makeSparseFile, writeFile } from '../../src/disk';
+import { makeSparseFile, snapshotTree, writeFile } from '../../src/disk';
 import {
   expectQueuedBehindCopy,
   observeRunningCopy,
@@ -81,16 +81,9 @@ async function hashFile(path: string) {
 }
 
 async function partFiles(volumePath: string) {
-  async function visit(path: string): Promise<string[]> {
-    const files: string[] = [];
-    for (const entry of await readdir(path, { withFileTypes: true })) {
-      const child = `${path}/${entry.name}`;
-      if (entry.isDirectory()) files.push(...(await visit(child)));
-      else if (entry.name.endsWith(PART_SUFFIX)) files.push(child);
-    }
-    return files;
-  }
-  return visit(volumePath);
+  return (await snapshotTree(volumePath))
+    .filter((entry) => entry.unreadable || entry.path.endsWith(PART_SUFFIX))
+    .map((entry) => ({ path: entry.path, type: entry.type, mode: entry.mode }));
 }
 
 test('cross-volume move reports progress, queues later work, and preserves a cancelled source', async ({
