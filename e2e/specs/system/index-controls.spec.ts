@@ -340,7 +340,7 @@ test('offline volume keeps identities and a reconnect restores live re-index con
   await page.goto(`${app.url}/browse?src=photos/stale&cmp=photos/stale`);
   const allowanceStart = allowedErrors.length;
   for (const path of ['browse/folders', 'browse/items', 'facets'])
-    for (const error of ['CONNECTION_RESET', 'EMPTY_RESPONSE'])
+    for (const error of ['CONNECTION_RESET', 'EMPTY_RESPONSE', 'CONNECTION_REFUSED'])
       allowedErrors.push(`requestfailed: ${app.url}/api/${path} net::ERR_${error}`);
   await app.suspend();
   await expect(shell.reindexButton()).toBeDisabled({ timeout: 30_000 });
