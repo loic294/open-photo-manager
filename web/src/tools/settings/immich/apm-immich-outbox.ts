@@ -35,13 +35,17 @@ export class ApmImmichOutbox extends ApmElement {
   private lastStatus: unknown;
   private requests = new Map<OutboxState, AbortController>();
   private actionRefreshing = false;
+  private statusRefreshPending = false;
 
   protected override updated(): void {
     if (!this.isConnected) return;
     const status = immichStatus.peek();
     if (this.lastStatus !== status) {
       this.lastStatus = status;
-      if (!this.actionRefreshing) void this.reload();
+      if (!this.actionRefreshing) {
+        this.statusRefreshPending = true;
+        this.refreshWhenIdle();
+      }
     }
   }
 
@@ -51,6 +55,7 @@ export class ApmImmichOutbox extends ApmElement {
     this.requests.clear();
     this.loading = new Set();
     this.lastStatus = undefined;
+    this.statusRefreshPending = false;
   }
 
   override connectedCallback(): void {
@@ -83,15 +88,28 @@ export class ApmImmichOutbox extends ApmElement {
       if (this.requests.get(state) === controller) {
         this.requests.delete(state);
         this.loading = new Set(this.requests.keys());
+        this.refreshWhenIdle();
       }
     }
   }
 
   private async reload(): Promise<void> {
+    this.statusRefreshPending = false;
     await Promise.all([
       this.load('attention'),
       ...(this.pendingOpen ? [this.load('pending')] : []),
     ]);
+  }
+
+  private refreshWhenIdle(): void {
+    if (
+      this.statusRefreshPending &&
+      this.isConnected &&
+      !this.actionRefreshing &&
+      this.requests.size === 0
+    ) {
+      void this.reload();
+    }
   }
 
   private toggle(id: number, checked: boolean): void {
@@ -130,6 +148,7 @@ export class ApmImmichOutbox extends ApmElement {
     } finally {
       this.actionRefreshing = false;
       this.busy = false;
+      this.refreshWhenIdle();
     }
   }
 

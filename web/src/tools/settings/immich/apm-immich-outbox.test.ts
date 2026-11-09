@@ -1,6 +1,7 @@
 import { afterEach, beforeEach, expect, it, vi } from 'vitest';
 import { api } from '@/api/client';
 import { ApiError } from '@/api/errors';
+import type { OutboxPage } from '@/api/generated/OutboxPage';
 import { applyImmichStatus } from '@/stores/immich';
 import { pressConfirm, shownConfirm } from '@/test/confirm';
 import { mount } from '@/test/helpers';
@@ -143,4 +144,81 @@ it('does not restart list loads after removal and reloads on reconnection', asyn
   document.body.append(el);
   await el.updateComplete;
   expect(api.get).toHaveBeenCalledTimes(calls + 1);
+});
+
+it('coalesces status updates during a list load into one non-aborting trailing refresh', async () => {
+  let resolveFirst!: (page: OutboxPage) => void;
+  const first = new Promise<OutboxPage>((resolve) => {
+    resolveFirst = resolve;
+  });
+  vi.mocked(api.get)
+    .mockReturnValueOnce(first)
+    .mockResolvedValue(sampleOutboxPage({ items: [], total: 0 }));
+  const el = await mount('apm-immich-outbox');
+  const signal = vi.mocked(api.get).mock.calls[0]?.[1]?.signal;
+  expect(signal).toBeDefined();
+  for (const needs_attention of [1, 2]) {
+    applyImmichStatus(sampleImmichStatus({ needs_attention }));
+    await el.updateComplete;
+  }
+  expect(signal?.aborted).toBe(false);
+  expect(api.get).toHaveBeenCalledTimes(1);
+  resolveFirst(sampleOutboxPage());
+  await vi.waitFor(() => {
+    expect(api.get).toHaveBeenCalledTimes(2);
+    expect(el.textContent).toContain('No changes needing attention.');
+  });
+  expect(signal?.aborted).toBe(false);
+  expect(el.querySelector('[title="photos/a.jpg"]')).toBeNull();
+});
+
+it('discards a queued status refresh when removed during a list load', async () => {
+  let resolveFirst!: (page: OutboxPage) => void;
+  const first = new Promise<OutboxPage>((resolve) => {
+    resolveFirst = resolve;
+  });
+  vi.mocked(api.get).mockReturnValueOnce(first);
+  const el = await mount('apm-immich-outbox');
+  const signal = vi.mocked(api.get).mock.calls[0]?.[1]?.signal;
+  applyImmichStatus(sampleImmichStatus({ needs_attention: 1 }));
+  await el.updateComplete;
+  el.remove();
+  expect(signal?.aborted).toBe(true);
+  resolveFirst(sampleOutboxPage());
+  await first;
+  await el.updateComplete;
+  expect(api.get).toHaveBeenCalledTimes(1);
+});
+
+it('waits for the pending list too before running a queued status refresh', async () => {
+  const el = await open();
+  let resolvePending!: (page: OutboxPage) => void;
+  const pending = new Promise<OutboxPage>((resolve) => {
+    resolvePending = resolve;
+  });
+  vi.mocked(api.get).mockClear().mockReturnValueOnce(pending);
+  const details = el.querySelector('details');
+  if (!details) throw new Error('Missing collapse');
+  details.open = true;
+  details.dispatchEvent(new Event('toggle'));
+  await el.updateComplete;
+  const signal = vi.mocked(api.get).mock.calls[0]?.[1]?.signal;
+  for (const needs_attention of [1, 2]) {
+    applyImmichStatus(sampleImmichStatus({ needs_attention }));
+    await el.updateComplete;
+  }
+  expect(signal?.aborted).toBe(false);
+  expect(api.get).toHaveBeenCalledTimes(1);
+  resolvePending(sampleOutboxPage({ items: [], total: 0 }));
+  await vi.waitFor(() => {
+    expect(api.get).toHaveBeenCalledTimes(3);
+    expect(el.textContent).not.toContain('Loading changes');
+  });
+  expect(signal?.aborted).toBe(false);
+  expect(
+    vi
+      .mocked(api.get)
+      .mock.calls.slice(1)
+      .map(([, options]) => options?.query?.state),
+  ).toEqual(['attention', 'pending']);
 });
