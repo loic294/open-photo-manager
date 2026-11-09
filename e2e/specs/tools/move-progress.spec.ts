@@ -54,7 +54,8 @@ async function waitForCopyProgress(
     .taskIndicator()
     .getByRole('group', { name: 'Background tasks' })
     .locator('apm-task-row')
-    .filter({ hasText: taskTitle });
+    .filter({ hasText: taskTitle })
+    .filter({ has: shell.page.locator('[data-state="running"]') });
   await expect(row).toBeVisible();
   await expect(row.getByRole('progressbar')).toBeVisible();
   await expect
