@@ -20,6 +20,7 @@ for (const selectionMode of ['source-only', 'both-panes'] as const) {
     source,
     comparison,
     duplicatesPage,
+    movePage,
   }) => {
     const url = new URL('/duplicates', app.url);
     url.searchParams.set('src', 'photos/dupes/m1');
@@ -32,6 +33,7 @@ for (const selectionMode of ['source-only', 'both-panes'] as const) {
     await initialPlan;
     await source.waitReady();
     await comparison.waitReady();
+    const before = await snapshotTree(app.volumesDir, { hash: true });
 
     await source.card('IMG_0300.jpg').select();
     if (selectionMode === 'both-panes') await comparison.card('vacation_copy.jpg').select();
@@ -40,10 +42,6 @@ for (const selectionMode of ['source-only', 'both-panes'] as const) {
       await expect(comparison.card('vacation_copy.jpg').isSelected()).resolves.toBe(true);
 
     await duplicatesPage.chooseAction('Move files');
-    const movePlanResponse = page.waitForResponse(
-      (response) =>
-        response.request().method() === 'POST' && new URL(response.url()).pathname === '/api/plans',
-    );
     const selectionResponse = page.waitForResponse(
       (response) =>
         response.request().method() === 'POST' &&
@@ -57,12 +55,21 @@ for (const selectionMode of ['source-only', 'both-panes'] as const) {
     await expect(
       page.getByText(`${selection.item_count} files from Duplicate finder`),
     ).toBeVisible();
+    await expect(movePage.planNotices()).toContainText('Choose the destination folder');
+    await expect(comparison.breadcrumbs()).toContainText('archive');
+    await expect(comparison.breadcrumbs()).toContainText('m1');
+    const movePlanResponse = page.waitForResponse(
+      (response) =>
+        response.request().method() === 'POST' && new URL(response.url()).pathname === '/api/plans',
+    );
+    await comparison.useFolder();
     const movePlan = await movePlanResponse;
     const body = movePlan.request().postDataJSON() as {
       params?: { source?: { filter?: { selection_id?: number } } };
     };
     expect(body.params?.source?.filter?.selection_id).toBe(selection.id);
     await expect(page.getByRole('button', { name: 'Remove selection filter' })).toBeVisible();
+    expect(await snapshotTree(app.volumesDir, { hash: true })).toEqual(before);
   });
 }
 

@@ -82,7 +82,7 @@ export class PanePage {
     readonly side: Side,
   ) {
     this.element = page.getByRole('region', {
-      name: side === 'source' ? 'Source' : 'Comparison',
+      name: side === 'source' ? 'Source' : /^(Comparison|Destination)$/,
       exact: true,
     });
     this.body = this.element.locator('[data-pane-body]');
