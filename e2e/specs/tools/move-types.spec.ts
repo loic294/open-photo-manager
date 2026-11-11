@@ -42,27 +42,23 @@ for (const { value, label } of moveTypes) {
     await page.goto(url.href);
     await source.useFolder();
     await expect(movePage.planNotices()).toContainText('Choose the destination folder');
-    let updateResponse = page.waitForResponse(isResponse(/^\/api\/plans$/));
-    await movePage
-      .destinationBase()
-      .getByRole('button', { name: 'Use this folder', exact: true })
-      .click();
-    await updateResponse;
+    await movePage.previewAfter(() =>
+      movePage
+        .destinationBase()
+        .getByRole('button', { name: 'Use this folder', exact: true })
+        .click(),
+    );
     if (value !== 'keep_source') {
-      updateResponse = page.waitForResponse(isResponse(/^\/api\/plans$/));
-      await movePage.chooseMoveType(value);
-      await updateResponse;
+      await movePage.previewAfter(() => movePage.chooseMoveType(value));
     } else {
       await movePage.chooseMoveType(value);
     }
     if (value === 'custom') {
       await movePage.openPattern();
       const previewResponse = page.waitForResponse(isResponse(/^\/api\/format\/preview$/));
-      updateResponse = page.waitForResponse(isResponse(/^\/api\/plans$/));
-      await movePage.pattern().fill('{YYYY}/{filename}');
-      await previewResponse;
+      await movePage.previewAfter(() => movePage.pattern().fill('{YYYY}/{filename}'));
+      expect((await previewResponse).status()).toBe(200);
       await expect(movePage.actionButton()).toBeEnabled();
-      await updateResponse;
     }
     const fileName = file.path.split('/').at(-1) ?? file.path;
     const destination =

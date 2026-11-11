@@ -186,6 +186,11 @@ as acceptance evidence.
 
 ## Adding coverage
 
+`MovePage.previewAfter(action)` observes the triggered plan and its scoped source/destination
+folder and first-page item responses before the action runs. It requires successful completed
+bodies and that plan's rendered pane/overlay state before another mode or pattern edit.
+`tools/move-preview-boundary.spec.ts` gates real backend responses to protect this ordering.
+
 Import `test` and `expect` from `src/test.ts`, not a second fixture implementation. Use `sharedApp`
 only for read-only tests: its volume snapshot and logical file-index rows must stay unchanged.
 External mutation helpers reject paths outside private volumes and existing symlink ancestors.
