@@ -14,19 +14,14 @@ For Windows users running Docker Desktop with Linux containers and the WSL 2 bac
 
    You should see: Docker Desktop running Linux containers and able to run `docker compose` commands.
 
-2. Log in to the private GitHub Container Registry image. Follow only the
-   [README's GHCR login steps](../README.md#install-on-synology); enter the token interactively
-   at Docker's password prompt. Do not put the token in the Compose file or a command argument.
-
-   You should see: Docker reports `Login Succeeded`.
-
-3. Save the Compose example below as `compose.yml` in a new folder. Replace the sample photo path
+2. Save the Compose example below as `compose.yml` in a new folder. Replace the sample photo path
    with an existing Windows photo folder. Keep the named `apm-data` volume mounted at `/data`.
+   The image is public, so no registry login or token is needed.
 
    You should see: `compose.yml` has the Windows photo folder at `/volumes/photos` and `apm-data`
    at `/data`.
 
-4. From that folder, start the app:
+3. From that folder, start the app:
 
    ```powershell
    docker compose up -d
@@ -34,7 +29,7 @@ For Windows users running Docker Desktop with Linux containers and the WSL 2 bac
 
    You should see: `docker compose ps` reports the `apm` service running.
 
-5. Check the health endpoint from PowerShell:
+4. Check the health endpoint from PowerShell:
 
    ```powershell
    curl.exe http://localhost:8080/api/health
@@ -43,7 +38,7 @@ For Windows users running Docker Desktop with Linux containers and the WSL 2 bac
    You should see: JSON with `"status":"ok"`, a server `"version"`, and a `"warnings"` array (which
    may be empty or contain host warnings).
 
-6. Open [http://localhost:8080](http://localhost:8080).
+5. Open [http://localhost:8080](http://localhost:8080).
 
    You should see: the APM web interface. Browse a disposable test folder before organizing real
    photos.
@@ -64,13 +59,13 @@ not discard the original data directory until the new setup is verified.
 ## Compose example
 
 This standalone example bind-mounts a Windows photo folder and keeps SQLite data in a Docker named
-volume. Replace the sample path with an existing folder. The login step above links to the README's
-private GHCR instructions; this Windows Compose example is separate from the Synology Compose example.
+volume. Replace the sample path with an existing folder. This Windows Compose example is separate from
+the Synology Compose example.
 
 ```yaml
 services:
   apm:
-    image: ghcr.io/loic294/advanced-photo-manager:edge
+    image: ghcr.io/loic294/open-photo-manager:edge
     restart: unless-stopped
     ports:
       - "8080:8080"

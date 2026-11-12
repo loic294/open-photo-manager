@@ -14,7 +14,6 @@ versions; all DSM UI procedures below are not verified on a DSM device.
 
 1. Keep the published port on a trusted home network. Do not forward it from your router.
    The app has no login: anyone who can reach it can browse and perform permitted file operations.
-   The private registry protects image downloads, not access to the running app.
 
    You should see: the app is reachable from your intended LAN devices, not from the public internet.
 
@@ -64,17 +63,13 @@ versions; all DSM UI procedures below are not verified on a DSM device.
 
 ## Get the image and start the project
 
-1. Follow [Install on Synology](../README.md#install-on-synology) for the primary route: interactive
-   GHCR login, Compose validation, pull and start. Your GitHub account must have read access to the
-   private package; SSO may need authorisation. Enter the token at Docker's password prompt,
-   never in Compose, a shell argument or a chat.
+1. Follow [Install on Synology](../README.md#install-on-synology) for the primary route: Compose
+   validation, pull and start. The image is public, so no registry login or token is needed.
 
-   DSM caveat (not verified on a DSM device): Docker usually needs `sudo`. Login credentials are
-   per OS user, so use the same prefix for login, pull and Compose.
-   Container Manager's registry sign-in is reported to fail with "Registry returned bad result"
-   for GHCR; sign in over SSH with the user that will run Compose instead.
+   DSM caveat (not verified on a DSM device): Docker usually needs `sudo`; use the same prefix for
+   pull and Compose.
 
-   You should see: Compose pulls the private image successfully for your NAS architecture.
+   You should see: Compose pulls the image successfully for your NAS architecture.
    `edge` is a development image; it does not promise the complete application.
 
 2. Alternatively, use the [offline quick start](../docker/README.md#offline-quick-start) and
@@ -85,8 +80,7 @@ versions; all DSM UI procedures below are not verified on a DSM device.
    You should see: the image is available locally before you start the project.
 
 3. In Container Manager > Project > Create, select the folder containing the edited Compose file
-   (not verified on a DSM device). A private-image Project needs the prior Docker login;
-   if it cannot pull, pre-pull over SSH using that same OS user.
+   (not verified on a DSM device). If it cannot pull, pre-pull over SSH with `docker compose pull`.
    CLI startup is the alternative already documented in the README.
 
    You should see: the app service is running. Inspect it from the Compose directory:
@@ -96,7 +90,7 @@ versions; all DSM UI procedures below are not verified on a DSM device.
    docker compose logs --tail=100 apm
    ```
 
-   Use the same `sudo` prefix, if needed, as at login. Follow the
+   Use the same `sudo` prefix, if needed, as for `docker compose pull`. Follow the
    [health-check reference](../docker/README.md#health-check) if it is not healthy.
 
 ## First start

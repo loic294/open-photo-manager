@@ -105,27 +105,26 @@ Before changing this adapter, run the mandatory isolated real-schema gate in
 [immich-postgres-test.md](immich-postgres-test.md). An ignored test is not a
 successful PostgreSQL gate.
 
-## Private GHCR publishing
+## Public GHCR publishing
 
-The normal installation path is [the root README](../README.md), using the private image
-`ghcr.io/loic294/advanced-photo-manager:edge`. Pulls require a classic PAT with `read:packages` and package
-read access; enter it yourself at `docker login ghcr.io`, never give it to an agent.
+The normal installation path is [the root README](../README.md), using the public image
+`ghcr.io/loic294/open-photo-manager:edge`. Pulling needs no registry login or token.
 
 [`.github/workflows/publish-image.yml`](../.github/workflows/publish-image.yml) publishes `edge` on `main`
 pushes affecting image inputs (not docs-only changes), or on manual dispatch from `main`. Approved exact
 `vX.Y.Z` tags publish `X.Y.Z`, `X.Y` and `latest`; no tag or release is created by CI. GitHub ignores path
 filters for tag pushes. Manual dispatch from other branches is rejected.
 
-The workflow requires a private repository/package, uses only `GITHUB_TOKEN` with job-scoped package
-permissions, and labels images with the private repository source URL. GHCR creates the first package private;
-keep its visibility private and its linked repository's Actions access enabled. Existing non-private packages
-fail the workflow. No provenance, SBOM or other attestations are enabled on this private plan.
+The workflow runs only in `loic294/open-photo-manager`, uses only `GITHUB_TOKEN` with job-scoped package
+permissions, and labels images with the repository source URL. Provenance and SBOM attestations are disabled.
+GHCR creates the first package private; the owner makes it public once, in the package settings (Danger Zone >
+Change visibility), because GitHub offers no workflow or token route for that. The last job step pulls the
+first published tag without credentials and warns, without failing the run, while the package is still private.
 
 Each architecture builds natively on `ubuntu-24.04` (amd64) or `ubuntu-24.04-arm` (arm64), pushes an untagged
 digest, pulls it and runs `docker/smoke.sh`. Only after both pass are tags assembled and inspected for exactly
 those two Linux digests. Failed runs can leave untagged digests, but do not promote them. All actions are pinned
-to full commit SHAs with version comments. Native ARM runner availability/billing must be enabled for the
-private repository's plan; do not silently substitute emulation if a runner is unavailable.
+to full commit SHAs with version comments. Do not silently substitute emulation if a native runner is unavailable.
 
 The repository owner deliberately creates `vX.Y.Z` release tags after verifying a build; the workflow
 never creates tags itself. Development publishing is enabled immediately; `latest` is reserved for releases

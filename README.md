@@ -7,8 +7,8 @@ Five tools compare duplicates, move assets, format folders, clean up empty folde
 files. Filter and select files, inspect them in the viewer, index metadata and `.xmp` sidecars in the
 background, and connect an Immich external library.
 
-Private repository and private image: `loic294/advanced-photo-manager` and
-`ghcr.io/loic294/advanced-photo-manager`. The app has no login in v1: keep it on your trusted LAN,
+Open source under the [MIT License](LICENSE): repository `loic294/open-photo-manager` and public image
+`ghcr.io/loic294/open-photo-manager`. The app has no login in v1: keep it on your trusted LAN,
 do not forward port 8080 or expose it publicly. Back up your photos and the app's data folder.
 
 ## Before you start
@@ -33,7 +33,7 @@ do not forward port 8080 or expose it publicly. Back up your photos and the app'
 
 1. Identify your NAS architecture and choose a numeric user.
 2. Prepare local app storage and photo-share permissions.
-3. Follow the existing private GHCR installation below.
+3. Follow the Synology installation below.
 4. Check container health, then browse a disposable test library first.
 5. Follow the [Synology operations guide](docs/synology.md) for checks, backups and DSM caveats.
 
@@ -51,24 +51,14 @@ The commands below run over SSH on the NAS; use an account permitted to run Dock
    cd /volume1/docker/apm
    ```
    On DSM, Docker commands usually need `sudo`; this has not been verified on a DSM device.
-   Docker login is per OS user, so run `docker login`, `docker compose pull` and `docker compose up -d`
-   consistently with `sudo`, or consistently without it.
-2. Get a classic GitHub personal access token with `read:packages`, belonging to an account granted
-   read access to the private package (and authorize SSO if required). Log in interactively:
-   ```sh
-   docker login ghcr.io --username YOUR_GITHUB_USERNAME
-   ```
-   Enter the token at Docker's password prompt yourself. Never put it in Compose, shell command arguments,
-   source control or messages to an agent. Docker stores login credentials on the NAS; protect that account
-   and its Docker configuration, or use a credential helper. `GITHUB_TOKEN` is for CI, not NAS installation.
-3. Pull and start:
+2. Pull and start. The image is public, so no registry login or token is needed:
    ```sh
    docker compose config -q
    docker compose pull
    docker compose up -d
    docker compose ps
    ```
-   Alternatively create a Container Manager Project from this directory after logging in and pulling.
+   Alternatively create a Container Manager Project from this directory.
    Open `http://<nas-ip>:8080`; for a hostname, include it in `APM_ALLOWED_HOSTS`.
 
 ## Update and tags
@@ -91,24 +81,24 @@ from a locally built tarball remains available in [docker/README.md](docker/READ
 ## Compose example
 
 This is the verbatim [docker/compose.yml](docker/compose.yml). Run `make check-compose` after editing
-either copy. Keep the published port on your LAN; the private registry does not authenticate the app.
+either copy. Keep the published port on your LAN; the app itself has no login.
 
 <!-- BEGIN COMPOSE -->
 ```yaml
 # Advanced Photo Manager: example Docker Compose file for a Synology NAS (also fine on any Docker host).
 #
 # How to use it (details in README.md; offline builds in docker/README.md):
-#   1. Log in to ghcr.io with a classic PAT with read:packages, then `docker compose pull`.
-#   2. Copy this file to the NAS, for example /volume1/docker/apm/compose.yml, and edit the lines marked CHANGE ME.
-#   3. Create the data folder and give it to the user in "user:" below (see "Users and permissions" in the README):
+#   1. Copy this file to the NAS, for example /volume1/docker/apm/compose.yml, and edit the lines marked CHANGE ME.
+#   2. Create the data folder and give it to the user in "user:" below (see "Users and permissions" in the README):
 #        sudo mkdir -p /volume1/docker/apm/data && sudo chown -R 1026:100 /volume1/docker/apm/data
-#   4. Start it: `docker compose up -d`, or Container Manager > Project > Create (pick the folder with this file).
-#   5. Open http://<nas-ip>:8080
+#   3. Pull and start it: `docker compose pull && docker compose up -d`, or Container Manager > Project > Create
+#      (pick the folder with this file). The image is public: no registry login is needed.
+#   4. Open http://<nas-ip>:8080
 
 services:
   apm:
-    # Private development image; pin a version or digest for repeatable deployments.
-    image: ghcr.io/loic294/advanced-photo-manager:edge
+    # Public image. `edge` follows the main branch (development builds); pin a version or digest for repeatable deployments.
+    image: ghcr.io/loic294/open-photo-manager:edge
     # Alternatively let Compose build it from a checkout of the repository (slow on a NAS, building on a PC is easier):
     # build:
     #   context: ..
@@ -218,3 +208,7 @@ service; [its reference](tools/mock-immich/README.md) explains scenarios and iso
 | `docs/` | User guides and documentation checks |
 
 Contributor rules are in [AGENTS.md](AGENTS.md) and [web/AGENTS.md](web/AGENTS.md).
+
+## License
+
+Released under the [MIT License](LICENSE).

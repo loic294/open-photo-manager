@@ -1,17 +1,17 @@
 # Advanced Photo Manager: example Docker Compose file for a Synology NAS (also fine on any Docker host).
 #
 # How to use it (details in README.md; offline builds in docker/README.md):
-#   1. Log in to ghcr.io with a classic PAT with read:packages, then `docker compose pull`.
-#   2. Copy this file to the NAS, for example /volume1/docker/apm/compose.yml, and edit the lines marked CHANGE ME.
-#   3. Create the data folder and give it to the user in "user:" below (see "Users and permissions" in the README):
+#   1. Copy this file to the NAS, for example /volume1/docker/apm/compose.yml, and edit the lines marked CHANGE ME.
+#   2. Create the data folder and give it to the user in "user:" below (see "Users and permissions" in the README):
 #        sudo mkdir -p /volume1/docker/apm/data && sudo chown -R 1026:100 /volume1/docker/apm/data
-#   4. Start it: `docker compose up -d`, or Container Manager > Project > Create (pick the folder with this file).
-#   5. Open http://<nas-ip>:8080
+#   3. Pull and start it: `docker compose pull && docker compose up -d`, or Container Manager > Project > Create
+#      (pick the folder with this file). The image is public: no registry login is needed.
+#   4. Open http://<nas-ip>:8080
 
 services:
   apm:
-    # Private development image; pin a version or digest for repeatable deployments.
-    image: ghcr.io/loic294/advanced-photo-manager:edge
+    # Public image. `edge` follows the main branch (development builds); pin a version or digest for repeatable deployments.
+    image: ghcr.io/loic294/open-photo-manager:edge
     # Alternatively let Compose build it from a checkout of the repository (slow on a NAS, building on a PC is easier):
     # build:
     #   context: ..
