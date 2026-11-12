@@ -2,6 +2,7 @@ use chrono::{DateTime, Utc};
 use chrono_tz::Tz;
 use opm_core::datetime::{CaptureInputs, resolve_capture};
 use opm_core::dto::RenameIssueField;
+use opm_core::exclusions::Exclusions;
 use opm_core::junk::JunkRules;
 use opm_core::paths::RelPath;
 use opm_core::pattern::{TokenGroup, parse_name};
@@ -22,6 +23,7 @@ pub(crate) enum Outcome {
 pub(crate) struct Names {
     compiled: opm_core::rename::CompiledRules,
     junk: JunkRules,
+    excluded: Exclusions,
     timezone: Tz,
     name_max_len: usize,
     uses_dates: bool,
@@ -41,6 +43,7 @@ impl Names {
         Ok(Self {
             compiled,
             junk: JunkRules::new(&settings.junk_names, &settings.junk_prefixes),
+            excluded: Exclusions::new(&settings.excluded_folders),
             timezone: opm_core::datetime::tz_or_utc(std::env::var("TZ").ok().as_deref()),
             name_max_len: usize::from(settings.name_max_len),
             uses_dates: parsed
@@ -191,6 +194,7 @@ impl Names {
             return true;
         };
         super::super::moves::reserved(&self.junk, &path)
+            || self.excluded.contains(row.volume_id, &path)
     }
 
     fn source_reserved(&self, row: &Source) -> bool {
@@ -201,6 +205,7 @@ impl Names {
             return true;
         };
         super::super::moves::reserved(&self.junk, &path)
+            || self.excluded.contains(row.volume_id, &path)
     }
 }
 

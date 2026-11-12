@@ -232,6 +232,15 @@ not accepted by **Folder formatting**. The examples use the generated sample fil
    You should see: a background task while the app stays usable. Use current folders after local
    metadata/sidecar changes; use all assets for library-wide rule changes or repair.
 
+5. To leave a folder out of the library, right-click it in a pane and choose
+   **Exclude folder…**, then confirm. The folder and everything below it leave the index and every
+   tool: duplicates, moves, formatting, renames and cleanup never plan or touch its files, and a
+   move into it is refused. Its files stay on disk, untouched. Volume rows cannot be excluded.
+   **Settings** > **General** > **Excluded folders** lists them; **Include again** re-indexes one.
+
+   You should see: the folder disappears from the pane at once, and its counts leave the totals
+   after a short background scan.
+
 ## Trash and recovery
 
 1. File-deletion actions send content to `<volume>/.opm-trash/<batch>/<original-relative-path>`,

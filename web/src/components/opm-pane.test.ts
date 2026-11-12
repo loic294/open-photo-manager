@@ -1,4 +1,5 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
+import { api } from '@/api/client';
 import type { Filter } from '@/api/generated/Filter';
 import type { PlanRef } from '@/api/generated/PlanRef';
 import { events } from '@/api/sse';
@@ -24,6 +25,7 @@ import {
 import { INVALIDATE_DEBOUNCE_MS } from '@/stores/paged-items';
 import { GRID_SIZE, setGridSize, setSort, sort } from '@/stores/prefs';
 import { activePane, resetSelectionForTests, selection } from '@/stores/selection';
+import { includeFolder } from '@/stores/settings';
 import { clearToasts, toasts } from '@/stores/toasts';
 import { loadVolumes } from '@/stores/volumes';
 import {
@@ -34,8 +36,10 @@ import {
   VOLUME_BACKUP,
   VOLUME_PHOTOS,
 } from '@/test/browse-server';
+import { pressConfirm, shownConfirm } from '@/test/confirm';
 import { folderEntry } from '@/test/folder-entry';
 import { mount } from '@/test/helpers';
+import { sampleSettings } from '@/test/settings-fixtures';
 import { EMPTY_FILTER } from '@/util/filter';
 
 const TRIP: PaneLocation = { volume: 'photos', dir: 'trip' };
@@ -1535,5 +1539,91 @@ describe('a pane that left the page', () => {
     await settle(pane);
 
     expect(counts).toEqual([]);
+  });
+});
+
+describe('the folder context menu', () => {
+  const PRIVATE = { name: 'private-x', path: 'trip/private-x' };
+
+  afterEach(async () => {
+    // The settings store is shared: leave it without exclusions for the next tests.
+    vi.spyOn(api, 'post').mockResolvedValue(sampleSettings());
+    await includeFolder({ volume_id: 1, path: PRIVATE.path });
+  });
+
+  const menu = (pane: OpmPane) => pane.querySelector<HTMLElement>('[data-folder-menu]');
+
+  function rightClick(target: Element): MouseEvent {
+    const event = new MouseEvent('contextmenu', {
+      bubbles: true,
+      cancelable: true,
+      clientX: 40,
+      clientY: 60,
+    });
+    target.dispatchEvent(event);
+    return event;
+  }
+
+  it('opens on a right click of a folder and closes with Escape', async () => {
+    goTo('source', TRIP);
+    serveFolders(PRIVATE);
+    const pane = await mountPane();
+
+    const event = rightClick(row(pane, PRIVATE.name));
+    await settle(pane);
+
+    expect(event.defaultPrevented).toBe(true);
+    expect(text(menu(pane))).toContain('Exclude folder');
+    menu(pane)?.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape', bubbles: true }));
+    await settle(pane);
+    expect(menu(pane)).toBeNull();
+  });
+
+  it('excludes the folder after a confirmation and hides it', async () => {
+    goTo('source', TRIP);
+    serveFolders(PRIVATE, { name: 'raw', path: 'trip/raw' });
+    const pane = await mountPane();
+    const excluded = sampleSettings({ excluded_folders: [{ volume_id: 1, path: PRIVATE.path }] });
+    const realPost = api.post.bind(api);
+    const post = vi
+      .spyOn(api, 'post')
+      .mockImplementation((path, init) =>
+        path === '/api/settings/excluded-folders'
+          ? Promise.resolve(excluded)
+          : realPost(path, init),
+      );
+
+    rightClick(row(pane, PRIVATE.name));
+    await settle(pane);
+    menu(pane)?.querySelector('button')?.click();
+    const shown = await shownConfirm();
+    expect(shown.message).toContain('The files on disk stay untouched');
+    await pressConfirm('Exclude folder');
+    await vi.waitFor(() => expect(post).toHaveBeenCalled());
+
+    expect(post).toHaveBeenCalledWith('/api/settings/excluded-folders', {
+      body: { volume_id: 1, path: PRIVATE.path },
+    });
+    await vi.waitFor(async () => {
+      await settle(pane);
+      expect(rowNames(pane)).toEqual(['raw']);
+    });
+  });
+
+  it('does nothing when the confirmation is cancelled', async () => {
+    goTo('source', TRIP);
+    serveFolders(PRIVATE);
+    const pane = await mountPane();
+    const post = vi.spyOn(api, 'post');
+    post.mockClear();
+
+    rightClick(row(pane, PRIVATE.name));
+    await settle(pane);
+    menu(pane)?.querySelector('button')?.click();
+    await pressConfirm('Cancel');
+    await settle(pane);
+
+    expect(post).not.toHaveBeenCalledWith('/api/settings/excluded-folders', expect.anything());
+    expect(rowNames(pane)).toEqual([PRIVATE.name]);
   });
 });

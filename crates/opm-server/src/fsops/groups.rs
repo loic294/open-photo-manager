@@ -167,6 +167,8 @@ impl FsOps {
     fn check_group(&self, group: &MoveGroup) -> Result<Vec<Companion>, FsOpError> {
         let rules = self.rules();
         let owner = &group.owner;
+        rules.check_included(&owner.src)?;
+        rules.check_included(&owner.dst)?;
         let mut listed = HashSet::new();
         let mut companions = Vec::with_capacity(group.sidecars.len());
         for item in &group.sidecars {

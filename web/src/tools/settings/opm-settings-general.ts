@@ -1,6 +1,7 @@
 import { html, nothing } from 'lit';
 import { live } from 'lit/directives/live.js';
 import { errorMessage, isApiError } from '@/api/errors';
+import type { ExcludedFolder } from '@/api/generated/ExcludedFolder';
 import type { FieldError } from '@/api/generated/FieldError';
 import type { SettingsDto } from '@/api/generated/SettingsDto';
 import { OpmElement } from '@/base/opm-element';
@@ -11,7 +12,7 @@ import '@/components/opm-select';
 import { toast } from '@/components/toast';
 import { UnsavedGuard } from '@/controllers/unsaved-guard';
 import { indexStatus } from '@/stores/index-status';
-import { loadSettings, saveSettings } from '@/stores/settings';
+import { includeFolder, loadSettings, saveSettings, settings } from '@/stores/settings';
 import { volumes } from '@/stores/volumes';
 import {
   DEFAULT_TRASH_RETENTION_DAYS,
@@ -181,6 +182,8 @@ const NOTE_WORKERS =
 const CARD = 'fieldset gap-4 rounded-box border border-base-300 bg-base-200 p-4 text-sm';
 
 const NO_INDEXES: readonly number[] = [];
+
+const excludedKey = (folder: ExcludedFolder) => `${folder.volume_id}:${folder.path}`;
 const SHOWN_PROBLEMS = 3;
 
 interface FieldProblem {
@@ -317,6 +320,7 @@ export class OpmSettingsGeneral extends OpmElement {
   static override properties = {
     draft: { state: true },
     baseline: { state: true },
+    including: { state: true },
     loadError: { state: true },
     saving: { state: true },
     fieldProblems: { state: true },
@@ -332,6 +336,8 @@ export class OpmSettingsGeneral extends OpmElement {
   declare fieldProblems: ReadonlyMap<FieldId, FieldProblem>;
   /** Problems of a save that no field can show; displayed in an alert above the form. */
   declare alertLines: readonly string[];
+  /** Excluded folders whose "Include again" request is running (`volume_id:path`). */
+  declare including: ReadonlySet<string>;
 
   /** The days the automatic deletion is turned back on with. */
   private lastRetention = DEFAULT_TRASH_RETENTION_DAYS;
@@ -347,6 +353,7 @@ export class OpmSettingsGeneral extends OpmElement {
     this.saving = false;
     this.fieldProblems = new Map();
     this.alertLines = [];
+    this.including = new Set();
   }
 
   override connectedCallback(): void {
@@ -479,7 +486,7 @@ export class OpmSettingsGeneral extends OpmElement {
         @submit=${(event: Event) => event.preventDefault()}
       >
         ${this.renderAlert()} ${this.renderFiles(doc)} ${this.renderMoving(doc)}
-        ${this.renderIndexing(doc)} ${this.renderVolumes()}
+        ${this.renderIndexing(doc)} ${this.renderVolumes()} ${this.renderExcluded()}
         ${this.dirty ? this.renderActionBar() : nothing}
       </form>
     `;
@@ -702,6 +709,66 @@ export class OpmSettingsGeneral extends OpmElement {
         }
       </fieldset>
     `;
+  }
+
+  private renderExcluded() {
+    const excluded = settings.value?.excluded_folders ?? [];
+    return html`
+      <fieldset class=${CARD} data-excluded-folders>
+        <legend class="fieldset-legend text-base">Excluded folders</legend>
+        <p class="text-base-content/70">
+          Excluded folders are left out of the index and of every tool; their files stay on disk.
+          Right-click a folder in a pane to exclude it.
+        </p>
+        ${
+          excluded.length === 0
+            ? html`<p class="text-base-content/70">No folder is excluded.</p>`
+            : html`
+              <ul class="list rounded-box bg-base-100">
+                ${excluded.map((folder) => this.renderExcludedRow(folder))}
+              </ul>
+            `
+        }
+      </fieldset>
+    `;
+  }
+
+  private renderExcludedRow(folder: ExcludedFolder) {
+    const volume = volumes.value.find((candidate) => candidate.id === folder.volume_id);
+    const busy = this.including.has(excludedKey(folder));
+    return html`
+      <li class="list-row items-center gap-2 py-2">
+        <opm-icon name="folder-x" size="sm" class="text-base-content/60"></opm-icon>
+        <span class="list-col-grow min-w-0 truncate" title=${folder.path}>
+          <span class="font-medium">${volume?.name ?? `Volume ${folder.volume_id}`}</span>
+          <span class="font-mono">/${folder.path}</span>
+        </span>
+        <button
+          type="button"
+          class="btn btn-sm"
+          ?disabled=${busy}
+          @click=${() => this.onInclude(folder)}
+        >
+          ${busy ? html`<span class="loading loading-spinner loading-xs"></span>` : nothing}
+          Include again
+        </button>
+      </li>
+    `;
+  }
+
+  private async onInclude(folder: ExcludedFolder): Promise<void> {
+    const key = excludedKey(folder);
+    this.including = new Set([...this.including, key]);
+    try {
+      await includeFolder(folder);
+      toast.success(`Included ${folder.path} again; it is being indexed`);
+    } catch (error) {
+      toast.error(errorMessage(error, 'Could not include the folder'));
+    } finally {
+      const next = new Set(this.including);
+      next.delete(key);
+      this.including = next;
+    }
   }
 
   private listField(doc: SettingsDto, field: ListField) {

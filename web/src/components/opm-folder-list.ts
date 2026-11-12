@@ -15,9 +15,19 @@ export interface FolderOpenDetail {
 
 export type FolderOpenEvent = CustomEvent<FolderOpenDetail>;
 
+export interface FolderMenuDetail {
+  entry: FolderEntry;
+  /** Where to open the menu, in viewport coordinates. */
+  x: number;
+  y: number;
+}
+
+export type FolderMenuEvent = CustomEvent<FolderMenuDetail>;
+
 declare global {
   interface GlobalEventHandlersEventMap {
     'folder-open': FolderOpenEvent;
+    'folder-menu': FolderMenuEvent;
   }
 }
 
@@ -106,6 +116,10 @@ function matchesText(matches: number): string {
  * key and "open in a new tab" are left to the browser and use the row's real `href`. A row is one
  * anchor and so one tab stop; Enter on it is a click.
  *
+ * Event `folder-menu` (bubbles, `detail: { entry, x, y }`): a right click (or the context-menu
+ * key) on a row of a real directory. The browser's own menu is replaced; a volume row and a folder
+ * the plan would create keep the browser's menu.
+ *
  * An empty list renders nothing: the pane owns the empty state.
  */
 export class OpmFolderList extends OpmElement {
@@ -150,6 +164,28 @@ export class OpmFolderList extends OpmElement {
     event.preventDefault();
     this.dispatchEvent(
       new CustomEvent<FolderOpenDetail>('folder-open', { detail: { entry }, bubbles: true }),
+    );
+  }
+
+  private onContextMenu(event: MouseEvent): void {
+    const target = event.target instanceof Element ? event.target : null;
+    const anchor = target?.closest<HTMLAnchorElement>('a[data-name]');
+    if (!anchor || !this.contains(anchor)) return;
+    const entry = this.folders.find((folder) => folder.name === anchor.dataset.name);
+    if (!entry || entry.path === '' || entry.overlay.planned) return;
+    event.preventDefault();
+    let { clientX: x, clientY: y } = event;
+    if (x === 0 && y === 0) {
+      // The context-menu key: open below the row's name.
+      const rect = anchor.getBoundingClientRect();
+      x = rect.left + 24;
+      y = rect.bottom;
+    }
+    this.dispatchEvent(
+      new CustomEvent<FolderMenuDetail>('folder-menu', {
+        detail: { entry, x, y },
+        bubbles: true,
+      }),
     );
   }
 
@@ -207,7 +243,8 @@ export class OpmFolderList extends OpmElement {
       return this.loading && this.folders.length === 0 ? this.renderSkeleton() : nothing;
     }
     return html`
-      <ul class="list" role="list" aria-label=${LIST_LABEL[this.pane] ?? 'Folders'} @click=${this.onClick}>
+      <ul class="list" role="list" aria-label=${LIST_LABEL[this.pane] ?? 'Folders'} @click=${this.onClick}
+        @contextmenu=${this.onContextMenu}>
         ${repeat(
           rows,
           ({ entry }) => entry.name,

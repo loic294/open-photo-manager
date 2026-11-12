@@ -34,6 +34,7 @@ use std::sync::Arc;
 use std::time::{SystemTime, UNIX_EPOCH};
 
 use opm_core::dto::FileKind;
+use opm_core::exclusions::VolumeExclusions;
 use opm_core::junk::JunkRules;
 use opm_core::paths::RelPath;
 use opm_core::sidecar::SidecarMatcher;
@@ -52,6 +53,8 @@ pub(crate) struct WalkSpec {
     /// reported by name in [`DirListing::subdirs`].
     pub recursive: bool,
     pub junk: JunkRules,
+    /// Folders the user excluded: neither listed nor descended into. `start` is never inside one.
+    pub excluded: VolumeExclusions,
     pub sidecars: SidecarMatcher,
 }
 
@@ -205,9 +208,13 @@ fn list_dir(spec: &WalkSpec, dir: &RelPath, abs: &Path) -> DirListing {
             if spec.junk.is_junk_dir(&name) {
                 continue;
             }
-            if dir.join(&name).is_err() {
-                skipped_invalid += 1;
-                continue;
+            match dir.join(&name) {
+                Err(_) => {
+                    skipped_invalid += 1;
+                    continue;
+                }
+                Ok(child) if spec.excluded.is_excluded_dir(&child) => continue,
+                Ok(_) => {}
             }
             subdirs.push(name);
         } else if file_type.is_file() {
@@ -277,6 +284,7 @@ mod tests {
             start: RelPath::new(start).unwrap(),
             recursive,
             junk: JunkRules::default(),
+            excluded: VolumeExclusions::default(),
             sidecars: SidecarMatcher::default(),
         };
         let (tx, mut rx) = mpsc::channel(capacity);
@@ -471,6 +479,7 @@ mod tests {
             start: RelPath::root(),
             recursive: true,
             junk: JunkRules::default(),
+            excluded: VolumeExclusions::default(),
             sidecars: SidecarMatcher::default(),
         };
         let (tx, mut rx) = mpsc::channel(4);
@@ -554,6 +563,7 @@ mod tests {
             start: RelPath::root(),
             recursive: true,
             junk: JunkRules::default(),
+            excluded: VolumeExclusions::default(),
             sidecars: SidecarMatcher::default(),
         };
         let (tx, rx) = mpsc::channel(1);

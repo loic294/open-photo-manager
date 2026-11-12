@@ -1,5 +1,6 @@
 use futures_util::TryStreamExt;
 use opm_core::dto::CleanupParams;
+use opm_core::exclusions::Exclusions;
 use opm_core::junk::JunkRules;
 use opm_core::paths::RelPath;
 use serde_json::Value;
@@ -82,6 +83,13 @@ pub(super) async fn build(ctx: &BuildContext, params: Value) -> Result<Built, Pl
         ));
     }
     let junk = JunkRules::new(&ctx.settings.junk_names, &ctx.settings.junk_prefixes);
+    let excluded = Exclusions::new(&ctx.settings.excluded_folders);
+    if excluded.contains(volume_id, &base) {
+        return Err(PlanError::invalid_field(
+            "scope",
+            "The base is an excluded folder",
+        ));
+    }
     if is_protected_path(&base) || base.components().any(|name| junk.is_junk_dir(name)) {
         return Err(PlanError::invalid_field(
             "scope",
@@ -145,6 +153,10 @@ pub(super) async fn build(ctx: &BuildContext, params: Value) -> Result<Built, Pl
         let rel = RelPath::new(&path).map_err(|err| PlanError::Internal(err.into()))?;
         // Rows in ignored directories must never become removal targets, even in a stale index.
         if is_protected_path(&rel) || rel.components().any(|name| junk.is_junk_dir(name)) {
+            continue;
+        }
+        // An excluded folder is real content the index does not hold: it and its parents stay.
+        if excluded.touches(volume_id, &rel) {
             continue;
         }
         planned += 1;

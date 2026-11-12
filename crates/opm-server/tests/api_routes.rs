@@ -20,6 +20,8 @@ const ROUTES: &[(&str, &str)] = &[
     ("GET", "/api/health"),
     ("GET", "/api/settings"),
     ("PUT", "/api/settings"),
+    ("POST", "/api/settings/excluded-folders"),
+    ("POST", "/api/settings/excluded-folders/remove"),
     ("GET", "/api/volumes"),
     ("POST", "/api/browse/folders"),
     ("POST", "/api/browse/items"),

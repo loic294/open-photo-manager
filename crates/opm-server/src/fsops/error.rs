@@ -60,6 +60,9 @@ pub enum FsOpError {
     /// Another process has an exclusive handle open on the file.
     #[error("the file is open in another program; close it and retry")]
     FileInUse,
+    /// The location is inside a folder the user excluded from the index and from every operation.
+    #[error("the folder is excluded")]
+    FolderExcluded,
     /// The directory holds something that is not junk.
     #[error("the directory is not empty")]
     NotEmpty,
@@ -97,6 +100,7 @@ impl FsOpError {
             Self::FileInUse => "file_in_use",
             Self::VerifyFailed => "verify_failed",
             Self::Cancelled => "cancelled",
+            Self::FolderExcluded => "folder_excluded",
             Self::NotEmpty => "not_empty",
             Self::OutsideTrash => "outside_trash",
             Self::Io(_) => "io_error",
@@ -199,6 +203,7 @@ impl From<FsOpError> for AppError {
             | FsOpError::VolumeReadOnly
             | FsOpError::Cancelled
             | FsOpError::NotEmpty
+            | FsOpError::FolderExcluded
             | FsOpError::FileInUse => Self::new(StatusCode::CONFLICT, code, message),
             FsOpError::ImmichMoveRefused(_) => Self::new(StatusCode::CONFLICT, code, message),
             FsOpError::NoSpace => Self::new(StatusCode::INSUFFICIENT_STORAGE, code, message),
@@ -235,6 +240,7 @@ mod tests {
             FsOpError::Cancelled,
             FsOpError::FileInUse,
             FsOpError::NotEmpty,
+            FsOpError::FolderExcluded,
             FsOpError::OutsideTrash,
             FsOpError::Io(io::ErrorKind::Other),
             FsOpError::Internal("x".into()),

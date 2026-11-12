@@ -1,5 +1,7 @@
 import { html, nothing, type TemplateResult } from 'lit';
+import { styleMap } from 'lit/directives/style-map.js';
 import { requestFor } from '@/api/browse';
+import { errorMessage } from '@/api/errors';
 import { fetchIds } from '@/api/files';
 import type { BrowseRequest } from '@/api/generated/BrowseRequest';
 import type { FileItem } from '@/api/generated/FileItem';
@@ -13,7 +15,13 @@ import { events, type ServerEventOf } from '@/api/sse';
 import { OpmElement } from '@/base/opm-element';
 import type { OpmFileGrid } from '@/components/opm-file-grid';
 import '@/components/opm-file-grid';
-import type { FolderOpenEvent, OpmFolderList } from '@/components/opm-folder-list';
+import { confirmDialog } from '@/components/confirm-dialog';
+import type {
+  FolderMenuDetail,
+  FolderMenuEvent,
+  FolderOpenEvent,
+  OpmFolderList,
+} from '@/components/opm-folder-list';
 import '@/components/opm-folder-list';
 import type { IconName } from '@/components/opm-icon';
 import '@/components/opm-icon';
@@ -34,6 +42,7 @@ import {
 } from '@/stores/nav';
 import { gridSize, SORT_KEYS, type SortSpec, setSort, sort } from '@/stores/prefs';
 import { selection, selectionContextKey } from '@/stores/selection';
+import { excludeFolder, isExcluded, settings } from '@/stores/settings';
 import { loadVolumes, volumeByName, volumesError, volumesStatus } from '@/stores/volumes';
 import {
   type Crumb,
@@ -180,6 +189,7 @@ export class OpmPane extends OpmElement {
     disabled: { type: Boolean },
     disabledReason: { type: String, attribute: 'disabled-reason' },
     crumbsCollapsed: { state: true },
+    folderMenu: { state: true },
   };
 
   declare pane: PaneId;
@@ -215,6 +225,8 @@ export class OpmPane extends OpmElement {
   private crumbsObserver: ResizeObserver | null = null;
   private crumbsElement: HTMLElement | null = null;
   private refocus = false;
+  /** The open context menu of a folder row. */
+  private folderMenu: FolderMenuDetail | null = null;
 
   constructor() {
     super();
@@ -267,6 +279,7 @@ export class OpmPane extends OpmElement {
   }
 
   override disconnectedCallback(): void {
+    this.closeFolderMenu();
     this.unbindIdsProvider();
     this.stopFsWatch?.();
     this.stopFsWatch = null;
@@ -468,6 +481,62 @@ export class OpmPane extends OpmElement {
   private readonly onFolderOpen = (event: FolderOpenEvent): void => {
     this.refocus = this.contains(document.activeElement);
     setLocation(this.pane, this.entryLocation(event.detail.entry));
+  };
+
+  private readonly onFolderMenu = (event: FolderMenuEvent): void => {
+    this.closeFolderMenu();
+    this.folderMenu = event.detail;
+    document.addEventListener('pointerdown', this.onOutsideMenu, true);
+    window.addEventListener('blur', this.onWindowBlur);
+    void this.updateComplete.then(() =>
+      this.querySelector<HTMLElement>('[data-folder-menu] button')?.focus(),
+    );
+  };
+
+  private closeFolderMenu(): void {
+    document.removeEventListener('pointerdown', this.onOutsideMenu, true);
+    window.removeEventListener('blur', this.onWindowBlur);
+    this.folderMenu = null;
+  }
+
+  private readonly onOutsideMenu = (event: PointerEvent): void => {
+    const menu = this.querySelector('[data-folder-menu]');
+    if (menu && event.target instanceof Node && menu.contains(event.target)) return;
+    this.closeFolderMenu();
+  };
+
+  private readonly onWindowBlur = (): void => this.closeFolderMenu();
+
+  private readonly onFolderMenuKey = (event: KeyboardEvent): void => {
+    if (event.key !== 'Escape' && event.key !== 'Tab') return;
+    if (event.key === 'Escape') event.preventDefault();
+    const name = this.folderMenu?.entry.name;
+    this.closeFolderMenu();
+    if (name === undefined) return;
+    this.querySelector<HTMLElement>(`opm-folder-list a[data-name="${CSS.escape(name)}"]`)?.focus();
+  };
+
+  private readonly onExcludeFolder = async (): Promise<void> => {
+    const entry = this.folderMenu?.entry;
+    this.closeFolderMenu();
+    if (!entry) return;
+    const confirmed = await confirmDialog({
+      title: `Exclude ${entry.name}?`,
+      message: html`<p>
+          <span class="font-mono break-all">${entry.path}</span> and everything below it leave the
+          index: it is hidden here, and no tool reads, moves, renames or deletes anything inside it.
+        </p>
+        <p class="mt-2">The files on disk stay untouched. Include the folder again from Settings.</p>`,
+      confirmLabel: 'Exclude folder',
+    });
+    if (!confirmed) return;
+    try {
+      await excludeFolder({ volume_id: entry.volume_id, path: entry.path });
+      toast.success(`Excluded ${entry.name}`);
+      this.refresh();
+    } catch (error) {
+      toast.error(errorMessage(error, 'Could not exclude the folder'));
+    }
   };
 
   private readonly onSortKey = (event: SelectChangeEvent): void => {
@@ -750,13 +819,47 @@ export class OpmPane extends OpmElement {
     return html`
       <opm-folder-list
         pane=${this.pane}
-        .folders=${this.subfolders.folders}
+        .folders=${this.visibleFolders()}
         ?hide-unmatched=${this.hideUnmatched}
         ?show-matches=${this.showMatches}
         .hrefFor=${this.hrefFor}
         ?loading=${loading}
         @folder-open=${this.onFolderOpen}
+        @folder-menu=${this.onFolderMenu}
       ></opm-folder-list>
+    `;
+  }
+
+  /** The listing without the folders excluded since it was fetched (the index drops them soon). */
+  private visibleFolders(): readonly FolderEntry[] {
+    const excluded = settings.value?.excluded_folders;
+    const { folders } = this.subfolders;
+    if (!excluded || excluded.length === 0) return folders;
+    return folders.filter((entry) => !isExcluded(excluded, entry.volume_id, entry.path));
+  }
+
+  private renderFolderMenu(): TemplateResult | typeof nothing {
+    const menu = this.folderMenu;
+    if (!menu) return nothing;
+    const left = Math.max(0, Math.min(menu.x, window.innerWidth - 232));
+    const top = Math.max(0, Math.min(menu.y, window.innerHeight - 48));
+    const position = { left: `${left}px`, top: `${top}px` };
+    return html`
+      <ul
+        data-folder-menu
+        role="menu"
+        aria-label="Folder ${menu.entry.name}"
+        class="menu menu-sm fixed z-50 w-56 rounded-box border border-base-300 bg-base-100 shadow-lg"
+        style=${styleMap(position)}
+        @keydown=${this.onFolderMenuKey}
+      >
+        <li role="none">
+          <button type="button" role="menuitem" @click=${this.onExcludeFolder}>
+            <opm-icon name="folder-x" size="sm"></opm-icon>
+            Exclude folder…
+          </button>
+        </li>
+      </ul>
     `;
   }
 
@@ -889,6 +992,7 @@ export class OpmPane extends OpmElement {
             ? this.renderDisabled()
             : html`${this.renderHeader(location)}${this.renderBase(location)}${this.renderBody(location)}`
         }
+        ${this.renderFolderMenu()}
       </section>
     `;
   }

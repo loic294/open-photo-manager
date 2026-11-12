@@ -211,6 +211,7 @@ pub mod trash;
 use std::fmt;
 use std::sync::Arc;
 
+use opm_core::exclusions::Exclusions;
 use opm_core::junk::JunkRules;
 use opm_core::paths::{RelPath, VolumeId};
 use opm_core::sidecar::SidecarMatcher;
@@ -291,11 +292,30 @@ pub(crate) struct Rules {
     pub settings: Arc<Settings>,
     pub junk: JunkRules,
     pub matcher: SidecarMatcher,
+    pub excluded: Exclusions,
 }
 
 impl Rules {
     pub(crate) fn name_max_len(&self) -> usize {
         usize::from(self.settings.name_max_len)
+    }
+
+    /// Refuses a folder that is excluded or holds an excluded folder.
+    pub(crate) fn check_whole_dir_included(&self, loc: &Loc) -> Result<(), FsOpError> {
+        if self.excluded.touches(loc.volume_id, &loc.rel) {
+            Err(FsOpError::FolderExcluded)
+        } else {
+            Ok(())
+        }
+    }
+
+    /// Refuses a location inside a folder the user excluded.
+    pub(crate) fn check_included(&self, loc: &Loc) -> Result<(), FsOpError> {
+        if self.excluded.contains(loc.volume_id, &loc.rel) {
+            Err(FsOpError::FolderExcluded)
+        } else {
+            Ok(())
+        }
     }
 }
 
@@ -430,6 +450,7 @@ impl FsOps {
         Rules {
             junk: JunkRules::new(&settings.junk_names, &settings.junk_prefixes),
             matcher: SidecarMatcher::new(&settings.sidecar_extensions),
+            excluded: Exclusions::new(&settings.excluded_folders),
             settings,
         }
     }

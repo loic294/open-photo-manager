@@ -541,6 +541,8 @@ impl FsOps {
             &rules.junk
         };
         validate_file_path(&rules, judge, &job.dst.rel)?;
+        rules.check_included(&job.src)?;
+        rules.check_included(&job.dst)?;
         if job.mode != Mode::Restore && in_trash(&job.src.rel) {
             return Err(FsOpError::DestinationInvalid(
                 "the source is inside the trash: use restore",

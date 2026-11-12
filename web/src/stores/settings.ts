@@ -1,5 +1,6 @@
 import { type ReadonlySignal, signal } from '@preact/signals-core';
 import { api } from '@/api/client';
+import type { ExcludedFolder } from '@/api/generated/ExcludedFolder';
 import type { SettingsDto } from '@/api/generated/SettingsDto';
 
 const current = signal<SettingsDto | null>(null);
@@ -50,4 +51,43 @@ export async function saveSettings(document: SettingsDto): Promise<SettingsDto> 
   saves += 1;
   current.value = saved;
   return saved;
+}
+
+/**
+ * `POST /api/settings/excluded-folders`: excludes a folder (it leaves the index and every file
+ * operation refuses it; the files on disk stay) and resolves with the stored document, which is
+ * also what `settings` now holds. The server queues an index task that removes the folder from the
+ * index. Rejects with an `ApiError`: 400 `invalid_path`, 404 `volume_not_found`.
+ */
+export async function excludeFolder(folder: ExcludedFolder): Promise<SettingsDto> {
+  const saved = await api.post<SettingsDto>('/api/settings/excluded-folders', { body: folder });
+  saves += 1;
+  current.value = saved;
+  return saved;
+}
+
+/**
+ * `POST /api/settings/excluded-folders/remove`: includes an excluded folder again; the server
+ * queues an index task of it. Rejects with an `ApiError`: 404 `exclusion_not_found`.
+ */
+export async function includeFolder(folder: ExcludedFolder): Promise<SettingsDto> {
+  const saved = await api.post<SettingsDto>('/api/settings/excluded-folders/remove', {
+    body: folder,
+  });
+  saves += 1;
+  current.value = saved;
+  return saved;
+}
+
+/** Whether `path` of `volumeId` is an excluded folder or inside one. */
+export function isExcluded(
+  folders: readonly ExcludedFolder[] | undefined,
+  volumeId: number,
+  path: string,
+): boolean {
+  if (!folders || path === '') return false;
+  return folders.some(
+    (folder) =>
+      folder.volume_id === volumeId && (path === folder.path || path.startsWith(`${folder.path}/`)),
+  );
 }

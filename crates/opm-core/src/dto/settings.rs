@@ -57,6 +57,21 @@ pub struct SettingsDto {
     /// Days after which trashed items are deleted automatically (1 to 3650); `null` keeps them until
     /// "Empty trash".
     pub trash_retention_days: Option<u32>,
+    /// Folders (at most 1000) left out of the index and of every file operation, with everything
+    /// below them. Missing from a stored document means none. `PUT /api/settings` keeps the stored
+    /// list: change it with `POST /api/settings/excluded-folders` and
+    /// `POST /api/settings/excluded-folders/remove`.
+    #[serde(default)]
+    pub excluded_folders: Vec<ExcludedFolder>,
+}
+
+/// One folder excluded from the index and from every file operation.
+#[derive(Debug, Clone, PartialEq, Eq, Hash, PartialOrd, Ord, Serialize, Deserialize, TS)]
+#[ts(export)]
+pub struct ExcludedFolder {
+    pub volume_id: i64,
+    /// Path of the folder relative to the volume root; never the root itself.
+    pub path: String,
 }
 
 /// Background indexing settings. The worker counts are read when a scan or batch starts, so a
@@ -168,6 +183,7 @@ impl SettingsDto {
     pub const MAX_SIDECAR_EXTENSION_LEN: usize = 10;
     pub const MAX_JUNK_ENTRIES: usize = 200;
     pub const MAX_JUNK_ENTRY_BYTES: usize = 255;
+    pub const MAX_EXCLUDED_FOLDERS: usize = 1_000;
 
     /// The factory settings. `index_concurrency` is the operator's `OPM_INDEX_CONCURRENCY` and `cpus`
     /// the number of CPU cores; low worker counts are the right default for a NAS.
@@ -190,6 +206,7 @@ impl SettingsDto {
                 rescan_interval_minutes: 360,
             },
             trash_retention_days: None,
+            excluded_folders: Vec::new(),
         }
     }
 
@@ -221,6 +238,10 @@ impl SettingsDto {
             check_trash_retention(self.trash_retention_days),
             &mut errors,
         );
+        let excluded = keep(
+            normalize_excluded_folders(&self.excluded_folders),
+            &mut errors,
+        );
         let (
             Some(sidecar_extensions),
             Some(junk_names),
@@ -231,6 +252,7 @@ impl SettingsDto {
             Some(thumbnail_concurrency),
             Some(rescan_interval_minutes),
             Some(trash_retention_days),
+            Some(excluded_folders),
         ) = (
             sidecar_extensions,
             junk_names,
@@ -241,6 +263,7 @@ impl SettingsDto {
             thumbnail_concurrency,
             rescan,
             retention,
+            excluded,
         )
         else {
             return Err(errors);
@@ -260,6 +283,7 @@ impl SettingsDto {
                 rescan_interval_minutes,
             },
             trash_retention_days,
+            excluded_folders,
         })
     }
 
@@ -318,6 +342,12 @@ impl SettingsDto {
             "trash_retention_days",
             &mut settings.trash_retention_days,
             |v| check_trash_retention(*v),
+        );
+        top.field(
+            &mut issues,
+            "excluded_folders",
+            &mut settings.excluded_folders,
+            |v| normalize_excluded_folders(v),
         );
 
         match object.get("index") {
@@ -528,6 +558,57 @@ fn normalize_extensions(input: &[String]) -> Result<Vec<String>, Vec<FieldError>
     }
 }
 
+/// Validates the excluded folders and returns them normalised: paths cleaned by `RelPath`, sorted,
+/// de-duplicated, and an entry dropped when an ancestor on the same volume is already excluded.
+pub fn normalize_excluded_folders(
+    input: &[ExcludedFolder],
+) -> Result<Vec<ExcludedFolder>, Vec<FieldError>> {
+    let mut errors = Vec::new();
+    if input.len() > SettingsDto::MAX_EXCLUDED_FOLDERS {
+        errors.push(FieldError::new(
+            "excluded_folders",
+            format!(
+                "at most {} folders can be excluded",
+                SettingsDto::MAX_EXCLUDED_FOLDERS
+            ),
+        ));
+    }
+    let mut parsed = Vec::with_capacity(input.len());
+    for (i, entry) in input.iter().enumerate() {
+        match crate::paths::RelPath::new(&entry.path) {
+            Ok(path) if !path.is_root() => parsed.push((entry.volume_id, path)),
+            Ok(_) => errors.push(FieldError::new(
+                format!("excluded_folders[{i}].path"),
+                "a whole volume cannot be excluded",
+            )),
+            Err(err) => errors.push(FieldError::new(
+                format!("excluded_folders[{i}].path"),
+                err.to_string(),
+            )),
+        }
+    }
+    if !errors.is_empty() {
+        return Err(errors);
+    }
+    parsed.sort_by(|a, b| (a.0, a.1.as_str()).cmp(&(b.0, b.1.as_str())));
+    let mut out: Vec<ExcludedFolder> = Vec::with_capacity(parsed.len());
+    let mut kept: Vec<(i64, crate::paths::RelPath)> = Vec::new();
+    for (volume_id, path) in parsed {
+        if kept
+            .iter()
+            .any(|(v, base)| *v == volume_id && path.starts_with(base))
+        {
+            continue;
+        }
+        out.push(ExcludedFolder {
+            volume_id,
+            path: path.as_str().to_owned(),
+        });
+        kept.push((volume_id, path));
+    }
+    Ok(out)
+}
+
 fn normalize_junk_names(input: &[String]) -> Result<Vec<String>, Vec<FieldError>> {
     normalize_junk("junk_names", input, true)
 }
@@ -680,6 +761,7 @@ mod tests {
             keys,
             [
                 "default_conflict_policy",
+                "excluded_folders",
                 "index",
                 "junk_names",
                 "junk_prefixes",
@@ -992,6 +1074,58 @@ mod tests {
         let loaded = SettingsDto::from_stored(&json!({ "index": 5 }), &defaults());
         assert_eq!(loaded.settings, defaults());
         assert_eq!(fields(&loaded.issues), ["index"]);
+    }
+
+    fn excluded(volume_id: i64, path: &str) -> ExcludedFolder {
+        ExcludedFolder {
+            volume_id,
+            path: path.to_owned(),
+        }
+    }
+
+    #[test]
+    fn excluded_folders_are_cleaned_sorted_and_covered_entries_dropped() {
+        let mut settings = defaults();
+        settings.excluded_folders = vec![
+            excluded(1, "b//c/"),
+            excluded(1, "a/x"),
+            excluded(1, "a"),
+            excluded(2, "a/x"),
+            excluded(1, "ab"),
+            excluded(1, "a"),
+        ];
+        let normalized = settings.normalized().unwrap();
+        assert_eq!(
+            normalized.excluded_folders,
+            [
+                excluded(1, "a"),
+                excluded(1, "ab"),
+                excluded(1, "b/c"),
+                excluded(2, "a/x")
+            ]
+        );
+    }
+
+    #[test]
+    fn excluding_a_root_or_an_escaping_path_is_rejected() {
+        let mut settings = defaults();
+        settings.excluded_folders = vec![excluded(1, ""), excluded(1, "../x")];
+        let errors = settings.normalized().unwrap_err();
+        assert_eq!(
+            fields(&errors),
+            ["excluded_folders[0].path", "excluded_folders[1].path"]
+        );
+    }
+
+    #[test]
+    fn a_document_without_excluded_folders_still_parses() {
+        let mut value = serde_json::to_value(defaults()).unwrap();
+        value.as_object_mut().unwrap().remove("excluded_folders");
+        let parsed: SettingsDto = serde_json::from_value(value).unwrap();
+        assert!(parsed.excluded_folders.is_empty());
+        let stored = json!({ "excluded_folders": [{ "volume_id": 3, "path": "x/y" }] });
+        let loaded = SettingsDto::from_stored(&stored, &defaults());
+        assert_eq!(loaded.settings.excluded_folders, [excluded(3, "x/y")]);
     }
 
     proptest! {

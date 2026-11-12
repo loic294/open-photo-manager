@@ -397,7 +397,8 @@ impl FsOps {
             reason,
         } = spec;
         cx.ensure_active()?;
-        let max = self.rules().name_max_len();
+        let rules = self.rules();
+        let max = rules.name_max_len();
         let root = self.writable_volume(loc.volume_id)?;
         if loc.rel.is_root() {
             return Err(FsOpError::DestinationInvalid(
@@ -409,6 +410,7 @@ impl FsOps {
                 "the item is already in the trash",
             ));
         }
+        rules.check_whole_dir_included(loc)?;
 
         let (item, mut target) = {
             let (root, rel, batch) = (Arc::clone(&root), loc.rel.clone(), batch.clone());
@@ -601,6 +603,7 @@ impl FsOps {
         let root = self.writable_volume(item.volume_id)?;
         let wanted = item.orig_loc();
         validate_file_path(&rules, &JunkRules::reserved_only(), &wanted.rel)?;
+        rules.check_included(&wanted)?;
 
         let placed = {
             let (root, wanted) = (Arc::clone(&root), wanted.rel.clone());

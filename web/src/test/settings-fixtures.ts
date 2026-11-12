@@ -17,6 +17,7 @@ export function sampleSettings(overrides: Partial<SettingsDto> = {}): SettingsDt
       rescan_interval_minutes: 360,
     },
     trash_retention_days: null,
+    excluded_folders: [],
     ...overrides,
   };
 }

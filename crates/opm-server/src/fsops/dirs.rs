@@ -278,6 +278,7 @@ impl FsOps {
             return Ok(Vec::new());
         }
         validate_dir_path(&rules, &loc.rel)?;
+        rules.check_included(&loc)?;
         let rel = loc.rel.clone();
         let created = blocking(move || make_dirs(&root, &rel)).await?;
         self.apply_mkdir(loc.volume_id, &loc.rel).await?;
@@ -319,6 +320,7 @@ impl FsOps {
         if is_protected_path(&loc.rel) {
             return Err(FsOpError::NotEmpty);
         }
+        rules.check_included(&loc)?;
 
         let contents = {
             let (root, rel, junk) = (root.clone(), loc.rel.clone(), rules.junk.clone());
@@ -487,6 +489,7 @@ mod tests {
         Rules {
             junk: JunkRules::new(&settings.junk_names, &settings.junk_prefixes),
             matcher: opm_core::sidecar::SidecarMatcher::new(&settings.sidecar_extensions),
+            excluded: opm_core::exclusions::Exclusions::default(),
             settings,
         }
     }

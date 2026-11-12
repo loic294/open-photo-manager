@@ -38,6 +38,7 @@ use std::sync::{Arc, Mutex, PoisonError};
 use std::time::{Duration, Instant};
 
 use opm_core::dto::{ServerEvent, TaskKind, TaskState, WatchMode, WatcherState, WatcherStatusDto};
+use opm_core::exclusions::Exclusions;
 use opm_core::junk::JunkRules;
 use opm_core::paths::{RelPath, TaskId, VolumeId};
 use tokio::sync::{broadcast, mpsc};
@@ -344,10 +345,10 @@ impl Supervisor {
             self.watcher.0.status.state.store(1, Ordering::Release);
         }
         let settings = self.watcher.0.deps.settings.get();
-        self.dirty.filter(&JunkRules::new(
-            &settings.junk_names,
-            &settings.junk_prefixes,
-        ));
+        self.dirty.filter(
+            &JunkRules::new(&settings.junk_names, &settings.junk_prefixes),
+            &Exclusions::new(&settings.excluded_folders),
+        );
         self.reconcile().await;
     }
 
@@ -360,6 +361,7 @@ impl Supervisor {
         self.errors.remove("volumes");
         let settings = deps.settings.get();
         let junk = JunkRules::new(&settings.junk_names, &settings.junk_prefixes);
+        let excluded = Exclusions::new(&settings.excluded_folders);
         let mut desired = BTreeMap::new();
         let mut failed_volumes = BTreeSet::new();
         let mut polling_volumes = 0_u64;
@@ -406,7 +408,7 @@ impl Supervisor {
                 let Ok(rel) = RelPath::new(&path) else {
                     continue;
                 };
-                if junk.is_junk_path(&rel) {
+                if junk.is_junk_path(&rel) || excluded.contains(volume.id, &rel) {
                     continue;
                 }
                 match root.resolve_dir(&rel) {
@@ -605,13 +607,16 @@ impl Supervisor {
         let deps = self.watcher.0.deps.clone();
         let settings = deps.settings.get();
         let junk = JunkRules::new(&settings.junk_names, &settings.junk_prefixes);
+        let excluded = Exclusions::new(&settings.excluded_folders);
         let mut paths = Vec::new();
         for volume in deps.volumes.online() {
             let Ok(root) = deps.volumes.get(volume.id) else {
                 continue;
             };
             for path in &event.paths {
-                if let Some(rel) = watch_events::map_path(&root, path, &junk) {
+                if let Some(rel) = watch_events::map_path(&root, path, &junk)
+                    && !excluded.contains(volume.id, &rel)
+                {
                     paths.push((volume.id, root.clone(), rel));
                 }
             }

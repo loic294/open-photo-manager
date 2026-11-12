@@ -140,3 +140,38 @@ describe('settings store', () => {
     expect(store.settings.value).toEqual(saved);
   });
 });
+
+describe('excluded folders', () => {
+  const folder = { volume_id: 1, path: '2024' };
+
+  it('excludes and includes a folder and keeps the answered document', async () => {
+    const { store } = await setup();
+    const client = await import('@/api/client');
+    const excluded = sampleSettings({ excluded_folders: [folder] });
+    const post = vi
+      .spyOn(client.api, 'post')
+      .mockResolvedValueOnce(excluded)
+      .mockResolvedValueOnce(sampleSettings());
+
+    await store.excludeFolder(folder);
+    expect(store.settings.value).toEqual(excluded);
+    await store.includeFolder(folder);
+    expect(store.settings.value?.excluded_folders).toEqual([]);
+
+    expect(post).toHaveBeenNthCalledWith(1, '/api/settings/excluded-folders', { body: folder });
+    expect(post).toHaveBeenNthCalledWith(2, '/api/settings/excluded-folders/remove', {
+      body: folder,
+    });
+  });
+
+  it('matches a folder and what is below it, never a sibling that shares its prefix', async () => {
+    const { store } = await setup();
+    const list = [folder];
+
+    expect(store.isExcluded(list, 1, '2024')).toBe(true);
+    expect(store.isExcluded(list, 1, '2024/trip')).toBe(true);
+    expect(store.isExcluded(list, 1, '2024.old')).toBe(false);
+    expect(store.isExcluded(list, 2, '2024')).toBe(false);
+    expect(store.isExcluded(list, 1, '')).toBe(false);
+  });
+});

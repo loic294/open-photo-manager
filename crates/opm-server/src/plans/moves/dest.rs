@@ -2,6 +2,7 @@ use chrono::{DateTime, Utc};
 use chrono_tz::Tz;
 use opm_core::datetime::{CaptureInputs, resolve_capture};
 use opm_core::dto::MoveType;
+use opm_core::exclusions::Exclusions;
 use opm_core::hash::Sha1Digest;
 use opm_core::junk::JunkRules;
 use opm_core::matching::MatchFacts;
@@ -68,6 +69,7 @@ pub(super) struct Rules {
     pub pattern: Option<Pattern>,
     pub name_max_len: usize,
     pub junk: JunkRules,
+    pub excluded: Exclusions,
     pub timezone: Tz,
 }
 
@@ -124,7 +126,9 @@ pub(super) fn destination_for(
     }
     let current_dir = RelPath::new(&row.dir_path).map_err(|_| "pattern_failed")?;
     let source_path = current_dir.join(&row.name).map_err(|_| "pattern_failed")?;
-    if super::reserved(&rules.junk, &source_path) {
+    if super::reserved(&rules.junk, &source_path)
+        || rules.excluded.contains(row.volume_id, &source_path)
+    {
         return Err("reserved_destination");
     }
     let (dir, name) = match rules.move_type {
@@ -169,7 +173,9 @@ pub(super) fn destination_for(
         }
     };
     let path = dir.join(&name).map_err(|_| "pattern_failed")?;
-    if super::reserved(&rules.junk, &path) {
+    if super::reserved(&rules.junk, &path)
+        || rules.excluded.contains(rules.destination_volume, &path)
+    {
         return Err("reserved_destination");
     }
     Ok(Wanted {
@@ -209,6 +215,7 @@ mod tests {
             pattern: Some(parse("{YYYY}/{mm}").unwrap()),
             name_max_len: 143,
             junk: JunkRules::reserved_only(),
+            excluded: Exclusions::default(),
             timezone: chrono_tz::UTC,
         }
     }

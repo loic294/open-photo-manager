@@ -163,6 +163,7 @@ impl super::Revalidate for MovesHook {
                     pattern: None,
                     name_max_len: self.rules.name_max_len,
                     junk: self.rules.junk.clone(),
+                    excluded: self.rules.excluded.clone(),
                     timezone: self.rules.timezone,
                 };
                 &original

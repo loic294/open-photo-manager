@@ -22,6 +22,7 @@ use std::io;
 use std::sync::Arc;
 
 use futures_util::StreamExt as _;
+use opm_core::exclusions::{Exclusions, VolumeExclusions};
 use opm_core::junk::JunkRules;
 use opm_core::paths::{FileId, RelPath, VolumeId};
 use opm_core::sidecar::SidecarMatcher;
@@ -136,6 +137,7 @@ struct Shared {
     indexer: Indexer,
     matcher: SidecarMatcher,
     junk: JunkRules,
+    exclusions: Exclusions,
     progress: PhaseProgress,
     changes: Arc<dyn ChangeSink>,
     /// Cancelled by the caller, or by the first volume that fails.
@@ -163,6 +165,7 @@ impl Indexer {
             indexer: self.clone(),
             matcher: SidecarMatcher::new(&settings.sidecar_extensions),
             junk: JunkRules::new(&settings.junk_names, &settings.junk_prefixes),
+            exclusions: Exclusions::new(&settings.excluded_folders),
             progress: PhaseProgress::new(Arc::clone(&ctx.progress), IndexPhase::Walk),
             changes: Arc::clone(&ctx.changes),
             cancel: ctx.cancel.child_token(),
@@ -294,6 +297,7 @@ async fn scan_volume(
         volume_id,
         name,
         root,
+        excluded: shared.exclusions.for_volume(volume_id),
         generation: generation.value,
         rows_before,
         summary: ScanSummary::default(),
@@ -324,6 +328,8 @@ struct VolumeScan<'a> {
     /// For the progress detail and the log.
     name: String,
     root: Arc<VolumeRoot>,
+    /// Folders the user excluded on this volume.
+    excluded: VolumeExclusions,
     generation: i64,
     /// File rows the volume had before the scan: what the guard compares the removals with.
     rows_before: u64,
@@ -405,11 +411,17 @@ impl VolumeScan<'_> {
     /// Walks one scope and handles its listings.
     async fn scan_scope(&mut self, scope: &Scope) -> Result<ScopeEnd, IndexError> {
         self.check_cancelled()?;
+        // An excluded scope is not walked: whatever the index still holds of it is removed.
+        if self.excluded.contains(&scope.dir) {
+            self.vanished.insert(scope.dir.clone());
+            return Ok(ScopeEnd::Done);
+        }
         let spec = WalkSpec {
             root: Arc::clone(&self.root),
             start: scope.dir.clone(),
             recursive: scope.recursive,
             junk: self.shared.junk.clone(),
+            excluded: self.excluded.clone(),
             sidecars: self.shared.matcher.clone(),
         };
         let cancel = self.shared.cancel.clone();

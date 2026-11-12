@@ -276,13 +276,19 @@ describe('opm-settings-general', () => {
   });
 
   describe('the loaded document', () => {
-    it('is shown in three settings cards and one read-only volumes card', async () => {
+    it('is shown in three settings cards, a read-only volumes card and the excluded folders', async () => {
       const { element } = await open();
 
       const legends = [...element.querySelectorAll('fieldset > legend')].map((legend) =>
         legend.textContent?.trim(),
       );
-      expect(legends).toEqual(['Files and sidecars', 'Moving and deleting', 'Indexing', 'Volumes']);
+      expect(legends).toEqual([
+        'Files and sidecars',
+        'Moving and deleting',
+        'Indexing',
+        'Volumes',
+        'Excluded folders',
+      ]);
       expect(element.querySelector('form')?.getAttribute('aria-label')).toBe('General settings');
     });
 
@@ -801,7 +807,8 @@ describe('opm-settings-general', () => {
 
       expect(requests).toHaveLength(2);
       for (const card of element.querySelectorAll('fieldset')) {
-        if (card.querySelector('legend')?.textContent?.trim() === 'Volumes') {
+        const legend = card.querySelector('legend')?.textContent?.trim() ?? '';
+        if (['Volumes', 'Excluded folders'].includes(legend)) {
           expect(card.hasAttribute('disabled')).toBe(false);
           continue;
         }
@@ -1228,5 +1235,32 @@ describe('opm-settings-general', () => {
 
       expect(leave()).toBe(true);
     });
+  });
+});
+
+describe('excluded folders', () => {
+  const card = (element: Form) => element.querySelector('[data-excluded-folders]');
+
+  it('says when no folder is excluded', async () => {
+    const { element } = await open();
+
+    expect(card(element)?.textContent).toContain('No folder is excluded.');
+  });
+
+  it('lists the excluded folders and includes one again', async () => {
+    const folder = { volume_id: 1, path: '2024/private' };
+    const { element, requests } = await open(
+      sampleSettings({ excluded_folders: [folder] }),
+      ok(sampleSettings()),
+    );
+    expect(card(element)?.textContent).toContain('/2024/private');
+
+    buttonLabelled(element, 'Include again')?.click();
+    await vi.waitFor(() => expect(card(element)?.textContent).toContain('No folder is excluded.'));
+
+    const sent = requests.find((request) => request.method === 'POST');
+    expect(sent?.path).toBe('/api/settings/excluded-folders/remove');
+    expect(sent?.body).toEqual(folder);
+    expect(sent?.headers.get(CSRF_HEADER)).toBe('1');
   });
 });

@@ -1,4 +1,5 @@
 use opm_core::dto::{MoveParams, MoveType, SideParams};
+use opm_core::exclusions::Exclusions;
 use opm_core::junk::JunkRules;
 use opm_core::paths::RelPath;
 use opm_core::pattern::{Pattern, parse};
@@ -74,14 +75,25 @@ pub(super) fn rules(p: &MoveParams, settings: &Settings) -> Result<Rules, PlanEr
         ));
     }
     let junk = JunkRules::new(&settings.junk_names, &settings.junk_prefixes);
-    for (field, path) in [
-        ("source.scope", &source_base),
-        ("destination", &destination_base),
+    let excluded = Exclusions::new(&settings.excluded_folders);
+    for (field, volume, path) in [
+        ("source.scope", p.source.scope.volume_id, &source_base),
+        (
+            "destination",
+            Some(p.destination.volume_id),
+            &destination_base,
+        ),
     ] {
         if reserved(&junk, path) {
             return Err(PlanError::invalid_field(
                 field,
                 "the base is a reserved or ignored folder",
+            ));
+        }
+        if volume.is_some_and(|volume| excluded.contains(volume, path)) {
+            return Err(PlanError::invalid_field(
+                field,
+                "the base is an excluded folder",
             ));
         }
     }
@@ -93,6 +105,7 @@ pub(super) fn rules(p: &MoveParams, settings: &Settings) -> Result<Rules, PlanEr
         pattern: parsed,
         name_max_len: usize::from(settings.name_max_len),
         junk,
+        excluded,
         timezone: opm_core::datetime::tz_or_utc(std::env::var("TZ").ok().as_deref()),
     })
 }

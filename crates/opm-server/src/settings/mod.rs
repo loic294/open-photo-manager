@@ -123,12 +123,26 @@ impl SettingsService {
     /// Storing and publishing run in their own task, so a caller that is dropped halfway (a client
     /// that hangs up) can not leave the two out of step.
     pub async fn update(&self, proposed: Settings) -> Result<Arc<Settings>, SettingsError> {
-        let settings = proposed.normalized().map_err(ValidationError::new)?;
-        let document = serde_json::to_string(&settings)?;
+        self.modify(move |_| Ok(proposed)).await
+    }
+
+    /// Like [`update`](Self::update), but the new document is computed from the current one while
+    /// no other update can run, so concurrent read-modify-write changes never lose each other.
+    /// `change` may refuse with an error, which is returned and stores nothing.
+    pub async fn modify<F>(&self, change: F) -> Result<Arc<Settings>, SettingsError>
+    where
+        F: FnOnce(&Settings) -> Result<Settings, SettingsError> + Send + 'static,
+    {
         let service = self.clone();
-        tokio::spawn(async move { service.store_and_publish(settings, &document).await })
-            .await
-            .map_err(|err| DbError::Setup(format!("the settings update was interrupted: {err}")))?
+        tokio::spawn(async move {
+            let _one_update_at_a_time = service.inner.update_lock.lock().await;
+            let proposed = change(&service.get())?;
+            let settings = proposed.normalized().map_err(ValidationError::new)?;
+            let document = serde_json::to_string(&settings)?;
+            service.store_and_publish(settings, &document).await
+        })
+        .await
+        .map_err(|err| DbError::Setup(format!("the settings update was interrupted: {err}")))?
     }
 
     async fn store_and_publish(
@@ -136,7 +150,6 @@ impl SettingsService {
         settings: Settings,
         document: &str,
     ) -> Result<Arc<Settings>, SettingsError> {
-        let _one_update_at_a_time = self.inner.update_lock.lock().await;
         sqlx::query(
             "INSERT INTO settings (key, value, updated_at) VALUES (?, ?, ?) \
              ON CONFLICT (key) DO UPDATE SET value = excluded.value, updated_at = excluded.updated_at",

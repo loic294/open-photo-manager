@@ -1,6 +1,6 @@
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import '@/components/opm-folder-list';
-import type { FolderOpenEvent, OpmFolderList } from '@/components/opm-folder-list';
+import type { FolderMenuEvent, FolderOpenEvent, OpmFolderList } from '@/components/opm-folder-list';
 import { folderEntry } from '@/test/folder-entry';
 import { mount } from '@/test/helpers';
 import { formatCount } from '@/util/format-count';
@@ -538,5 +538,46 @@ describe('opm-folder-list at scale', () => {
 
     expect(anchors(host)).toHaveLength(3000);
     expect(elapsed).toBeLessThan(3000);
+  });
+});
+
+describe('the folder menu', () => {
+  function rightClick(target: Element): MouseEvent {
+    const event = new MouseEvent('contextmenu', {
+      bubbles: true,
+      cancelable: true,
+      clientX: 10,
+      clientY: 20,
+    });
+    target.dispatchEvent(event);
+    return event;
+  }
+
+  it('asks for the menu of a folder on a right click', async () => {
+    const host = await mountList();
+    const seen: FolderMenuEvent[] = [];
+    host.addEventListener('folder-menu', (event) => seen.push(event));
+
+    const event = rightClick(row(host, 'trip'));
+
+    expect(event.defaultPrevented).toBe(true);
+    expect(seen.map((item) => [item.detail.entry.path, item.detail.x, item.detail.y])).toEqual([
+      ['trip', 10, 20],
+    ]);
+  });
+
+  it('keeps the browser menu on a volume and on a planned folder', async () => {
+    const host = await mountList({
+      folders: [
+        folderEntry({ name: 'photos', path: '' }),
+        folderEntry({ name: 'new', overlay: { planned: true } }),
+      ],
+    });
+    const seen = vi.fn();
+    host.addEventListener('folder-menu', seen);
+
+    for (const name of ['photos', 'new'])
+      expect(rightClick(row(host, name)).defaultPrevented).toBe(false);
+    expect(seen).not.toHaveBeenCalled();
   });
 });

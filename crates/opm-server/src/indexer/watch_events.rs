@@ -5,6 +5,7 @@ use std::time::{Duration, Instant};
 
 use notify::Event;
 use notify::event::{AccessKind, AccessMode, ModifyKind};
+use opm_core::exclusions::Exclusions;
 use opm_core::junk::JunkRules;
 use opm_core::paths::{RelPath, VolumeId};
 
@@ -71,13 +72,14 @@ impl Dirty {
         self.marks.clear();
     }
 
-    pub fn filter(&mut self, junk: &JunkRules) {
-        self.marks.retain(|(_, dir), mark| {
+    pub fn filter(&mut self, junk: &JunkRules, excluded: &Exclusions) {
+        self.marks.retain(|(volume_id, dir), mark| {
             mark.candidates.retain(|path| {
                 !junk.is_junk_path(path)
                     && !path.file_name().is_some_and(|name| junk.is_junk_name(name))
+                    && !excluded.contains(*volume_id, path)
             });
-            !junk.is_junk_path(dir)
+            !junk.is_junk_path(dir) && !excluded.contains(*volume_id, dir)
         });
     }
 

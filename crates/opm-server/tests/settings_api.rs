@@ -72,6 +72,7 @@ async fn a_new_installation_serves_the_defaults_and_stores_nothing() {
         sorted_keys(&body),
         [
             "default_conflict_policy",
+            "excluded_folders",
             "index",
             "junk_names",
             "junk_prefixes",
@@ -254,9 +255,9 @@ async fn unknown_fields_in_a_put_are_ignored() {
     let (status, saved) = put(&app, &document).await;
 
     assert_eq!(status, StatusCode::OK, "{saved}");
-    assert_eq!(sorted_keys(&saved).len(), 8);
+    assert_eq!(sorted_keys(&saved).len(), 9);
     assert!(saved.get("added_by_a_newer_client").is_none());
-    assert_eq!(sorted_keys(&stored(&app).await.unwrap()).len(), 8);
+    assert_eq!(sorted_keys(&stored(&app).await.unwrap()).len(), 9);
 }
 
 #[tokio::test]
