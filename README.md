@@ -43,8 +43,11 @@ Use DSM Container Manager and a 64-bit Intel/AMD or ARM NAS (`uname -m`: `x86_64
 The commands below run over SSH on the NAS; use an account permitted to run Docker.
 
 1. Create `/volume1/docker/opm`, save the Compose example below as `compose.yml` there, and edit its
-   `CHANGE ME` settings. Use `id <dsm-user>` for the numeric UID/GID of a user allowed to access your
-   photo shares. Create `/volume1/docker/opm/data` and give that user ownership:
+   `CHANGE ME` settings. For `user:`, run `id <dsm-user>` for a user allowed to access your photo shares: it
+   prints something like `uid=1026(admin) gid=100(users) ...`, and the numbers after `uid=` (user id) and
+   `gid=` (group id) give `user: "1026:100"`. For `TZ`, pick a name from the "TZ identifier" column of the
+   [list of tz database time zones](https://en.wikipedia.org/wiki/List_of_tz_database_time_zones). Create
+   `/volume1/docker/opm/data` and give that user ownership, with your own numbers instead of `1026:100`:
    ```sh
    sudo mkdir -p /volume1/docker/opm/data
    sudo chown 1026:100 /volume1/docker/opm/data
@@ -89,7 +92,8 @@ either copy. Keep the published port on your LAN; the app itself has no login.
 #
 # How to use it (details in README.md; offline builds in docker/README.md):
 #   1. Copy this file to the NAS, for example /volume1/docker/opm/compose.yml, and edit the lines marked CHANGE ME.
-#   2. Create the data folder and give it to the user in "user:" below (see "Users and permissions" in the README):
+#   2. Create the data folder and give it to the user in "user:" below, with your own numbers instead of 1026:100
+#      (see "Users and permissions" in docker/README.md):
 #        sudo mkdir -p /volume1/docker/opm/data && sudo chown -R 1026:100 /volume1/docker/opm/data
 #   3. Pull and start it: `docker compose pull && docker compose up -d`, or Container Manager > Project > Create
 #      (pick the folder with this file). The image is public: no registry login is needed.
@@ -106,9 +110,13 @@ services:
     container_name: opm
     restart: unless-stopped
 
-    # CHANGE ME: the numeric "uid:gid" the app runs as. It decides which files the app may read and change.
-    # Use a DSM user that can read and write your photo folders. Find the numbers over SSH with `id <dsm-user>`.
-    # On Synology the first administrator is usually 1026 and the "users" group is 100.
+    # CHANGE ME: the numeric "uid:gid" (user id and group id) the app runs as. It decides which files the app may read
+    # and change, so use a DSM user that can read and write your photo folders. To find its two numbers, run this over
+    # SSH on the NAS (<dsm-user> is the DSM login name):
+    #   id <dsm-user>
+    # It prints something like "uid=1026(admin) gid=100(users) groups=...". The number after "uid=" is the user id and
+    # the number after "gid=" is the group id, so that user is "1026:100". (`id -u <dsm-user>` and `id -g <dsm-user>`
+    # print one number each.) On Synology the first administrator is usually 1026 and the "users" group is 100.
     user: "1026:100"
 
     ports:
@@ -126,8 +134,10 @@ services:
       - /volume1/docker/opm/data:/data
 
     environment:
-      # CHANGE ME: your time zone, e.g. Europe/Paris or America/New_York. Used for log times and for photos without
-      # a time zone of their own.
+      # CHANGE ME: your time zone, named as in the "TZ identifier" column of
+      # https://en.wikipedia.org/wiki/List_of_tz_database_time_zones (for example Europe/Paris or America/New_York).
+      # It converts file times and UTC video dates to local time; photo capture dates are kept as the camera wrote
+      # them and the app's logs always use UTC.
       TZ: Europe/Paris
       # Names (not IP addresses) you type in the browser to reach the app. Without this line the app answers
       # "host not allowed" when you use a name. Comma separated, e.g. "diskstation,diskstation.local,photos.example.com".
