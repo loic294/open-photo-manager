@@ -2,7 +2,7 @@
 # Docker HEALTHCHECK: succeeds when the server answers GET /api/health on the address it was told to listen on.
 set -eu
 
-listen="${APM_LISTEN:-0.0.0.0:8080}"
+listen="${OPM_LISTEN:-0.0.0.0:8080}"
 case "$listen" in
   *:*)
     host="${listen%:*}"

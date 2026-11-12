@@ -122,7 +122,7 @@ for (const conflictCase of conflictCases) {
     expect(after.some((entry) => entry.path === `photos/${sourceFile.path}`)).toBe(false);
     if (conflictCase.outcome === 'replace') {
       const trashed = after.filter(
-        (entry) => entry.type === 'file' && entry.path.includes('/.apm-trash/') && entry.hash,
+        (entry) => entry.type === 'file' && entry.path.includes('/.opm-trash/') && entry.hash,
       );
       expect(trashed.some((entry) => entry.hash === otherFile.sha1)).toBe(true);
       const archive = (await app.api.volumes()).find((volume) => volume.name === 'archive');

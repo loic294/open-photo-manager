@@ -41,7 +41,7 @@ for (const [tool, slug, path] of [
     const planResponse = page.waitForResponse(isPlan);
     await page.goto(new URL(path, sharedApp.url).href);
     await planResponse;
-    await expect(page.locator('apm-pane [data-pane-body][aria-busy="true"]')).toHaveCount(0);
+    await expect(page.locator('opm-pane [data-pane-body][aria-busy="true"]')).toHaveCount(0);
     await expectNoSeriousA11yViolations(page);
     if (slug === 'duplicates') {
       const selectionResponse = page.waitForResponse(
@@ -103,7 +103,7 @@ test('Asset move ghosts have no serious accessibility violations', async ({
   await movePage.chooseMoveType('flat');
   await flatPlan;
   await expect(movePage.destinationCard('IMG_0300.jpg').element).toBeVisible();
-  await expect(page.locator('apm-pane [data-pane-body][aria-busy="true"]')).toHaveCount(0);
+  await expect(page.locator('opm-pane [data-pane-body][aria-busy="true"]')).toHaveCount(0);
   await expectNoSeriousA11yViolations(page);
   await captureToolScreens(page, 'move');
 });

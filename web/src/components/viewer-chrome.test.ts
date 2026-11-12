@@ -116,7 +116,7 @@ describe('renderToolbar', () => {
 
       expect(button.disabled).toBe(false);
       expect(button.getAttribute('aria-pressed')).toBe('false');
-      expect(button.querySelector('apm-icon')?.getAttribute('name')).toBe('zoom-in');
+      expect(button.querySelector('opm-icon')?.getAttribute('name')).toBe('zoom-in');
     });
 
     it('shows it is on, and offers to zoom out', () => {
@@ -124,7 +124,7 @@ describe('renderToolbar', () => {
 
       expect(button.getAttribute('aria-pressed')).toBe('true');
       expect(button.classList.contains('btn-active')).toBe(true);
-      expect(button.querySelector('apm-icon')?.getAttribute('name')).toBe('zoom-out');
+      expect(button.querySelector('opm-icon')?.getAttribute('name')).toBe('zoom-out');
     });
 
     it.each(['video', 'audio', 'other'] as const)('is disabled, and never on, for a %s', (kind) => {

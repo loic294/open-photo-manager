@@ -12,14 +12,14 @@ import a duplicate or remove an asset. The filesystem and PostgreSQL cannot shar
 
 ## Direct path updates for tracked moves
 
-1. A file marked **In Immich** moved within its mapped library stays the same asset: APM updates
+1. A file marked **In Immich** moved within its mapped library stays the same asset: OPM updates
    `originalPath` in PostgreSQL for Immich v3.3.3 only. A path-derived `sha1-path` checksum changes
    in the same transaction; content-derived checksums do not. Existing API deletion safeguards are
    unchanged.
 
    You should see: the existing asset and its associations at the new path.
 
-2. Configure `APM_IMMICH_DATABASE_URL_FILE` as a read-only secret file, not a Settings field.
+2. Configure `OPM_IMMICH_DATABASE_URL_FILE` as a read-only secret file, not a Settings field.
    It requires `verify-full` TLS. Follow the [production database reference](../docker/README.md#immich-direct-database-access)
    for the Compose mount, private networking, grants, exclusions and scanner precautions; the
    [isolated schema gate](../docker/immich-postgres-test.md) is a developer test only.
@@ -31,12 +31,12 @@ import a duplicate or remove an asset. The filesystem and PostgreSQL cannot shar
    after a move passed preflight. Filesystem and PostgreSQL cannot share one transaction.
 
 Warning: Immich discourages direct database edits. Take a current backup and pause Immich scans and
-watching while APM moves files; its scanner can race the update. This is neither officially supported
+watching while OPM moves files; its scanner can race the update. This is neither officially supported
 by Immich nor atomic across the filesystem and database.
 
 ## Prerequisites and shared paths
 
-1. Use an Immich server reachable from the APM container, not a `localhost` URL pointing back at APM.
+1. Use an Immich server reachable from the OPM container, not a `localhost` URL pointing back at OPM.
    The client targets Immich major version 2 or later and compares the reported version with its
    API specification; newer versions can show a compatibility warning, not a compatibility guarantee.
    An administrator account is recommended: regular accounts operate in limited mode without
@@ -45,33 +45,33 @@ by Immich nor atomic across the filesystem and database.
    You should see: the server version and account mode after connecting.
 
 2. Mount the same physical share in both containers and configure an Immich external library.
-   For example, `/volume1/photo` can be `/volumes/photo` in APM and `/mnt/photos` in Immich.
-   The file `2024/trip/a.jpg` then maps to `/mnt/photos/2024/trip/a.jpg`; the APM volume is `photo`,
+   For example, `/volume1/photo` can be `/volumes/photo` in OPM and `/mnt/photos` in Immich.
+   The file `2024/trip/a.jpg` then maps to `/mnt/photos/2024/trip/a.jpg`; the OPM volume is `photo`,
    and its Immich path prefix is `/mnt/photos`, not `/volume1/photo` or `/volumes/photo`.
    Read-only mounting in Immich lets it import the share without granting filesystem writes;
-   APM needs write permission for moves/trash. APM sync cannot create the shared mount for you.
+   OPM needs write permission for moves/trash. OPM sync cannot create the shared mount for you.
 
-   You should see: the same test file in APM and Immich's scanned external library.
+   You should see: the same test file in OPM and Immich's scanned external library.
    Direct Immich uploads are not external-library files and are outside this integration.
 
-3. Configure Immich external-library exclusions `**/@eaDir/**` and `**/.apm-trash/**`.
-   The APM button described below adds only the trash exclusion, not both patterns.
+3. Configure Immich external-library exclusions `**/@eaDir/**` and `**/.opm-trash/**`.
+   The OPM button described below adds only the trash exclusion, not both patterns.
    Do not rely solely on hidden-directory scan defaults: Immich's watcher may import trash.
 
-   You should see: neither Synology thumbnails nor APM trash imported as new photos.
+   You should see: neither Synology thumbnails nor OPM trash imported as new photos.
 
 ## Connect
 
 1. Open **Settings** > **Immich**. Enter **Server URL**, **Email** and **Password**, then **Connect**.
    Use a trusted HTTPS server where possible. The optional **Allow a self-signed certificate**
    setting relaxes TLS verification; use it only for a trusted local server.
-   No password is kept: APM logs in, creates a scoped API key, verifies it, encrypts it in `/data`,
+   No password is kept: OPM logs in, creates a scoped API key, verifies it, encrypts it in `/data`,
    then ends that temporary login session. Connection is a bounded request, not a progress task.
 
    You should see: **Connection**, account identity, server version and full or limited mode.
    Never put your password or the created key in Compose, logs or an agent conversation.
 
-2. The key is named `Advanced Photo Manager`. Its requested permission set is:
+2. The key is named `Open Photo Manager`. Its requested permission set is:
 
    <!-- immich-permissions:start -->
    `asset.read`, `asset.update`, `asset.delete`, `library.read`, `library.update`, `album.read`,
@@ -79,7 +79,7 @@ by Immich nor atomic across the filesystem and database.
    <!-- immich-permissions:end -->
 
    These are the client permissions, not the entire Immich permission registry.
-   APM never requests upload or on-disk file-deletion permission. Protect the database and its
+   OPM never requests upload or on-disk file-deletion permission. Protect the database and its
    encryption key together; [backup guidance](synology.md#backups-updates-and-removal) explains why.
 
    You should see: the named key in your own Immich account's API-key list.
@@ -93,7 +93,7 @@ by Immich nor atomic across the filesystem and database.
 
 4. **Disconnect** attempts to revoke the key, forgets the connection, cached sync data and pending
    Immich changes, but keeps volume mappings. It does not delete photos or Immich assets.
-   If revocation fails, APM still disconnects and tells you to remove the named key manually in Immich.
+   If revocation fails, OPM still disconnects and tells you to remove the named key manually in Immich.
    Changes made while disconnected are not queued for later replay.
 
    You should see: confirmation explaining how many unmirrored changes will be forgotten.
@@ -110,7 +110,7 @@ by Immich nor atomic across the filesystem and database.
    If no asset matches, check the exact prefix and whether Immich scanned the same share.
 
 2. In full mode click **Keep the trash out of Immich** after saving mappings.
-   It adds `**/.apm-trash/**` to mapped libraries without replacing existing exclusions.
+   It adds `**/.opm-trash/**` to mapped libraries without replacing existing exclusions.
    Inspect per-library failures as well as successful updates; limited-mode users need an admin
    to configure this exclusion in Immich.
 
@@ -132,10 +132,10 @@ by Immich nor atomic across the filesystem and database.
 The API asset-deletion safeguards are unchanged. Moves outside mapped libraries retain the
 offline-confirmed removal path; tracked in-library moves use the direct update described above.
 
-1. APM records mapped photo/video moves, copies, trash and restores in a transactional outbox.
+1. OPM records mapped photo/video moves, copies, trash and restores in a transactional outbox.
    Tracked in-library moves first require the database preflight; queued mirroring then runs in
    background tasks. The scheduler waits for quiet file operations; see
-   `APM_IMMICH_QUIET_SECS` in the [configuration reference](../docker/README.md#configuration).
+   `OPM_IMMICH_QUIET_SECS` in the [configuration reference](../docker/README.md#configuration).
    This delay is not a promise that Immich finishes importing within that window.
    Changes before the scan is requested can merge; later moves create separate rows.
 
@@ -153,7 +153,7 @@ offline-confirmed removal path; tracked in-library moves use the direct update d
    A failed carry-over blocks deletion and requires attention. The hook records changes in the
    file-operation transaction, and remote mirroring calls run in cancellable background tasks.
    A cached offline flag alone never authorises deletion: force-deleting an online Immich asset
-   could delete an original, so APM refuses that operation.
+   could delete an original, so OPM refuses that operation.
 
    You should see: unreadable volumes and online old assets wait instead of being forcibly deleted.
 
@@ -186,14 +186,14 @@ offline-confirmed removal path; tracked in-library moves use the direct update d
 
 ## Connection errors
 
-The table quotes APM's UI messages; upstream validation can also add field-specific details.
+The table quotes OPM's UI messages; upstream validation can also add field-specific details.
 
-| Code | Message in APM | Fix |
+| Code | Message in OPM | Fix |
 |---|---|---|
 | `immich_not_connected` | Connect to Immich first. | Connect in the Immich settings tab. |
 | `immich_needs_reconnect` | Immich no longer accepts the stored key. Connect again. | Reconnect; check the app-state key file after restoration. |
 | `immich_auth_failed` | Immich refused the email or password. Check both and try again. | Check your Immich account credentials yourself. |
-| `immich_invalid_url` | Enter a valid HTTP or HTTPS address for Immich. | Use a server base URL reachable from APM, without embedded credentials. |
+| `immich_invalid_url` | Enter a valid HTTP or HTTPS address for Immich. | Use a server base URL reachable from OPM, without embedded credentials. |
 | `immich_admin_required` | This action needs an Immich administrator account. | Use an admin for library operations or accept limited mode. |
 | `immich_unreachable` | The Immich address could not be reached. Check the URL and that Immich is running. | Check routing, server health and TLS trust. |
 | `immich_unauthorized` | Immich refused the stored key. Connect again. | Reconnect to replace the key. |

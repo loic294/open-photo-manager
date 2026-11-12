@@ -7,7 +7,7 @@ from check_compose import check, check_windows_compose, extract_windows_compose
 
 
 class ComposeExampleTests(unittest.TestCase):
-    compose = b"services:\n  apm:\n    image: example:edge\n"
+    compose = b"services:\n  opm:\n    image: example:edge\n"
     start = b"<!-- BEGIN COMPOSE -->\n```yaml\n"
     end = b"```\n<!-- END COMPOSE -->"
 
@@ -39,7 +39,7 @@ class WindowsComposeGuideTests(unittest.TestCase):
     def config():
         return {
             "services": {
-                "apm": {
+                "opm": {
                     "volumes": [
                         {
                             "type": "bind",
@@ -48,13 +48,13 @@ class WindowsComposeGuideTests(unittest.TestCase):
                         },
                         {
                             "type": "volume",
-                            "source": "apm-data",
+                            "source": "opm-data",
                             "target": "/data",
                         },
                     ]
                 }
             },
-            "volumes": {"apm-data": {"name": "apm-data"}},
+            "volumes": {"opm-data": {"name": "opm-data"}},
         }
 
     def test_accepts_guide_compose_example(self):
@@ -64,21 +64,21 @@ class WindowsComposeGuideTests(unittest.TestCase):
 
     def test_rejects_anonymous_data_volume(self):
         config = self.config()
-        del config["services"]["apm"]["volumes"][1]["source"]
+        del config["services"]["opm"]["volumes"][1]["source"]
         with self.assertRaisesRegex(ValueError, "declared named volume"):
             check_windows_compose(self.guide, config)
 
     def test_rejects_bind_mounted_data(self):
         config = self.config()
-        config["services"]["apm"]["volumes"][1].update(
-            type="bind", source="C:/apm-data"
+        config["services"]["opm"]["volumes"][1].update(
+            type="bind", source="C:/opm-data"
         )
         with self.assertRaisesRegex(ValueError, "declared named volume"):
             check_windows_compose(self.guide, config)
 
     def test_rejects_user_key(self):
         config = self.config()
-        config["services"]["apm"]["user"] = "1000:1000"
+        config["services"]["opm"]["user"] = "1000:1000"
         with self.assertRaisesRegex(ValueError, "omit the user key"):
             check_windows_compose(self.guide, config)
 

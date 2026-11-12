@@ -32,7 +32,7 @@ async function waitForPlanItems(
       expect(await response.finished()).toBeNull();
     }),
   );
-  await expect(page.locator('apm-pane [data-pane-body][aria-busy="true"]')).toHaveCount(0);
+  await expect(page.locator('opm-pane [data-pane-body][aria-busy="true"]')).toHaveCount(0);
 }
 
 test('duplicate and move tools stay responsive with 3,000 indexed files', async ({

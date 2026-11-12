@@ -33,7 +33,7 @@ export class Api {
       headers: {
         Host: new URL(url).host,
         Origin: url,
-        'x-apm-request': '1',
+        'x-opm-request': '1',
         'Content-Type': 'application/json',
       },
       body: body === undefined ? undefined : JSON.stringify(body),

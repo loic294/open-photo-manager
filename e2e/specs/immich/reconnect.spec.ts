@@ -30,7 +30,7 @@ test('revoked key requests reconnection without losing the saved mapping', async
   await expect(settingsPage.field('Email')).toHaveValue(testUsers.admin.email);
   await expect(settingsPage.field('Password')).toBeEmpty();
   await expect(shell.menu().getByLabel('Needs attention')).toBeVisible();
-  await expectNoSeriousA11yViolations(page, { include: ['apm-settings-immich'] });
+  await expectNoSeriousA11yViolations(page, { include: ['opm-settings-immich'] });
   const revoked = await app.api.request<ImmichStatusDto>('GET', '/api/immich/status');
   expect(revoked.needs_reconnect).toBe(true);
   expect(revoked.mappings).toEqual(before.mappings);

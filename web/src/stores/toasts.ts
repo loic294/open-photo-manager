@@ -30,7 +30,7 @@ export const MAX_TOASTS = 5;
 
 const list = signal<readonly Toast[]>([]);
 
-/** The toasts on screen, oldest first. Render them with `<apm-toast-host>`. */
+/** The toasts on screen, oldest first. Render them with `<opm-toast-host>`. */
 export const toasts: ReadonlySignal<readonly Toast[]> = list;
 
 const timers = new Map<number, number>();

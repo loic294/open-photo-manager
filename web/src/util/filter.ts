@@ -3,7 +3,7 @@ import type { FlagFilter } from '@/api/generated/FlagFilter';
 
 /**
  * Pure helpers for the item `Filter` (cameras, ratings, flags, tags, selection). They mirror the
- * server's canonical form (`Filter::normalise` in `apm-core`) closely enough that two filters the
+ * server's canonical form (`Filter::normalise` in `opm-core`) closely enough that two filters the
  * server treats alike get the same key here.
  */
 

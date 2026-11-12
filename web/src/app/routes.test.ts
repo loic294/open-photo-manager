@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import { type AppRoute, notFound, redirects, routeAt, routes } from '@/app/routes';
-import { isIconName } from '@/components/apm-icon';
+import { isIconName } from '@/components/opm-icon';
 import { TOOLS } from '@/stores/nav';
 
 describe('route table', () => {
@@ -72,14 +72,14 @@ describe('route table', () => {
 });
 
 describe('placeholders', () => {
-  const placeholders = routes.filter((route) => route.tag === 'apm-route-placeholder');
+  const placeholders = routes.filter((route) => route.tag === 'opm-route-placeholder');
 
   it('load the placeholder module lazily, and it defines the tag', async () => {
-    expect(customElements.get('apm-route-placeholder')).toBeUndefined();
+    expect(customElements.get('opm-route-placeholder')).toBeUndefined();
 
     await notFound.load();
 
-    expect(customElements.get('apm-route-placeholder')).toBeDefined();
+    expect(customElements.get('opm-route-placeholder')).toBeDefined();
   });
 
   it('share one loader, so the placeholder is fetched once for all of them', () => {
@@ -98,16 +98,16 @@ describe('settings', () => {
     const route = routeAt('/settings');
 
     expect(route).toMatchObject({
-      tag: 'apm-settings-page',
+      tag: 'opm-settings-page',
       label: 'Settings',
       icon: 'settings',
       menu: 'footer',
     });
-    expect(customElements.get('apm-settings-page')).toBeUndefined();
+    expect(customElements.get('opm-settings-page')).toBeUndefined();
 
     await route?.load();
 
-    expect(customElements.get('apm-settings-page')).toBeDefined();
+    expect(customElements.get('opm-settings-page')).toBeDefined();
   });
 });
 

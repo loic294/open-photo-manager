@@ -16,7 +16,7 @@ const COPY_BYTES = 4 * 1024 ** 3;
 const SOURCE_DIR = 'e2e-cross-device';
 const FILE_NAME = 'large-copy.bin';
 const SOURCE_PATH = `${SOURCE_DIR}/${FILE_NAME}`;
-const PART_SUFFIX = '.apm-part';
+const PART_SUFFIX = '.opm-part';
 
 test.use({ allowedErrors: [/^requestfailed: .*\/api\/events net::ERR_ABORTED$/] });
 
@@ -53,7 +53,7 @@ async function waitForCopyProgress(
   const row = shell
     .taskIndicator()
     .getByRole('group', { name: 'Background tasks' })
-    .locator('apm-task-row')
+    .locator('opm-task-row')
     .filter({ hasText: taskTitle })
     .filter({ has: shell.page.locator('[data-state="running"]') });
   await expect(row).toBeVisible();
@@ -266,7 +266,7 @@ test('server restart interrupts an in-progress cross-volume copy without losing 
     const interruptedRow = shell
       .taskIndicator()
       .getByRole('group', { name: 'Background tasks' })
-      .locator('apm-task-row')
+      .locator('opm-task-row')
       .filter({ hasText: taskTitle });
     await expect(interruptedRow.locator('[data-state="interrupted"]')).toBeVisible();
     await expect(interruptedRow).toContainText('Interrupted');

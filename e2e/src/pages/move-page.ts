@@ -65,13 +65,13 @@ export class MovePage {
               await expect(card.isGhost()).resolves.toBe(first.overlay.planned);
             } else {
               expect(body.total).toBe(0);
-              await expect(pane.locator('apm-file-grid').getByRole('status')).toBeVisible();
+              await expect(pane.locator('opm-file-grid').getByRole('status')).toBeVisible();
               await expect(pane.getByRole('listbox')).toHaveCount(0);
             }
           } else {
             const first = body.folders[0];
             if (first) {
-              const folder = pane.locator('apm-folder-list a[data-name]').filter({
+              const folder = pane.locator('opm-folder-list a[data-name]').filter({
                 has: this.page.getByText(first.name, { exact: true }),
               });
               await expect(folder).toBeVisible();
@@ -85,7 +85,7 @@ export class MovePage {
         await expect
           .poll(() =>
             pane.evaluate((element) => {
-              const host = element.closest('apm-pane') as HTMLElement & {
+              const host = element.closest('opm-pane') as HTMLElement & {
                 browseRequest: BrowseRequest | null;
               };
               return host.browseRequest;
@@ -170,7 +170,7 @@ export class MovePage {
 
   destinationFolder(name: string) {
     return this.destinationPane()
-      .locator('apm-folder-list a[data-name]')
+      .locator('opm-folder-list a[data-name]')
       .filter({ has: this.page.getByText(name, { exact: true }) });
   }
 

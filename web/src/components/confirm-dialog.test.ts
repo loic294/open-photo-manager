@@ -1,21 +1,21 @@
 import { html } from 'lit';
 import { afterEach, describe, expect, it, vi } from 'vitest';
-import type { ApmModal } from '@/components/apm-modal';
 import { confirmDialog } from '@/components/confirm-dialog';
+import type { OpmModal } from '@/components/opm-modal';
 
 function hosts() {
-  return document.querySelectorAll('apm-confirm-dialog');
+  return document.querySelectorAll('opm-confirm-dialog');
 }
 
-function modal(): ApmModal {
-  const found = document.querySelector('apm-confirm-dialog apm-modal');
+function modal(): OpmModal {
+  const found = document.querySelector('opm-confirm-dialog opm-modal');
   if (!found) throw new Error('the confirm dialog is not mounted');
-  return found as ApmModal;
+  return found as OpmModal;
 }
 
-async function shown(): Promise<ApmModal> {
+async function shown(): Promise<OpmModal> {
   await vi.waitFor(() => {
-    expect(document.querySelector('apm-confirm-dialog apm-modal')).not.toBeNull();
+    expect(document.querySelector('opm-confirm-dialog opm-modal')).not.toBeNull();
     expect(modal().open).toBe(true);
   });
   await modal().updateComplete;
@@ -23,7 +23,7 @@ async function shown(): Promise<ApmModal> {
 }
 
 function button(label: string): HTMLButtonElement {
-  const found = [...document.querySelectorAll('apm-confirm-dialog .modal-action button')].find(
+  const found = [...document.querySelectorAll('opm-confirm-dialog .modal-action button')].find(
     (candidate) => candidate.textContent?.trim() === label,
   );
   if (!found) throw new Error(`no "${label}" button`);

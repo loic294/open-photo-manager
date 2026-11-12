@@ -23,7 +23,7 @@ test('Immich settings remain accessible through keyboard connection and reconnec
   const check = async (name: string) => {
     for (const theme of ['light', 'dark'] as const) {
       await shell.theme(theme);
-      await expectNoSeriousA11yViolations(page, { include: ['apm-settings-immich'] });
+      await expectNoSeriousA11yViolations(page, { include: ['opm-settings-immich'] });
     }
     await captureScreens(page, name);
   };

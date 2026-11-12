@@ -14,7 +14,7 @@ async function loadFilters(): Promise<Filters> {
 }
 
 function stored(key: string): unknown {
-  const raw = localStorage.getItem(`apm.v1.${key}`);
+  const raw = localStorage.getItem(`opm.v1.${key}`);
   return raw === null ? undefined : JSON.parse(raw);
 }
 
@@ -268,7 +268,7 @@ describe('scopeFor and setScope', () => {
   });
 
   it('ignores a stored value it does not know', async () => {
-    localStorage.setItem('apm.v1.filterScope', JSON.stringify({ duplicates: 'everything' }));
+    localStorage.setItem('opm.v1.filterScope', JSON.stringify({ duplicates: 'everything' }));
 
     const { scopeFor } = await loadFilters();
 

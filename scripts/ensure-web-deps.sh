@@ -6,7 +6,7 @@
 set -euo pipefail
 
 cd "$(dirname "$0")/.."
-stamp=web/node_modules/.apm-lock-sha
+stamp=web/node_modules/.opm-lock-sha
 want="$(shasum web/package-lock.json | cut -d' ' -f1)"
 
 if [ -d web/node_modules ] && [ "$(cat "$stamp" 2>/dev/null || true)" = "$want" ]; then

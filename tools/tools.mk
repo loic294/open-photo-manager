@@ -2,7 +2,7 @@
 # Makefile includes this file (see tools/mock-immich/README.md).
 #   make check-tools          the gate of tools/ and e2e/: every check-* target below
 #   make mock-immich          run the mock Immich server (default scenario, port 12283)
-#   make mock-immich-smoke    drive the real backend (cargo build -p apm-server first) against the mock
+#   make mock-immich-smoke    drive the real backend (cargo build -p opm-server first) against the mock
 # Options of `make mock-immich`, all optional, from the environment or the make command line:
 #   MOCK_IMMICH_MOUNTS    comma-separated PREFIX=DIR pairs: the real directory Immich sees at PREFIX,
 #                         e.g. /mnt/photos=fixtures/out/volumes/photos,/mnt/archive=fixtures/out/volumes/archive

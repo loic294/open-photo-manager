@@ -228,7 +228,7 @@ test('mass disappearance is held, restored, then explicitly removed without disk
   await expect(shell.notices()).toContainText(`${grid.length} files could not be found on disk`);
   for (const theme of ['light', 'dark'] as const) {
     await shell.theme(theme);
-    await expectNoSeriousA11yViolations(page, { include: ['apm-index-notices'] });
+    await expectNoSeriousA11yViolations(page, { include: ['opm-index-notices'] });
   }
   await captureScreens(page, 'system-held-removals');
   expect((await app.api.indexStatus()).held_removals).toEqual([
@@ -307,7 +307,7 @@ test('offline volume keeps identities and a reconnect restores live re-index con
       false,
     );
     await shell.navigate('Settings');
-    await expect(page.locator('apm-settings-general')).toContainText('offline');
+    await expect(page.locator('opm-settings-general')).toContainText('offline');
     await page.goto(`${app.url}/browse?src=archive&cmp=photos`);
     await expect(source.element.getByRole('alert')).toContainText(
       'Volume archive is offline: showing what was last indexed',

@@ -32,7 +32,7 @@ def extract_windows_compose(guide: str) -> str:
 
 def check_windows_compose(guide: str, config: dict[str, Any]) -> None:
     compose_yaml = extract_windows_compose(guide)
-    service = config.get("services", {}).get("apm", {})
+    service = config.get("services", {}).get("opm", {})
     mounts = service.get("volumes", [])
     if "user" in service:
         raise ValueError("Windows Compose example must omit the user key")

@@ -13,8 +13,8 @@ test('sync adopts timestamped untracked bytes, removes missing rows and restores
   test.setTimeout(90_000);
   const template = manifest.filesOf('exif.full_nikon')[0];
   const bytes = await readFile(app.volumePath(`${template.volume}/${template.path}`));
-  await writeFile(app, 'photos', '.apm-trash/20200102-030405/recovered/adopted.jpg', bytes);
-  await writeFile(app, 'photos', '.apm-trash/unknown-batch/recovered/missing.jpg', bytes);
+  await writeFile(app, 'photos', '.opm-trash/20200102-030405/recovered/adopted.jpg', bytes);
+  await writeFile(app, 'photos', '.opm-trash/unknown-batch/recovered/missing.jpg', bytes);
   await page.goto(`${app.url}/trash`);
   const before = Math.floor(Date.now() / 1000);
   expect((await taskAction(app, page, '/api/trash/sync', () => trashPage.sync())).state).toBe(
@@ -32,7 +32,7 @@ test('sync adopts timestamped untracked bytes, removes missing rows and restores
     reason: null,
   });
   expect(missing?.trashed_at).toBeGreaterThanOrEqual(before);
-  await rm(app.volumePath('photos/.apm-trash/unknown-batch/recovered/missing.jpg'));
+  await rm(app.volumePath('photos/.opm-trash/unknown-batch/recovered/missing.jpg'));
   expect((await taskAction(app, page, '/api/trash/sync', () => trashPage.sync())).state).toBe(
     'done',
   );
@@ -67,7 +67,7 @@ test('changing retention immediately sweeps only old trash; turning it off retai
   await writeFile(
     app,
     'photos',
-    '.apm-trash/20000101-000000/old/due.txt',
+    '.opm-trash/20000101-000000/old/due.txt',
     'old private retained bytes',
   );
   await page.goto(`${app.url}/trash`);
@@ -92,7 +92,7 @@ test('changing retention immediately sweeps only old trash; turning it off retai
   expect((await trashList(app)).items.map((item) => item.name)).not.toContain('due.txt');
   expect((await trashList(app)).summary.items).toBe(1);
   await shell.navigate('Trash');
-  await expect(page.locator('apm-trash-page')).toContainText(
+  await expect(page.locator('opm-trash-page')).toContainText(
     'Items are deleted automatically 1 day',
   );
   await shell.navigate('Settings');
@@ -101,7 +101,7 @@ test('changing retention immediately sweeps only old trash; turning it off retai
   await writeFile(
     app,
     'photos',
-    '.apm-trash/20000102-000000/old/kept.txt',
+    '.opm-trash/20000102-000000/old/kept.txt',
     'must stay while retention disabled',
   );
   await shell.navigate('Trash');
@@ -110,7 +110,7 @@ test('changing retention immediately sweeps only old trash; turning it off retai
   );
   await trashPage.tab('Items');
   await expect(trashPage.row('kept.txt')).toBeVisible();
-  await expect(page.locator('apm-trash-page')).toContainText(
+  await expect(page.locator('opm-trash-page')).toContainText(
     'Items stay in the trash until you empty it',
   );
   // No event is scheduled while retention is disabled; check a bounded absence window after sync.

@@ -13,10 +13,10 @@ export class ShellPage {
     return this.page.getByRole('banner');
   }
   toasts() {
-    return this.page.locator('apm-toast-host .alert');
+    return this.page.locator('opm-toast-host .alert');
   }
   taskIndicator() {
-    return this.page.locator('apm-task-indicator');
+    return this.page.locator('opm-task-indicator');
   }
   progress() {
     return this.taskIndicator().getByRole('progressbar');
@@ -46,7 +46,7 @@ export class ShellPage {
     return this.taskIndicator().getByRole('group', { name: 'Background tasks', exact: true });
   }
   taskRows() {
-    return this.taskIndicator().locator('apm-task-row');
+    return this.taskIndicator().locator('opm-task-row');
   }
   taskRow(title: string) {
     return this.taskRows().filter({
@@ -60,7 +60,7 @@ export class ShellPage {
     });
   }
   notices() {
-    return this.page.locator('apm-index-notices');
+    return this.page.locator('opm-index-notices');
   }
   connectionBanner() {
     return this.page.getByRole('alert').filter({ hasText: /connection|reconnect/i });

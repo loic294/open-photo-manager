@@ -1,6 +1,6 @@
 import { previewUrl, thumbUrl } from '@/api/files';
 import type { FileItem } from '@/api/generated/FileItem';
-import { hasThumbnail } from '@/components/apm-file-card';
+import { hasThumbnail } from '@/components/opm-file-card';
 import { shouldPreloadPreview } from '@/components/viewer-nav';
 import { type ImageLoad, loadImage } from '@/util/load-image';
 

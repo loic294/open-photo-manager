@@ -47,7 +47,7 @@ test('all General fields load; validation, discard and save survive browser and 
       await expect(
         settingsPage
           .general()
-          .locator(`apm-chip-input[label="${label}"]`)
+          .locator(`opm-chip-input[label="${label}"]`)
           .getByRole('button', { name: `Remove ${value}`, exact: true }),
       ).toBeVisible();
   }
@@ -184,20 +184,20 @@ test('custom sidecar configuration links and moves metadata; ignored names alter
   await writeFile(
     app,
     'photos',
-    'system-config/configured.jpg.apmmeta',
+    'system-config/configured.jpg.opmmeta',
     'configurable metadata sidecar',
   );
   await app.rescan();
   await page.goto(`${app.url}/settings`);
-  await settingsPage.addChip('Sidecar extensions', 'apmmeta');
+  await settingsPage.addChip('Sidecar extensions', 'opmmeta');
   await settingsPage.saveGeneral();
-  expect((await app.api.settings()).sidecar_extensions).toContain('apmmeta');
+  expect((await app.api.settings()).sidecar_extensions).toContain('opmmeta');
   await page.goto(`${app.url}/browse?src=photos/system-config&cmp=photos/system-config`);
   await shell.reindex();
   await app.waitForIdle();
   expect(
     (await indexedFile(app, 'photos', 'system-config/configured.jpg')).sidecars,
-  ).toContainEqual({ name: 'configured.jpg.apmmeta', kind: 'exact' });
+  ).toContainEqual({ name: 'configured.jpg.opmmeta', kind: 'exact' });
   const plan = await movePlan(
     app,
     { volume: 'photos', dir: 'system-config' },
@@ -207,15 +207,15 @@ test('custom sidecar configuration links and moves metadata; ignored names alter
   expect((await terminalTask(app, task.id)).state).toBe('done');
   expect(
     (await indexedFile(app, 'archive', 'system-config-destination/configured.jpg')).sidecars,
-  ).toContainEqual({ name: 'configured.jpg.apmmeta', kind: 'exact' });
+  ).toContainEqual({ name: 'configured.jpg.opmmeta', kind: 'exact' });
   expect(
     await readFile(
-      app.volumePath('archive/system-config-destination/configured.jpg.apmmeta'),
+      app.volumePath('archive/system-config-destination/configured.jpg.opmmeta'),
       'utf8',
     ),
   ).toBe('configurable metadata sidecar');
   await shell.navigate('Settings');
-  await settingsPage.removeChip('Sidecar extensions', 'apmmeta');
+  await settingsPage.removeChip('Sidecar extensions', 'opmmeta');
   await settingsPage.addChip('Ignored names', 'configured.jpg');
   await settingsPage.saveGeneral();
   await page.goto(
@@ -226,7 +226,7 @@ test('custom sidecar configuration links and moves metadata; ignored names alter
   await expect(source.card('configured.jpg').element).toHaveCount(0);
   expect(
     (await app.api.listing('archive', 'system-config-destination')).items.map((item) => item.name),
-  ).toEqual(['configured.jpg.apmmeta']);
+  ).toEqual(['configured.jpg.opmmeta']);
   await shell.navigate('Settings');
   await settingsPage.removeChip('Ignored names', 'configured.jpg');
   await settingsPage.saveGeneral();

@@ -48,7 +48,7 @@ afterEach(() => {
   clearToasts();
   events.stop();
   FakeEventSource.reset();
-  document.querySelector('apm-plan-result')?.remove();
+  document.querySelector('opm-plan-result')?.remove();
   vi.restoreAllMocks();
   vi.unstubAllGlobals();
 });
@@ -88,8 +88,8 @@ describe('runs outlive the view', () => {
       });
       toasts.value[0]?.action?.run();
       toasts.value[0]?.action?.run();
-      expect(document.querySelectorAll('apm-plan-result')).toHaveLength(1);
-      const host = document.querySelector('apm-plan-result');
+      expect(document.querySelectorAll('opm-plan-result')).toHaveLength(1);
+      const host = document.querySelector('opm-plan-result');
       expect(host?.run?.result).toMatchObject(patch);
     },
   );

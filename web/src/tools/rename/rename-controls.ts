@@ -2,13 +2,13 @@ import type { Signal } from '@preact/signals-core';
 import { html, nothing } from 'lit';
 import { live } from 'lit/directives/live.js';
 import type { RenameIssueField } from '@/api/generated/RenameIssueField';
-import type { PatternChangeEvent } from '@/components/apm-pattern-editor';
-import '@/components/apm-pattern-editor';
-import type { SegmentedChangeEvent } from '@/components/apm-segmented';
+import type { PatternChangeEvent } from '@/components/opm-pattern-editor';
+import '@/components/opm-pattern-editor';
+import type { SegmentedChangeEvent } from '@/components/opm-segmented';
 import { renamePreviewAdapter } from '@/components/pattern-preview-adapter';
-import '@/components/apm-segmented';
-import type { SelectChangeEvent } from '@/components/apm-select';
-import '@/components/apm-select';
+import '@/components/opm-segmented';
+import type { SelectChangeEvent } from '@/components/opm-select';
+import '@/components/opm-select';
 import { renderPendingNotice } from '@/tools/framework/plan-notices';
 import type { ToolContext } from '@/tools/framework/tool-context';
 import { fileCount } from '@/tools/move/move-actions';
@@ -66,7 +66,7 @@ export function renameControls(ctx: ToolContext) {
     <details class="dropdown min-w-0">
       <summary class="btn btn-ghost btn-sm">Rename rules${current ? html`<span class="badge badge-error badge-xs">Fix rules</span>` : nothing}</summary>
       <div class="dropdown-content left-0 z-30 w-96 max-w-[85vw] max-h-[70vh] overflow-auto rounded-box bg-base-100 p-3 shadow-lg flex flex-col gap-2">
-    <apm-segmented label="Filename match mode" .value=${matchMode.value}
+    <opm-segmented label="Filename match mode" .value=${matchMode.value}
       .options=${[
         { value: 'all', label: 'All files' },
         { value: 'glob', label: 'Glob' },
@@ -75,13 +75,13 @@ export function renameControls(ctx: ToolContext) {
       @segmented-change=${(event: SegmentedChangeEvent) => {
         const mode = MATCH_MODES.find((entry) => entry === event.detail);
         if (mode) matchMode.value = mode;
-      }}></apm-segmented>
-    <apm-select label="If a file with the same name exists" show-label .value=${policy.value}
+      }}></opm-segmented>
+    <opm-select label="If a file with the same name exists" show-label .value=${policy.value}
       .options=${CONFLICT_POLICIES.filter((entry) => entry.value !== 'replace').map((entry) => ({ ...entry, title: entry.help }))}
       @select-change=${(event: SelectChangeEvent) => {
         const next = RENAME_POLICIES.find((entry) => entry === event.detail.value);
         if (next) policy.value = next;
-      }}></apm-select>
+      }}></opm-select>
       ${[
         'already_in_place',
         'identical_at_destination',
@@ -125,7 +125,7 @@ export function renameControls(ctx: ToolContext) {
     <details class="min-w-0">
       <summary class="btn btn-ghost btn-sm">Counter digits: ${countDigits.value === 0 ? 'Exact number' : countDigits.value}</summary>
       <div class="flex flex-col gap-2">
-        <apm-select label="Counter digits" show-label .value=${String(countDigits.value)}
+        <opm-select label="Counter digits" show-label .value=${String(countDigits.value)}
           .options=${Array.from({ length: 10 }, (_, width) => ({
             value: String(width),
             label:
@@ -136,13 +136,13 @@ export function renameControls(ctx: ToolContext) {
           @select-change=${(event: SelectChangeEvent) => {
             const width = Number(event.detail.value);
             if (Number.isInteger(width) && width >= 0 && width <= 9) countDigits.value = width;
-          }}></apm-select>
+          }}></opm-select>
         <p class="text-xs text-base-content/70">Applies to {count}: restarts at 1 per folder and name group. Width is minimum zero-padding, never truncation. RAW/JPEG sets share a number.</p>
         ${messages('count_digits')}
       </div>
     </details>
     <div class="basis-full min-w-0">
-      <apm-pattern-editor label="Name pattern" .value=${pattern.value} .source=${params?.source ?? null}
+      <opm-pattern-editor label="Name pattern" .value=${pattern.value} .source=${params?.source ?? null}
         .rules=${params?.rules ?? null} .requestKey=${key} .adapter=${renamePreviewAdapter} .limit=${5}
         @pattern-change=${(event: PatternChangeEvent) => {
           pattern.value = event.detail.value;
@@ -153,7 +153,7 @@ export function renameControls(ctx: ToolContext) {
               issues: event.detail.issues ?? [],
             };
           }
-        }}></apm-pattern-editor>
+        }}></opm-pattern-editor>
     </div>
       </div>
     </details>

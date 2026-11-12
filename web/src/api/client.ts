@@ -1,7 +1,7 @@
 import { ApiError, isAbortError, parseErrorBody, parseFieldErrors } from '@/api/errors';
 
 /** Header the server requires on every state-changing request (CSRF guard). */
-export const CSRF_HEADER = 'x-apm-request';
+export const CSRF_HEADER = 'x-opm-request';
 
 export type QueryScalar = string | number | boolean | null | undefined;
 export type Query = Record<string, QueryScalar | readonly QueryScalar[]>;

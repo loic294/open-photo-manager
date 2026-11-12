@@ -25,7 +25,7 @@ function setup() {
 
 it('writes valid match-change details and ignores malformed changes', () => {
   const { container } = setup();
-  const control = container.querySelector('apm-match-mode');
+  const control = container.querySelector('opm-match-mode');
   control?.dispatchEvent(
     new CustomEvent('match-change', {
       detail: { mode: 'name_prefix', strict: true },

@@ -235,8 +235,8 @@ describe('reindexAllAssets', () => {
     expect(dialog.buttons).toEqual(['Cancel', 'Re-index all assets']);
     expect(post).not.toHaveBeenCalled();
     // A plain question, not a warning: the work only costs time.
-    expect(document.querySelector('apm-confirm-dialog .alert')).toBeNull();
-    expect(document.querySelector('apm-confirm-dialog .btn-error')).toBeNull();
+    expect(document.querySelector('opm-confirm-dialog .alert')).toBeNull();
+    expect(document.querySelector('opm-confirm-dialog .btn-error')).toBeNull();
 
     await pressConfirm('Cancel');
     await run;
@@ -306,7 +306,7 @@ describe('while a re-index is being started', () => {
     await reindexCurrentFolders();
     await reindexAllAssets();
     expect(post).toHaveBeenCalledTimes(1);
-    expect(document.querySelector('apm-confirm-dialog')).toBeNull();
+    expect(document.querySelector('opm-confirm-dialog')).toBeNull();
 
     answer.resolve(queued);
     await first;
@@ -347,7 +347,7 @@ describe('while the event stream is down', () => {
 
       expect(post).not.toHaveBeenCalled();
       expect(messages()).toEqual([]);
-      expect(document.querySelector('apm-confirm-dialog')).toBeNull();
+      expect(document.querySelector('opm-confirm-dialog')).toBeNull();
       expect(reindexPending.value).toBeNull();
     },
   );

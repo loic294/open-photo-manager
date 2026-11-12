@@ -75,7 +75,7 @@ function validate(ctx: ReturnType<typeof context>) {
 it('is a lazy thin tool using source filters and independent comparison browsing', async () => {
   expect(checkToolConfig(renameTool)).toBeNull();
   expect(routes.find((route) => route.path === '/rename')).toMatchObject({
-    tag: 'apm-rename-page',
+    tag: 'opm-rename-page',
     label: 'Batch rename',
     icon: 'pencil',
     menu: 'tools',
@@ -140,7 +140,7 @@ it('offers no replace policy and renders truthful no-op and field issues', () =>
   const host = document.createElement('div');
   render(renameTool.controls?.(ctx), host);
   expect(host.textContent).toContain('No names would change');
-  const select = host.querySelector('apm-select');
+  const select = host.querySelector('opm-select');
   expect(select?.options.some((option) => option.value === 'replace')).toBe(false);
   validation.value = {
     key: previewKey(renameParams(ctx)),
@@ -158,9 +158,9 @@ it('offers no replace policy and renders truthful no-op and field issues', () =>
   };
   render(renameTool.controls?.(ctx), host);
   expect(host.textContent).toContain('Bad matcher');
-  expect(host.querySelector('apm-pattern-editor')?.requestKey).toBe(previewKey(renameParams(ctx)));
+  expect(host.querySelector('opm-pattern-editor')?.requestKey).toBe(previewKey(renameParams(ctx)));
   const rulesPanel = host.querySelector(':scope > details.dropdown');
-  expect(rulesPanel?.querySelector(':scope > .dropdown-content apm-pattern-editor')).not.toBeNull();
+  expect(rulesPanel?.querySelector(':scope > .dropdown-content opm-pattern-editor')).not.toBeNull();
   expect(rulesPanel?.hasAttribute('open')).toBe(false);
 });
 

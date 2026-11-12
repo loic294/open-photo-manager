@@ -4,7 +4,7 @@ import { expect, test } from '../../src/immich-readonly-test';
 
 // Reconnecting returns to the application root, closing the previous SSE stream.
 test.use({
-  appOptions: { env: { APM_IMMICH_QUIET_SECS: '1' } },
+  appOptions: { env: { OPM_IMMICH_QUIET_SECS: '1' } },
   allowedErrors: [/^requestfailed: .*\/api\/events net::ERR_ABORTED$/],
 });
 

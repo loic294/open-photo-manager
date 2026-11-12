@@ -34,12 +34,12 @@ test('empty-trash confirmation names the visible scope; cancellation preserves e
     (await taskAction(app, page, '/api/trash/empty', () => confirmDialog.confirm('Empty trash')))
       .state,
   ).toBe('done');
-  await expect(page.locator('apm-trash-items')).toContainText('The trash is empty');
+  await expect(page.locator('opm-trash-items')).toContainText('The trash is empty');
   expect((await trashList(app)).summary.items).toBe(0);
   expect(await trashEntries(app)).toEqual([]);
   const after = await snapshotTree(app.volumesDir, { hash: true });
-  expect(after.filter((entry) => !entry.path.includes('/.apm-trash'))).toEqual(
-    before.filter((entry) => !entry.path.includes('/.apm-trash')),
+  expect(after.filter((entry) => !entry.path.includes('/.opm-trash'))).toEqual(
+    before.filter((entry) => !entry.path.includes('/.opm-trash')),
   );
 });
 
@@ -135,7 +135,7 @@ test('volume-filtered empty cannot destroy another volume; trash is hidden from 
   ]) {
     await shell.navigate(route);
     await expect(page.getByRole('button', { name: /delete permanently/i })).toHaveCount(0);
-    await expect(page.getByText('.apm-trash', { exact: true })).toHaveCount(0);
+    await expect(page.getByText('.opm-trash', { exact: true })).toHaveCount(0);
   }
   await shell.navigate('Browse');
   if (await source.breadcrumbs().getByRole('button', { name: 'Volumes', exact: true }).count())
@@ -144,7 +144,7 @@ test('volume-filtered empty cannot destroy another volume; trash is hidden from 
     await comparison.breadcrumbs().getByRole('button', { name: 'Volumes', exact: true }).click();
   await source.openFolder('archive');
   await comparison.openFolder('photos');
-  await expect(source.folder('.apm-trash')).toHaveCount(0);
+  await expect(source.folder('.opm-trash')).toHaveCount(0);
   const volumes = await app.api.volumes();
   for (const volume of volumes) {
     const folders = await app.api.request<{ folders: { name: string }[] }>(
@@ -157,6 +157,6 @@ test('volume-filtered empty cannot destroy another volume; trash is hidden from 
         plan: null,
       },
     );
-    expect(folders.folders.some((folder) => folder.name === '.apm-trash')).toBe(false);
+    expect(folders.folders.some((folder) => folder.name === '.opm-trash')).toBe(false);
   }
 });

@@ -26,7 +26,7 @@ test('cold startup responds while indexing and leaves the browser usable @slow',
   await page.addInitScript(() => {
     const history: string[] = [];
     const observer = new MutationObserver(() => {
-      const label = document.querySelector('apm-task-indicator')?.textContent ?? '';
+      const label = document.querySelector('opm-task-indicator')?.textContent ?? '';
       if (label.includes('Indexing:') && history.at(-1) !== label) history.push(label);
       if (document.documentElement)
         document.documentElement.dataset.indexHistory = JSON.stringify(history);

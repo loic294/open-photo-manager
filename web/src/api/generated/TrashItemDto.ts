@@ -26,7 +26,7 @@ size: number,
  */
 reason: string | null, 
 /**
- * The folder below `.apm-trash/` that holds the item: one deletion.
+ * The folder below `.opm-trash/` that holds the item: one deletion.
  */
 batch: string, 
 /**

@@ -6,7 +6,7 @@
 set -euo pipefail
 
 MAIN="$(cd "$(dirname "$0")/.." && pwd)"
-WT_ROOT="${APM_WT_ROOT:-${MAIN}-wt}"
+WT_ROOT="${OPM_WT_ROOT:-${MAIN}-wt}"
 mkdir -p "$WT_ROOT"
 
 # The clone below must carry an install that matches main's lockfile (cheap when it already does).

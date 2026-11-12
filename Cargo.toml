@@ -1,5 +1,5 @@
 [workspace]
-members = ["crates/apm-core", "crates/apm-server"]
+members = ["crates/opm-core", "crates/opm-server"]
 resolver = "3"
 
 [workspace.package]
@@ -12,7 +12,7 @@ version = "0.1.0"
 # One dependency per line, alphabetical. Crates use `name.workspace = true`.
 [workspace.dependencies]
 anyhow = "1.0.104"
-apm-core = { path = "crates/apm-core" }
+opm-core = { path = "crates/opm-core" }
 async-trait = "0.1.92"
 axum = { version = "0.8.9", features = ["macros"] }
 base64 = "0.23.1"

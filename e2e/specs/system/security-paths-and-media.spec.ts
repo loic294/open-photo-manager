@@ -38,7 +38,7 @@ test('static traversal and missing assets are plain 404; app routes serve only t
     expect(response.status, path).toBe(200);
     expect(response.headers['content-type']).toContain('text/html');
     expect(response.headers['cache-control']).toBe('no-cache');
-    expect(response.text).toContain('<apm-app');
+    expect(response.text).toContain('<opm-app');
   }
 });
 
@@ -57,7 +57,7 @@ test('unsafe API paths reject traversal, absolute and NUL without touching any v
       method: 'POST',
       headers: {
         Host: host,
-        'x-apm-request': '1',
+        'x-opm-request': '1',
         Origin: app.url,
         'Content-Type': 'application/json',
       },

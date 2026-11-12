@@ -13,7 +13,7 @@ async function openDuplicateConfirmation(
   );
   await page.goto(new URL('/duplicates?src=photos/dupes/m1&cmp=archive/m1', sharedApp.url).href);
   await plan;
-  await expect(page.locator('apm-pane [data-pane-body][aria-busy="true"]')).toHaveCount(0);
+  await expect(page.locator('opm-pane [data-pane-body][aria-busy="true"]')).toHaveCount(0);
   await duplicatesPage.actionButton().click();
 }
 
@@ -27,7 +27,7 @@ test('confirmation content is opaque on its first visible frame', async ({
   await expect(confirmDialog.dialog()).toBeVisible();
   await confirmDialog.cancel();
   await expect(confirmDialog.dialog()).not.toBeVisible();
-  const nativeDialog = page.locator('apm-confirm-dialog dialog.modal');
+  const nativeDialog = page.locator('opm-confirm-dialog dialog.modal');
   await nativeDialog.evaluate((dialog) => {
     const element = dialog as HTMLDialogElement;
     const box = element.querySelector<HTMLElement>('.modal-box');
@@ -84,7 +84,7 @@ test('confirmation warning has evaluated contrast and its backdrop still dismiss
   const messageNodes = (rules: typeof contrast.passes) =>
     rules
       .flatMap((rule) => rule.nodes)
-      .filter((node) => node.target.includes('#apm-confirm-message'));
+      .filter((node) => node.target.includes('#opm-confirm-message'));
   expect(messageNodes(contrast.incomplete)).toEqual([]);
   expect(messageNodes(contrast.violations)).toEqual([]);
   expect(messageNodes(contrast.passes)).toHaveLength(1);

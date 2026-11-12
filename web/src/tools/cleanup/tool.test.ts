@@ -12,13 +12,13 @@ import { mount } from '@/test/helpers';
 import { makeTask } from '@/test/task-fixtures';
 import { FakePlan } from '@/test/tool-config';
 import { cleanupConfirmation, cleanupTool } from '@/tools/cleanup/tool';
-import '@/tools/cleanup/apm-cleanup-page';
+import '@/tools/cleanup/opm-cleanup-page';
 import { actionReason } from '@/tools/framework/tool-actions';
 import type { ToolContext } from '@/tools/framework/tool-context';
 import { createToolContext } from '@/tools/framework/tool-context';
 
 vi.mock('@/components/confirm-dialog', () => ({ confirmDialog: vi.fn(async () => true) }));
-vi.mock('@/components/apm-viewer', () => ({ openViewer: vi.fn() }));
+vi.mock('@/components/opm-viewer', () => ({ openViewer: vi.fn() }));
 vi.mock('@/tools/framework/plan-binding', async (original) => {
   const actual = await original<typeof import('@/tools/framework/plan-binding')>();
   return { ...actual, createPlanBinding: () => binding };
@@ -53,7 +53,7 @@ beforeEach(async () => {
 });
 
 afterEach(() => {
-  for (const page of document.querySelectorAll('apm-cleanup-page')) page.remove();
+  for (const page of document.querySelectorAll('opm-cleanup-page')) page.remove();
   for (const stop of stops.splice(0)) stop();
   events.stop();
   resetToolStateForTests();
@@ -130,9 +130,9 @@ describe('cleanup config', () => {
   });
 
   it('renders the shared panes, one toggle, zero state and build errors with Retry', async () => {
-    const page = await mount('apm-cleanup-page');
+    const page = await mount('opm-cleanup-page');
     await settle(page);
-    expect(page.querySelectorAll('apm-pane')).toHaveLength(2);
+    expect(page.querySelectorAll('opm-pane')).toHaveLength(2);
     const toggle = page.querySelector<HTMLInputElement>('input.toggle');
     expect(toggle?.checked).toBe(false);
     if (!toggle) throw new Error('missing cleanup toggle');

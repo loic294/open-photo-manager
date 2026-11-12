@@ -15,7 +15,7 @@ interface BackedImmich {
   expectRemovedFiles(paths: readonly string[]): void;
 }
 
-/** A private APM, upstream PostgreSQL schema, and fixture-mounted shared Immich mock. */
+/** A private OPM, upstream PostgreSQL schema, and fixture-mounted shared Immich mock. */
 export const test = base.extend<{ backedImmich: BackedImmich }>({
   backedImmich: [
     // biome-ignore lint/correctness/noEmptyPattern: Playwright requires destructured fixture dependencies.
@@ -43,8 +43,8 @@ export const test = base.extend<{ backedImmich: BackedImmich }>({
       try {
         const runningApp = await AppInstance.start({
           env: {
-            APM_IMMICH_DATABASE_URL_FILE: database.secretFile,
-            APM_IMMICH_QUIET_SECS: '1',
+            OPM_IMMICH_DATABASE_URL_FILE: database.secretFile,
+            OPM_IMMICH_QUIET_SECS: '1',
           },
         });
         app = runningApp;

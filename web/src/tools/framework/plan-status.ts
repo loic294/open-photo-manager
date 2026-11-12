@@ -1,6 +1,6 @@
 import { html, nothing, type TemplateResult } from 'lit';
-import '@/components/apm-icon';
-import { openPlanResult } from '@/components/apm-plan-result';
+import '@/components/opm-icon';
+import { openPlanResult } from '@/components/opm-plan-result';
 import { dismissLastRun, lastRun } from '@/stores/plan-runs';
 import type { ToolContext } from '@/tools/framework/tool-context';
 import { formatCount } from '@/util/format-count';
@@ -57,7 +57,7 @@ function renderError(ctx: ToolContext) {
   if (ctx.plan.status !== 'error') return nothing;
   return html`
     <div role="alert" class="alert alert-error min-w-0 py-1 text-sm">
-      <apm-icon name="circle-alert" size="sm"></apm-icon>
+      <opm-icon name="circle-alert" size="sm"></opm-icon>
       <span class="min-w-0 break-words">${ctx.plan.error ?? 'The plan could not be built.'}</span>
       <button type="button" class="btn btn-xs" @click=${() => ctx.plan.retry()}>Retry</button>
     </div>
@@ -70,7 +70,7 @@ function renderWarnings(ctx: ToolContext) {
   return html`
     <div class="dropdown dropdown-end" @keydown=${closeOnEscape}>
       <div tabindex="0" role="button" class="btn btn-ghost btn-xs gap-1 text-base-content">
-        <apm-icon name="triangle-alert" size="sm" class="text-warning"></apm-icon>
+        <opm-icon name="triangle-alert" size="sm" class="text-warning"></opm-icon>
         <span>${warnings.length === 1 ? '1 warning' : `${warnings.length} warnings`}</span>
       </div>
       <ul
@@ -109,7 +109,7 @@ export function renderPlanStatus(ctx: ToolContext): TemplateResult {
           </button>
           <button type="button" class="btn btn-ghost btn-xs btn-circle"
             aria-label="Dismiss last run" @click=${() => dismissLastRun(ctx.tool)}>
-            <apm-icon name="x" size="xs"></apm-icon>
+            <opm-icon name="x" size="xs"></opm-icon>
           </button>
         </div>`
           : nothing

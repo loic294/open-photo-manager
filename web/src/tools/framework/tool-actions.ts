@@ -1,9 +1,9 @@
 import { type Signal, signal } from '@preact/signals-core';
 import { html, nothing, type TemplateResult } from 'lit';
 import { errorMessage, isAbortError } from '@/api/errors';
-import '@/components/apm-icon';
-import '@/components/apm-split-button';
-import type { SplitActionEvent, SplitOption } from '@/components/apm-split-button';
+import '@/components/opm-icon';
+import '@/components/opm-split-button';
+import type { SplitActionEvent, SplitOption } from '@/components/opm-split-button';
 import { toast } from '@/components/toast';
 import { lastActionOf } from '@/stores/prefs';
 import { checkToolActions, type ToolAction, type ToolActions } from '@/tools/framework/tool-config';
@@ -120,7 +120,7 @@ function renderSingle(
         busy
           ? html`<span class="loading loading-spinner" aria-hidden="true"></span>`
           : action.icon
-            ? html`<apm-icon name=${action.icon} size="lg"></apm-icon>`
+            ? html`<opm-icon name=${action.icon} size="lg"></opm-icon>`
             : nothing
       }
       <span>${action.label}</span>
@@ -169,20 +169,20 @@ function renderSplit(
   const hintId = `${ctx.tool}-action-hint`;
   const tip = shownReason(ctx, actions, reasons);
   const split = html`
-    <apm-split-button
+    <opm-split-button
       persist-key=${ctx.tool}
       default-id=${actions.defaultId}
       .options=${options}
       .count=${count}
       .busy=${busy}
       @split-action=${run}
-    ></apm-split-button>
+    ></opm-split-button>
   `;
   return renderTip(tip, hintId, split);
 }
 
 /**
- * The template for `<apm-bottom-bar .actions>`, `undefined` when the tool has no actions (or the
+ * The template for `<opm-bottom-bar .actions>`, `undefined` when the tool has no actions (or the
  * actions are misconfigured: `checkToolActions` logs it once and nothing is rendered). Call it in
  * the view's render: what it reads from signals re-renders the view.
  */

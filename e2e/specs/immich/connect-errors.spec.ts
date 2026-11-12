@@ -4,7 +4,7 @@ import { expectNoSeriousA11yViolations } from '../../src/a11y';
 import { expect, test } from '../../src/immich-readonly-test';
 
 test.use({
-  appOptions: { env: { APM_IMMICH_QUIET_SECS: '1' } },
+  appOptions: { env: { OPM_IMMICH_QUIET_SECS: '1' } },
   allowedErrors: [
     /^(API 400: http:\/\/127\.0\.0\.1:\d+\/api\/immich\/connect|console\.error: Failed to load resource: the server responded with a status of 400 \(Bad Request\))$/,
   ],
@@ -55,7 +55,7 @@ test('a wrong password preserves the address and email without retrying the logi
   await expect(
     page.getByText('Immich refused the email or password.', { exact: false }),
   ).toBeVisible();
-  await expectNoSeriousA11yViolations(page, { include: ['apm-settings-immich'] });
+  await expectNoSeriousA11yViolations(page, { include: ['opm-settings-immich'] });
   await expect(settingsPage.field('Server URL')).toHaveValue(mock.url);
   await expect(settingsPage.field('Email')).toHaveValue(testUsers.admin.email);
   const attempts = mock.state
@@ -68,7 +68,7 @@ test('a wrong password preserves the address and email without retrying the logi
   await settingsPage.fill('Password', testUsers.admin.password);
   await page.getByRole('button', { name: 'Connect', exact: true }).click();
   await expect(page.getByText('Full mode:', { exact: false })).toBeVisible();
-  await expectNoSeriousA11yViolations(page, { include: ['apm-settings-immich'] });
+  await expectNoSeriousA11yViolations(page, { include: ['opm-settings-immich'] });
   const after = mock.state.requests().entries.filter((entry) => entry.path === '/api/auth/login');
   expect(after.map(({ status }) => status)).toEqual([401, 201]);
 });

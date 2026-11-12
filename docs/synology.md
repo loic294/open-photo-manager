@@ -41,8 +41,8 @@ versions; all DSM UI procedures below are not verified on a DSM device.
    Create a new app folder and assign just that folder to your chosen user:
 
    ```sh
-   sudo mkdir -p /volume1/docker/apm/data
-   sudo chown UID:GID /volume1/docker/apm/data
+   sudo mkdir -p /volume1/docker/opm/data
+   sudo chown UID:GID /volume1/docker/opm/data
    ```
 
    Replace `UID:GID` with the numbers from `id`; change `/volume1` if your local storage differs.
@@ -54,7 +54,7 @@ versions; all DSM UI procedures below are not verified on a DSM device.
    Start with a disposable library or read-only archive while checking the setup.
 
 3. Edit the [Compose example](../docker/compose.yml): `user`, the left-hand host paths, published port,
-   `TZ` and `APM_ALLOWED_HOSTS`. Each share mounts at `/volumes/NAME`; its final component is the
+   `TZ` and `OPM_ALLOWED_HOSTS`. Each share mounts at `/volumes/NAME`; its final component is the
    volume name shown in the app. Keep the hardening options.
    A bind mount for `/data` is convenient for NAS backups and inspection, not mandatory:
    a Docker named volume also works when its contents have the selected numeric ownership.
@@ -87,7 +87,7 @@ versions; all DSM UI procedures below are not verified on a DSM device.
 
    ```sh
    docker compose ps
-   docker compose logs --tail=100 apm
+   docker compose logs --tail=100 opm
    ```
 
    Use the same `sudo` prefix, if needed, as for `docker compose pull`. Follow the
@@ -113,7 +113,7 @@ versions; all DSM UI procedures below are not verified on a DSM device.
 
 3. Understand exclusions before looking for missing files. Defaults skip `@eaDir`, `#recycle`,
    `#snapshot`, `.DS_Store`, `Thumbs.db`, `desktop.ini` and names starting `._`.
-   `.apm-trash` and files ending `.apm-part` are always excluded.
+   `.opm-trash` and files ending `.opm-part` are always excluded.
    Not every hidden file is ignored. The scanner does not traverse symlinks.
    The app does not index Synology thumbnail/recycle/snapshot folders; `#recycle` and `#snapshot`
    are protected from file-operation cleanup, not treated as expendable junk.
@@ -123,7 +123,7 @@ versions; all DSM UI procedures below are not verified on a DSM device.
 
 ## Names and dates
 
-1. Set `APM_ALLOWED_HOSTS` to the names used by your browser, without `http://` or path components.
+1. Set `OPM_ALLOWED_HOSTS` to the names used by your browser, without `http://` or path components.
    `localhost` and IP literals are always accepted. Ports may be included; see the
    [configuration reference](../docker/README.md#configuration).
    If a DSM reverse proxy exposes `photos.example.com`, allow that hostname and forward the
@@ -144,11 +144,11 @@ versions; all DSM UI procedures below are not verified on a DSM device.
 
 ## Optional Immich path updates
 
-1. If APM should update Immich's existing asset when moving a tracked file within a mapped library,
+1. If OPM should update Immich's existing asset when moving a tracked file within a mapped library,
    follow [Immich direct database access](../docker/README.md#immich-direct-database-access).
-   The optional `APM_IMMICH_DATABASE_URL_FILE` setting points to a read-only secret file; it is
+   The optional `OPM_IMMICH_DATABASE_URL_FILE` setting points to a read-only secret file; it is
    not entered in **Settings**. A DSM-style host path such as
-   `/volume1/docker/apm/secrets/immich-database-url` is an example, not verified on a DSM device.
+   `/volume1/docker/opm/secrets/immich-database-url` is an example, not verified on a DSM device.
 
    You should see: **Settings** > **Immich** reports database readiness without showing the secret.
 
@@ -186,14 +186,14 @@ versions; all DSM UI procedures below are not verified on a DSM device.
 ## Backups, updates and removal
 
 1. Back up the whole `/data` mount while the app is stopped, plus your photo shares and Compose file.
-   `/data/apm.db` contains more than an index: settings, Immich connection/mappings and file/trash
+   `/data/opm.db` contains more than an index: settings, Immich connection/mappings and file/trash
    journals are not disposable. Keep `/data/immich.key` with the database: without it, the encrypted
    API key cannot be recovered after restart. The index and thumbnail cache can be regenerated;
    that does not make the entire database safe to discard. `/data/tmp` is scratch, cleared at startup.
    See [trash recovery](usage.md#trash-and-recovery) before deleting any state.
 
    You should see: a backup containing database and encryption key from the same stopped state,
-   and a share backup that includes `.apm-trash` if you need deleted-file recovery.
+   and a share backup that includes `.opm-trash` if you need deleted-file recovery.
    Hyper Backup is an option for your own backup policy, not a recovery mechanism tested here.
 
 2. Follow [Update and tags](../README.md#update-and-tags) after taking that backup.
@@ -207,7 +207,7 @@ versions; all DSM UI procedures below are not verified on a DSM device.
 
 3. Before removing the app, restore anything you want from **Trash** and keep your backups.
    Stopping/removing a container does not remove bind-mounted shares or app storage.
-   Per-volume `.apm-trash` directories stay behind. Removing a named data volume destroys the app's
+   Per-volume `.opm-trash` directories stay behind. Removing a named data volume destroys the app's
    state; do not do that as routine container cleanup.
 
    You should see: original shares and any remaining trash still on the NAS after container removal.

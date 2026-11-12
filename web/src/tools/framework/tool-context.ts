@@ -4,7 +4,7 @@ import type { BrowseRequest } from '@/api/generated/BrowseRequest';
 import type { Filter } from '@/api/generated/Filter';
 import type { FooterCounts } from '@/api/generated/FooterCounts';
 import type { Scope } from '@/api/generated/Scope';
-import type { ApmPane } from '@/components/apm-pane';
+import type { OpmPane } from '@/components/opm-pane';
 import { filterFor, scopeFor } from '@/stores/filters';
 import { locations, type PaneId, type PaneLocation, type ToolId } from '@/stores/nav';
 import { clearAllSelections, type PaneSelection, selection } from '@/stores/selection';
@@ -16,7 +16,7 @@ import { EMPTY_FILTER, type FilterScope } from '@/util/filter';
 
 /**
  * What a tool's callbacks (`controls`, `actions`, `setup`, `plan.params`, an action's `run`) get:
- * one object per connected `apm-tool-view`, the tool's window on everything it works with.
+ * one object per connected `opm-tool-view`, the tool's window on everything it works with.
  *
  * The getters read signals, so reading them in a `render()` (the view's, or a callback that runs
  * inside it) or in an `effect` subscribes the reader: it runs again when the answer changes.
@@ -146,7 +146,7 @@ export class ToolContext {
 
   /** Asks both panes to fetch their lists again (what is shown stays until the answer). */
   refresh(): void {
-    for (const pane of this.host.querySelectorAll<ApmPane>('apm-pane')) pane.refresh();
+    for (const pane of this.host.querySelectorAll<OpmPane>('opm-pane')) pane.refresh();
   }
 
   clearSelections(): void {

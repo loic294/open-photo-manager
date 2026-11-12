@@ -33,7 +33,7 @@ function stubFetch(status: number, body: unknown) {
 }
 
 function searchOf(url: unknown): Record<string, string> {
-  return Object.fromEntries(new URL(String(url), 'http://apm.test').searchParams);
+  return Object.fromEntries(new URL(String(url), 'http://opm.test').searchParams);
 }
 
 afterEach(() => {

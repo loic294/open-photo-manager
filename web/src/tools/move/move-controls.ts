@@ -1,11 +1,11 @@
 import { html, nothing } from 'lit';
 import { errorMessage } from '@/api/errors';
-import type { MatchChangeEvent } from '@/components/apm-match-mode';
-import '@/components/apm-match-mode';
-import type { PatternChangeEvent } from '@/components/apm-pattern-editor';
-import '@/components/apm-pattern-editor';
-import type { SelectChangeEvent } from '@/components/apm-select';
-import '@/components/apm-select';
+import type { MatchChangeEvent } from '@/components/opm-match-mode';
+import '@/components/opm-match-mode';
+import type { PatternChangeEvent } from '@/components/opm-pattern-editor';
+import '@/components/opm-pattern-editor';
+import type { SelectChangeEvent } from '@/components/opm-select';
+import '@/components/opm-select';
 import { toast } from '@/components/toast';
 import { loadSettings, settings } from '@/stores/settings';
 import { renderPendingNotice } from '@/tools/framework/plan-notices';
@@ -39,7 +39,7 @@ export function ensureSettings(): undefined {
 
 export function renderConflictPolicy(rules: RuleState) {
   const doc = settings.value;
-  return html`<apm-select label="If a file with the same name exists" show-label
+  return html`<opm-select label="If a file with the same name exists" show-label
     .value=${rules.policy.value}
     .options=${[
       {
@@ -50,7 +50,7 @@ export function renderConflictPolicy(rules: RuleState) {
     ]}
     @select-change=${(event: SelectChangeEvent) => {
       if (isRulePolicy(event.detail.value)) rules.policy.value = event.detail.value;
-    }}></apm-select>`;
+    }}></opm-select>`;
 }
 
 export function renderPatternSection(
@@ -60,13 +60,13 @@ export function renderPatternSection(
 ) {
   const scope = ctx.scope('source');
   const destination = formatLocation(ctx.base('comparison'));
-  const editor = html`<apm-pattern-editor .value=${rules.pattern.value}
+  const editor = html`<opm-pattern-editor .value=${rules.pattern.value}
     .source=${scope ? { scope, filter: ctx.filter('source') } : null}
     .basePrefix=${destination ? `${destination}/` : null} .limit=${options.limit}
     @pattern-change=${(event: PatternChangeEvent) => {
       rules.pattern.value = event.detail.value;
       rules.patternStatus.value = event.detail.status;
-    }}></apm-pattern-editor>`;
+    }}></opm-pattern-editor>`;
   if (!options.collapsible) return html`<div class="basis-full min-w-0">${editor}</div>`;
   return html`<details class="collapse collapse-arrow overflow-visible basis-full min-w-0 bg-base-200 rounded-box"
     .open=${patternDisclosure.get(rules) ?? (rules.pattern.value === '' || rules.patternStatus.value === 'invalid')}>
@@ -140,25 +140,25 @@ export function destinationInsideSource(ctx: ToolContext): boolean {
 
 export function moveControls(ctx: ToolContext) {
   return html`
-    <apm-select label="Move type" show-label .value=${moveType.value}
+    <opm-select label="Move type" show-label .value=${moveType.value}
       .options=${Object.entries(MOVE_TYPES).map(([value, entry]) => ({ value, ...entry }))}
       @select-change=${(event: SelectChangeEvent) => {
         if (isMoveType(event.detail.value)) {
           patternDisclosure.delete(moveRules);
           moveType.value = event.detail.value;
         }
-      }}></apm-select>
+      }}></opm-select>
     ${renderConflictPolicy(moveRules)}
     ${
       moveType.value === 'keep_destination'
-        ? html`<apm-match-mode
+        ? html`<opm-match-mode
       .mode=${matchMode.value} .strict=${strictPrefix.value}
       @match-change=${(event: MatchChangeEvent) => {
         const detail = event.detail;
         if (!detail || !isMatchMode(detail.mode) || typeof detail.strict !== 'boolean') return;
         matchMode.value = detail.mode;
         strictPrefix.value = detail.strict;
-      }}></apm-match-mode><span class="text-xs text-base-content/70">Files without a match go to the destination folder.</span>`
+      }}></opm-match-mode><span class="text-xs text-base-content/70">Files without a match go to the destination folder.</span>`
         : nothing
     }
     ${

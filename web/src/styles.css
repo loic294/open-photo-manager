@@ -19,19 +19,19 @@
 }
 
 /* Keep pattern-editor actions readable when the theme changes. */
-:where(apm-pattern-editor .btn-ghost) {
+:where(opm-pattern-editor .btn-ghost) {
   transition-property: box-shadow, transform;
 }
 
 /* Preserve DaisyUI motion and dimming without fading readable modal content. */
-:where(apm-modal dialog.modal) {
+:where(opm-modal dialog.modal) {
   transition:
     overlay 0.3s allow-discrete,
     visibility 0.3s allow-discrete,
     background-color 0.3s ease-out;
 }
 
-:where(apm-modal .modal-box) {
+:where(opm-modal .modal-box) {
   transition:
     translate 0.3s ease-out,
     scale 0.3s ease-out,

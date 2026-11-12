@@ -44,7 +44,7 @@ test('duplicate action choice survives reload and browser context restart', asyn
     const restartedPage = await restartedContext.newPage();
     await restartedPage.goto(url.href);
     await expect(
-      restartedPage.locator('apm-bottom-bar apm-split-button button.btn-lg').first(),
+      restartedPage.locator('opm-bottom-bar opm-split-button button.btn-lg').first(),
     ).toContainText('Delete source items');
   } finally {
     await restartedContext.close();
@@ -101,7 +101,7 @@ test('@smoke duplicate deletion is counted, trashed and restorable', async ({
   const changes = diffTrees(before, after);
   const removedFiles = changes.removed.filter((entry) => entry.type === 'file');
   const trashedFiles = after.filter(
-    (entry) => entry.type === 'file' && entry.path.includes('/.apm-trash/'),
+    (entry) => entry.type === 'file' && entry.path.includes('/.opm-trash/'),
   );
   expect(removedFiles.length).toBeGreaterThanOrEqual(confirmedSelection.item_count);
   expect(changes.removed.filter((entry) => entry.type !== 'file')).toEqual([]);
@@ -128,7 +128,7 @@ test('@smoke duplicate deletion is counted, trashed and restorable', async ({
   await page.goto(new URL('/trash', app.url).href);
   await trashPage.tab('Deletions');
   const batchRow = page
-    .locator('apm-trash-deletions tbody tr')
+    .locator('opm-trash-deletions tbody tr')
     .filter({ hasText: 'archive' })
     .first();
   await expect(batchRow).toBeVisible();
@@ -190,7 +190,7 @@ test('duplicate deletion can target the source while preserving its comparison c
 
   const after = await snapshotTree(app.volumesDir, { hash: true });
   expect(
-    after.some((entry) => entry.path.includes('/.apm-trash/') && entry.hash === sourceFile.sha1),
+    after.some((entry) => entry.path.includes('/.opm-trash/') && entry.hash === sourceFile.sha1),
   ).toBe(true);
   await expect.poll(() => matchedNames(source)).toEqual([]);
   await expect

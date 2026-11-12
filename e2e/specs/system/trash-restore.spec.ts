@@ -168,7 +168,7 @@ test('250 real deletions paginate, sort with the keyboard, search and filter by 
   await page.goto(`${app.url}/trash`);
   await trashPage.tab('Items');
   await expect(trashPage.rows()).toHaveCount(50);
-  await expect(page.locator('apm-trash-items')).toContainText('of 250');
+  await expect(page.locator('opm-trash-items')).toContainText('of 250');
   for (const [label, sort] of [
     ['Name', 'name'],
     ['Original folder', 'path'],
@@ -238,7 +238,7 @@ test('250 real deletions paginate, sort with the keyboard, search and filter by 
             ),
         )
         .toEqual(nextItems.items.map((item: { name: string }) => item.name));
-      await expect(page.locator('apm-trash-items')).toContainText(`${offset + 51}`);
+      await expect(page.locator('opm-trash-items')).toContainText(`${offset + 51}`);
     }
   }
   expect(seen.size).toBe(250);
@@ -254,7 +254,7 @@ test('250 real deletions paginate, sort with the keyboard, search and filter by 
   expect((await trashList(app, `volume_id=${photos.id}`)).total).toBe(250);
   for (const theme of ['light', 'dark'] as const) {
     await shell.theme(theme);
-    await expectNoSeriousA11yViolations(page, { include: ['apm-trash-page'] });
+    await expectNoSeriousA11yViolations(page, { include: ['opm-trash-page'] });
   }
   await captureScreens(page, 'system-trash-populated');
 });

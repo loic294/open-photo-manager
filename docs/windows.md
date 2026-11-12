@@ -15,10 +15,10 @@ For Windows users running Docker Desktop with Linux containers and the WSL 2 bac
    You should see: Docker Desktop running Linux containers and able to run `docker compose` commands.
 
 2. Save the Compose example below as `compose.yml` in a new folder. Replace the sample photo path
-   with an existing Windows photo folder. Keep the named `apm-data` volume mounted at `/data`.
+   with an existing Windows photo folder. Keep the named `opm-data` volume mounted at `/data`.
    The image is public, so no registry login or token is needed.
 
-   You should see: `compose.yml` has the Windows photo folder at `/volumes/photos` and `apm-data`
+   You should see: `compose.yml` has the Windows photo folder at `/volumes/photos` and `opm-data`
    at `/data`.
 
 3. From that folder, start the app:
@@ -27,7 +27,7 @@ For Windows users running Docker Desktop with Linux containers and the WSL 2 bac
    docker compose up -d
    ```
 
-   You should see: `docker compose ps` reports the `apm` service running.
+   You should see: `docker compose ps` reports the `opm` service running.
 
 4. Check the health endpoint from PowerShell:
 
@@ -40,12 +40,12 @@ For Windows users running Docker Desktop with Linux containers and the WSL 2 bac
 
 5. Open [http://localhost:8080](http://localhost:8080).
 
-   You should see: the APM web interface. Browse a disposable test folder before organizing real
+   You should see: the OPM web interface. Browse a disposable test folder before organizing real
    photos.
 
 ## Keep app data on a local Docker volume
 
-Mount `/data` from a local Docker named volume, not from a Windows drive or a network share. APM uses
+Mount `/data` from a local Docker named volume, not from a Windows drive or a network share. OPM uses
 SQLite in WAL mode only. Startup refuses to continue when the mounted filesystem is known to be
 unsafe for WAL or when the live WAL probe fails. There is no rollback-journal fallback or degraded
 mode. See [SQLite's network-filesystem cautions](https://www.sqlite.org/useovernet.html): remote
@@ -64,7 +64,7 @@ the Synology Compose example.
 
 ```yaml
 services:
-  apm:
+  opm:
     image: ghcr.io/loic294/open-photo-manager:edge
     restart: unless-stopped
     ports:
@@ -76,13 +76,13 @@ services:
         bind:
           create_host_path: false
       - type: volume
-        source: apm-data
+        source: opm-data
         target: /data
     environment:
       # Choose the host time zone when dates fall back to file times or UTC-defined video timestamps.
       # Embedded EXIF wall-clock capture times are preserved and are not converted. See the Docker reference.
       TZ: UTC
-      APM_WATCH_MODE: auto
+      OPM_WATCH_MODE: auto
     read_only: true
     tmpfs:
       - /tmp
@@ -93,13 +93,13 @@ services:
     stop_grace_period: 20s
 
 volumes:
-  apm-data:
+  opm-data:
 ```
 
 There is deliberately no `user:` entry: Docker Desktop's Linux-container user mapping differs
 from the numeric UID/GID setup used on a NAS, and the image runs as its built-in non-root user by
 default. `localhost` and IP addresses are accepted by default; add any browser hostname to
-`APM_ALLOWED_HOSTS`. Keep the published port on a trusted LAN because the app has no user login.
+`OPM_ALLOWED_HOSTS`. Keep the published port on a trusted LAN because the app has no user login.
 `TZ` controls filesystem fallback dates and UTC-defined video dates; ordinary embedded EXIF
 wall-clock dates are not shifted to this time zone. See the
 [Docker reference's Compose time-zone comment](../docker/compose.yml) and
@@ -111,15 +111,15 @@ Windows-drive photo folders can be bind-mounted under `/volumes`, as in the exam
 Docker's [best-practices guide](https://docs.docker.com/desktop/features/wsl/best-practices/)
 recommends storing bind-mounted data in the Linux filesystem for performance; it also notes that
 Linux containers receive inotify change events when the source files are in that Linux filesystem.
-This is general Docker guidance, not a claim that APM has verified Windows-drive speed or event
+This is general Docker guidance, not a claim that OPM has verified Windows-drive speed or event
 delivery.
 
-When APM detects a case-insensitive mounted volume, **Settings** > **General** > **Volumes** shows
+When OPM detects a case-insensitive mounted volume, **Settings** > **General** > **Volumes** shows
 the **case-insensitive** badge. It can also show the detected filesystem type, **polling only**,
 **read-only** and **offline** status badges as applicable. These are probe/status details, not a
 Windows support guarantee; the app preserves each mounted filesystem's name behavior.
 
-`APM_WATCH_MODE` is `auto` by default. In `auto`, APM chooses watchers by the detected filesystem
+`OPM_WATCH_MODE` is `auto` by default. In `auto`, OPM chooses watchers by the detected filesystem
 type and polls known polling-only types; unknown types retain native watcher behavior. `watch`
 forces watchers on, while `poll` disables them globally. Neither the setting nor forced watching
 changes the full-rescan interval or guarantees that a Windows-drive mount emits usable events. Review
@@ -130,7 +130,7 @@ the watcher status and volume details in the app; the host warning codes are `vo
 
 ## Immich connectivity
 
-Immich must be reachable from the APM container. If both services are attached to a shared Docker
+Immich must be reachable from the OPM container. If both services are attached to a shared Docker
 network, use Immich's service name and container port; separate Compose projects do not share a
 network automatically. Docker Desktop documents `host.docker.internal` for reaching a service on
 the host ([networking guide](https://docs.docker.com/desktop/features/networking/)), but that route
@@ -143,7 +143,7 @@ The example's `restart: unless-stopped` asks Docker to restart the container aft
 Docker Desktop itself starts automatically at Windows sign-in, and whether that brings this service
 back as expected, have not been verified on a Windows machine.
 
-Windows containers and a native Windows build of APM are out of scope; this guide is for the Linux
+Windows containers and a native Windows build of OPM are out of scope; this guide is for the Linux
 container image only.
 
 The app probes mounted volumes for filesystem type, case sensitivity and inode reliability, but

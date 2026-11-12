@@ -54,7 +54,7 @@ test('mapping detects a scanned library, syncs it, and excludes the application 
   await page.getByRole('button', { name: 'Keep the trash out of Immich' }).click();
   await expect(page.getByText('Exclusion pattern:', { exact: false })).toBeVisible();
   const updatedLibrary = mock.state.libraries().find((item) => item.name === 'Photos');
-  expect(updatedLibrary?.exclusionPatterns).toContain('**/.apm-trash/**');
+  expect(updatedLibrary?.exclusionPatterns).toContain('**/.opm-trash/**');
 });
 
 test('a later indexed file gains the Immich badge after its library scan and sync', async ({

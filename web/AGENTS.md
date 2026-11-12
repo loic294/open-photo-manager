@@ -1,4 +1,4 @@
-# APM web: rules for coding agents
+# OPM web: rules for coding agents
 
 Lit 3 + DaisyUI 5 / Tailwind 4, Vite 8, TypeScript 7 (strict), Biome, Vitest + happy-dom.
 State is signals (`@preact/signals-core`), routing `@lit-labs/router`, big lists `@lit-labs/virtualizer`.
@@ -9,12 +9,12 @@ files (`package.json`, configs, `src/base/`) alone unless your task says so.
 ## Commands
 - `npm run dev`: Vite on :5173. Proxies `/api` to 127.0.0.1:8080 and keeps the browser's Host header
   (the backend's CSRF check compares Origin to Host). Several worktrees can run a full stack side by
-  side on their own ports: `APM_LISTEN=127.0.0.1:18080 make dev-server` and
-  `APM_API_TARGET=http://127.0.0.1:18080 npm --prefix web run dev -- --port 15173 --strictPort`
+  side on their own ports: `OPM_LISTEN=127.0.0.1:18080 make dev-server` and
+  `OPM_API_TARGET=http://127.0.0.1:18080 npm --prefix web run dev -- --port 15173 --strictPort`
   (any `localhost` port passes the Host check). Never reuse 8080/5173 from a worktree.
 - `npm run format`: Biome auto-fix (single quotes, 2 spaces, width 100, sorted imports). Run it
   before the gate; `npm run lint` only reports.
-- `npm run typecheck`, `npm test` (one file: `npx vitest run src/x/apm-y.test.ts`), `npm run build`.
+- `npm run typecheck`, `npm test` (one file: `npx vitest run src/x/opm-y.test.ts`), `npm run build`.
 - `npm run check` = typecheck + lint + test + build. It must be green before you finish.
 
 ## UI: DaisyUI first
@@ -31,7 +31,7 @@ files (`package.json`, configs, `src/base/`) alone unless your task says so.
 - Theme: `data-theme="light"` or `"dark"` on `<html>`; without it the OS preference applies.
 
 ## Components
-- Every component extends `ApmElement` (`src/base/apm-element.ts`) and renders in the LIGHT DOM, so
+- Every component extends `OpmElement` (`src/base/opm-element.ts`) and renders in the LIGHT DOM, so
   DaisyUI classes apply with no per-component CSS.
 - Light DOM caveats: no `<slot>`; `static styles`, `:host` and `::slotted` do nothing; never write
   children inside a component tag (Lit leaves them unmanaged). Compose with properties and templates.
@@ -39,37 +39,37 @@ files (`package.json`, configs, `src/base/`) alone unless your task says so.
   `@customElement`. `useDefineForClassFields` is `false` in `tsconfig.json`, which keeps field
   initialisers reactive in Vitest and in the production build. NEVER change it (a test guards it).
 - Read store signals inside `render()` to subscribe; do not copy their values into properties.
-- Naming: tag `apm-photo-card`, file `apm-photo-card.ts` (same kebab-case name), class `ApmPhotoCard`,
-  one component per file, test `apm-photo-card.test.ts` beside it.
+- Naming: tag `opm-photo-card`, file `opm-photo-card.ts` (same kebab-case name), class `OpmPhotoCard`,
+  one component per file, test `opm-photo-card.test.ts` beside it.
 - NO component barrel/index: a component side-effect-imports the components it renders.
 - Reuse before creating: search `src/components` first and extend via properties; never copy one.
 
 ```ts
 import { html } from 'lit';
-import { ApmElement } from '@/base/apm-element';
-import '@/components/apm-thumb'; // side-effect import of every component rendered below
+import { OpmElement } from '@/base/opm-element';
+import '@/components/opm-thumb'; // side-effect import of every component rendered below
 
-export class ApmPhotoCard extends ApmElement {
+export class OpmPhotoCard extends OpmElement {
   static override properties = { caption: { type: String }, selected: { type: Boolean } };
   declare caption: string | undefined; // no default: `declare`, never a bare `caption: string;`
   selected = false; // defaults are plain initialisers
 
   protected override render() {
-    return html`<div class="card bg-base-100"><apm-thumb></apm-thumb>${this.caption}</div>`;
+    return html`<div class="card bg-base-100"><opm-thumb></opm-thumb>${this.caption}</div>`;
   }
 }
 
-customElements.define('apm-photo-card', ApmPhotoCard);
+customElements.define('opm-photo-card', OpmPhotoCard);
 
 declare global {
   interface HTMLElementTagNameMap {
-    'apm-photo-card': ApmPhotoCard;
+    'opm-photo-card': OpmPhotoCard;
   }
 }
 ```
 
 ## Layout (`@/` = `src/`, also in tests)
-- `base/` ApmElement and other base classes. `app/` shell, route table, router, theme. `util/` pure
+- `base/` OpmElement and other base classes. `app/` shell, route table, router, theme. `util/` pure
   helpers. `controllers/` reusable Lit `ReactiveController`s.
 - `api/` `client.ts` (fetch wrapper), `errors.ts` (`ApiError`), `sse.ts` (EventSource wrapper),
   `generated/` (DTO types).
@@ -81,17 +81,17 @@ declare global {
 - DTOs: `import type { X } from '@/api/generated/X'`: one file per type, no barrel. Never hand-write
   a duplicate. `import type` is mandatory (`verbatimModuleSyntax`).
 - JSON is snake_case, ids are numbers, browse and facets are POST with a JSON body.
-- Every non-GET request MUST send header `x-apm-request: 1` (CSRF guard); GET and SSE are exempt.
+- Every non-GET request MUST send header `x-opm-request: 1` (CSRF guard); GET and SSE are exempt.
   Send requests through `src/api/client.ts` and streams through `src/api/sse.ts`.
 - Errors look like `{ "error": { "code": "...", "message": "..." } }`.
 
 ## Testing
-- Colocated `*.test.ts`, Vitest + happy-dom. `const el = await mount('apm-photo-card', { selected: true })`
+- Colocated `*.test.ts`, Vitest + happy-dom. `const el = await mount('opm-photo-card', { selected: true })`
   from `@/test/helpers` appends to `document.body`, awaits `updateComplete` and cleans up after each
   test. Await `child.updateComplete` yourself for nested components.
 - Query the light DOM directly (`el.querySelector('.btn')`); there is no `shadowRoot`.
 - In agent shells Vitest hides `console.log` of passing tests: use `npx vitest run --reporter=verbose`.
-- `src/base/apm-element.test.ts` is the reference for property, signal and light-DOM tests.
+- `src/base/opm-element.test.ts` is the reference for property, signal and light-DOM tests.
 
 ## Gotchas
 - Never name a property like a native `HTMLElement` member (`title`, `hidden`, `id`, `lang`, `dir`,
@@ -102,7 +102,7 @@ declare global {
   the task needs it, and commit `package-lock.json`.
 
 ## App shell and layout contract
-`index.html` holds one element, `<apm-app>` (`src/app/apm-app.ts`). It starts every app-wide service
+`index.html` holds one element, `<opm-app>` (`src/app/opm-app.ts`). It starts every app-wide service
 (theme, nav/URL sync, volumes, tasks, the index status, the re-index actions, the SSE connection, the
 router) and renders the single toast host: never start those anywhere else.
 - **The page itself never scrolls.** Chain: shell root `h-screen w-screen overflow-hidden grid-rows-1`
@@ -113,23 +113,23 @@ router) and renders the single toast host: never start those anywhere else.
   must shrink `min-h-0` (`min-w-0` sideways). Only a pane body (or its virtualizer) gets `overflow-auto`.
   One ancestor without `min-h-0` lets content outgrow the viewport and `overflow-hidden` clips it:
   check that first when a list does not scroll.
-- The shell top bar is app-level only (page heading, `<apm-task-indicator>`, theme toggle). A tool's own
+- The shell top bar is app-level only (page heading, `<opm-task-indicator>`, theme toggle). A tool's own
   controls (filters, split buttons, sort) live in the tool view, in its own bar.
 - The shell owns the only `<h1>` (the route `label`, also the document title); views start at `<h2>`.
 - A shell-level component that another feature provides gets ONE side-effect import line in the marked
-  block at the top of `apm-app.ts`; its tag can already be in the template and renders nothing until it
-  is registered. `apm-task-indicator` was added that way (see Task indicator).
+  block at the top of `opm-app.ts`; its tag can already be in the template and renders nothing until it
+  is registered. `opm-task-indicator` was added that way (see Task indicator).
 - The menu is built from the route table; the current page gets `menu-active` and
   `aria-current="page"`. Below the `lg` breakpoint it is a DaisyUI drawer (menu button, overlay,
   Escape, closes on navigation, focus returns to the menu button).
 - A DaisyUI `alert` (`role="alert"`) shows while `events.connection` is `reconnecting` or `closed`
-  (not during the first `connecting`). Right under it `<apm-index-notices>` warns about the removals the
+  (not during the first `connecting`). Right under it `<opm-index-notices>` warns about the removals the
   scanner held back (see Index controls).
 - The "Re-index" menu entries call `requestReindex('current' | 'all')` (`@/app/app-actions`), and
   `startReindex()` (`@/app/reindex`, started by the shell) is the `onReindex` handler that does the work
   (see Index controls). The entries are `disabled` (`menu-disabled` on the `li`) while a request is being
   sent and while the event stream is down; the pressed one shows a spinner instead of its icon. The
-  request is a cancelable `apm-reindex` event on `document`; with no handler (the shell is not mounted)
+  request is a cancelable `opm-reindex` event on `document`; with no handler (the shell is not mounted)
   the user sees an info toast.
 - `main.ts` loads `urlpattern-polyfill` only when the browser has no `URLPattern` (the router needs
   it), then imports the shell.
@@ -144,15 +144,15 @@ interface AppRoute {
   tag: string; // the custom element that renders the page
   load: () => Promise<unknown>; // imports the module that defines `tag`
   label: string; // menu text, page <h1> and document title
-  icon: IconName; // from the apm-icon registry
+  icon: IconName; // from the opm-icon registry
   menu?: 'tools' | 'footer'; // omit for a page without a menu entry
   props?: Readonly<Record<string, unknown>>; // assigned to the element before it connects
 }
 ```
-Every page starts as a `comingSoon(...)` line that renders `apm-route-placeholder`. Replace only YOUR line:
+Every page starts as a `comingSoon(...)` line that renders `opm-route-placeholder`. Replace only YOUR line:
 ```ts
-{ path: '/duplicates', tag: 'apm-duplicates-page', label: 'Duplicate finder', icon: 'copy',
-  load: () => import('@/tools/duplicates/apm-duplicates-page'), menu: 'tools' },
+{ path: '/duplicates', tag: 'opm-duplicates-page', label: 'Duplicate finder', icon: 'copy',
+  load: () => import('@/tools/duplicates/opm-duplicates-page'), menu: 'tools' },
 ```
 - `load()` runs on the first visit only: one chunk per page, only the shell loads at startup. A failed
   import shows an alert with a Retry button and is tried again on the next visit. The module
@@ -161,24 +161,24 @@ Every page starts as a `comingSoon(...)` line that renders `apm-route-placeholde
 - In-app links are plain anchors, `<a href=${linkTo('/trash')}>`, handled by the router (Back/Forward
   too). A link to a server resource (download, file) needs `download`, `target` or `rel="external"`,
   or the router takes it for a page. `navigate(path)` is for code: `navigate(linkTo('/move'))`.
-- A tool page (`/browse`, `/duplicates`, `/move`, `/format`, `/cleanup`) renders `<apm-tool-view
+- A tool page (`/browse`, `/duplicates`, `/move`, `/format`, `/cleanup`) renders `<opm-tool-view
   .config=${config}>` and nothing else: see Tool view.
-- Tests: mount the page itself with `mount('apm-x', props)`. Route-level tests mount the shell with
-  stub loaders: `mount('apm-app', { routes: [...] })` (see `stubRoute` in `app/apm-app.test.ts`).
+- Tests: mount the page itself with `mount('opm-x', props)`. Route-level tests mount the shell with
+  stub loaders: `mount('opm-app', { routes: [...] })` (see `stubRoute` in `app/opm-app.test.ts`).
 
 ## Stores (`src/stores/`)
 A store is one module of signals plus the functions that change them (no classes). Read `.value` in
-`render()` (ApmElement re-renders on change) or in `computed`/`effect`; `.peek()` reads without
+`render()` (OpmElement re-renders on change) or in `computed`/`effect`; `.peek()` reads without
 subscribing.
 - Values are immutable: assign a NEW object or array (`sig.value = { ...sig.value, a: 1 }`); mutating in
   place notifies nobody. State only the store may change is exported as a `ReadonlySignal` next to the
   functions that change it.
 - `persistedSignal(key, fallback, validate)` (`stores/persisted.ts`) is a `Signal` kept in
-  `localStorage['apm.v1.' + key]` as JSON. Stored data is untrusted: a value that fails `validate`
+  `localStorage['opm.v1.' + key]` as JSON. Stored data is untrusted: a value that fails `validate`
   falls back. It never throws (blocked or full storage keeps it in memory), does not write the initial
   value and syncs across tabs. Validators: `isBoolean`, `isString`, `oneOf(list)`,
   `numberBetween(min, max)`, `recordOf(keys, guard)`, `dictionaryOf(guard)`. For a breaking change of a
-  stored shape use a new key (`public/theme-init.js` reads `apm.v1.theme` too).
+  stored shape use a new key (`public/theme-init.js` reads `opm.v1.theme` too).
 - `prefs`: `theme` (`'system' | 'light' | 'dark'`), `gridSize` per pane (`setGridSize(pane, px)`, bounds
   in `GRID_SIZE`), `hideUnmatchedFolders` (hide vs grey out), `lastAction` per tool
   (`lastActionOf(tool)`, `setLastAction(tool, id)`), `sort` per pane (`SortSpec`
@@ -205,7 +205,7 @@ subscribing.
 `api.get/post/put/delete<T>(path, options?)`. `path` is the full `/api/...` path; `options` is
 `{ query, body, signal, headers }`.
 - `query` skips `null`/`undefined` and repeats array keys; `body` is sent as JSON. It resolves with the
-  parsed JSON (`undefined` for 204). Non-GET requests carry `x-apm-request: 1` automatically.
+  parsed JSON (`undefined` for 204). Non-GET requests carry `x-opm-request: 1` automatically.
 - Failures reject with `ApiError { status, code, message, fields, requestId? }` (`isApiError`). The server's
   `{ error: { code, message, fields? } }` is kept (`requestId` is the `x-request-id` header; `fields` is the
   `{ field, message }[]` of a 422 `validation_failed`, `[]` otherwise, with paths such as
@@ -239,16 +239,16 @@ One shared `events` client; the shell starts it, so never call `events.start()` 
   `events.stop()` in `afterEach` (a restarted client begins as `reconnecting`, which shows the banner).
 
 ## Shared components
-- `apm-icon`: `<apm-icon name="trash-2" size="sm">` (`xs | sm | md | lg | xl`, takes the text colour,
+- `opm-icon`: `<opm-icon name="trash-2" size="sm">` (`xs | sm | md | lg | xl`, takes the text colour,
   decorative unless you set `label`). `name` is the typed `IconName` union of the Lucide icons registered
-  in `components/apm-icon.ts`: add a named import from `lucide` and one alphabetical line there for a new
+  in `components/opm-icon.ts`: add a named import from `lucide` and one alphabetical line there for a new
   icon. An icon-only button still needs its own `aria-label`.
 - Toasts: `toast.success/info/warning/error(message, { timeout? })` from `@/components/toast` returns an
   id for `toast.dismiss(id)`. Defaults: 4 s success and info, 6 s warning, 10 s error, `timeout: 0`
   stays until dismissed. A repeated message does not stack and at most 5 show. The shell renders the ONE
-  `<apm-toast-host>`: never add another. Toasts sit below an open modal, so report a failure inside a
+  `<opm-toast-host>`: never add another. Toasts sit below an open modal, so report a failure inside a
   modal as an inline DaisyUI `alert` in the modal.
-- `apm-modal`: native `<dialog class="modal">`. Properties: `open` (reflected), `heading` (never
+- `opm-modal`: native `<dialog class="modal">`. Properties: `open` (reflected), `heading` (never
   `title`), `body` and `actions` (Lit templates or text; there are no slots), `size`
   (`sm | md | lg | xl | full`), `persistent` (no Esc/backdrop/X, so the content must offer a way out),
   `describedBy`. Methods `show()` and `close()`. Focus returns to the opener when it closes. It fires
@@ -256,41 +256,41 @@ One shared `events` client; the shell starts it, so never call `events.start()` 
   and that event can arrive after you already moved on (opened it for the next item): in `@close`, reset
   your own state and check that the event still concerns what is on show.
   ```ts
-  html`<apm-modal .open=${this.editing} heading="Rename" .body=${body} .actions=${actions}
-    @close=${() => (this.editing = false)}></apm-modal>`;
+  html`<opm-modal .open=${this.editing} heading="Rename" .body=${body} .actions=${actions}
+    @close=${() => (this.editing = false)}></opm-modal>`;
   ```
 - `confirmDialog({ title, message, confirmLabel = 'Confirm', cancelLabel = 'Cancel', danger = false })`
   (`@/components/confirm-dialog`) resolves `true` for the confirm button only; Esc, backdrop, X and
   Cancel resolve `false`. One shared dialog is mounted lazily and concurrent calls queue. Name the
   action in `confirmLabel` ("Delete 12 files") and put counts and sizes in `message`.
-- `apm-route-placeholder`: DaisyUI hero (`heading`, `message`, `icon`, `actionHref`, `actionLabel`) for
+- `opm-route-placeholder`: DaisyUI hero (`heading`, `message`, `icon`, `actionHref`, `actionLabel`) for
   pages that do not exist yet.
-- `apm-chip-input`: a labelled list of short texts edited as removable chips, with validation (see
+- `opm-chip-input`: a labelled list of short texts edited as removable chips, with validation (see
   Settings below).
-- `apm-select`: the ONE drop-down of the app. Nobody writes a raw `<select>` (see Pane and folder list
+- `opm-select`: the ONE drop-down of the app. Nobody writes a raw `<select>` (see Pane and folder list
   below).
-- New component checklist: file `apm-x.ts` with tag `apm-x` and class `ApmX`; extends `ApmElement`;
-  side-effect imports of every component it renders (`apm-icon` included); `customElements.define` and the
+- New component checklist: file `opm-x.ts` with tag `opm-x` and class `OpmX`; extends `OpmElement`;
+  side-effect imports of every component it renders (`opm-icon` included); `customElements.define` and the
   `HTMLElementTagNameMap` entry; complete Tailwind class names; an accessible name on every control; a
   colocated test using `mount`. A page also gets its route line.
 
 ## Theme
 `theme` (in `prefs`) is `'system' | 'light' | 'dark'`. `public/theme-init.js`, a classic blocking script
-in the `<head>` of `index.html`, sets `<html data-theme>` from `localStorage['apm.v1.theme']` before the
+in the `<head>` of `index.html`, sets `<html data-theme>` from `localStorage['opm.v1.theme']` before the
 first paint (no attribute for `system`: DaisyUI follows the OS). `startTheme()` (the shell calls it) keeps
-the attribute in step afterwards, also across tabs. `<apm-theme-toggle>` is a three-state DaisyUI `swap`
+the attribute in step afterwards, also across tabs. `<opm-theme-toggle>` is a three-state DaisyUI `swap`
 in the shell top bar. Change the preference (`theme.value = 'dark'`); never set `data-theme` yourself.
 
 ## Accessibility minimums
 - Every control has an accessible name: visible text, or `aria-label` on an icon-only button
-  (`<apm-icon>` is `aria-hidden`). An input needs a `<label>` (DaisyUI `label`/`fieldset`) or `aria-label`.
+  (`<opm-icon>` is `aria-hidden`). An input needs a `<label>` (DaisyUI `label`/`fieldset`) or `aria-label`.
 - Use native elements: `<button type="button">` for actions, `<a href>` for navigation, `<dialog>` for
   overlays, `<input type="checkbox|range|radio">` for toggles and sliders. Never a click handler on a
   `div`.
 - Everything works from the keyboard: Tab/Shift+Tab, Enter/Space, arrow keys in lists and menus, Escape
   closes overlays. The DOM order is the focus order: no positive `tabindex`. Keep the visible focus
   ring; never `outline-none` without a replacement.
-- An overlay moves focus in when it opens and returns it to the opener when it closes (`apm-modal` and
+- An overlay moves focus in when it opens and returns it to the opener when it closes (`opm-modal` and
   the shell drawer do).
 - Announce changes: `role="alert"` for errors and banners, `role="status"` or `aria-live="polite"` for
   progress and counts (toasts already do). Colour is never the only signal; thumbnails get `alt` text.
@@ -313,7 +313,7 @@ violation in `index.html` or `src/**`.
   `clearToasts()`, `localStorage.clear()`, `window.history.replaceState(null, '', '/')`). To test a
   store's first load use `vi.resetModules()` and a dynamic `import()` (see `prefs.test.ts`).
 - happy-dom does no layout: assert the layout contract through classes (`min-h-0`, `overflow-hidden`),
-  as `app/apm-app.test.ts` does. `app/apm-app.test.ts` is also the reference for a full shell test
+  as `app/opm-app.test.ts` does. `app/opm-app.test.ts` is also the reference for a full shell test
   (stubbed `EventSource`, stubbed `api.get`, stub route loaders).
 
 ## Selection
@@ -360,7 +360,7 @@ calls `selecting.clear()` (both also mark the pane active). The tool view calls
 Both (`@/components/`) are presentational: properties in, bubbling events out. Show a count to a user
 with `formatCount(n)` (`@/util/format-count`, digit grouping).
 
-`<apm-bottom-bar>` (host `block`) is the footer of a tool: per pane the counts, the selection and the
+`<opm-bottom-bar>` (host `block`) is the footer of a tool: per pane the counts, the selection and the
 thumbnail size, at the far right the tool's actions. It keeps no state and reads no store.
 - `source: PaneFooter`, `comparison?: PaneFooter | null` (none = no second segment) and
   `actions?: TemplateResult`, the far-right area (a property: there are no slots). Listeners inside an
@@ -376,7 +376,7 @@ thumbnail size, at the far right the tool's actions. It keeps no state and reads
   `@lg` and the badge its word "selected" from `@sm`. The counts tooltip is `tooltip-start`: the
   shell's `<main>` is `overflow-hidden`, so a centred tooltip is cut off at the left edge.
 
-`<apm-split-button>` (host `inline-flex`): the main button runs the SELECTED entry, the chevron opens a
+`<opm-split-button>` (host `inline-flex`): the main button runs the SELECTED entry, the chevron opens a
 menu upwards to select another one.
 - `options: SplitOption[]`, `SplitOption { id; label; icon?: IconName; danger?; disabled?; hint? }`
   (`danger` = red main button while selected, `hint` = tooltip on the entry), `default-id`,
@@ -385,7 +385,7 @@ menu upwards to select another one.
 - Events, bubbling, `detail` is `{ optionId }`: `split-action` comes ONLY from the main button,
   `split-select` from a menu entry, which selects and remembers it but never runs it. The actions are
   destructive, so the host owns the confirmation (`confirmDialog`) on `split-action`.
-- The chosen entry is stored in the `lastAction` pref (`localStorage['apm.v1.lastAction']`) under
+- The chosen entry is stored in the `lastAction` pref (`localStorage['opm.v1.lastAction']`) under
   `persist-key`; the typed `lastActionOf` needs a `ToolId`, so the element uses the signal. The entry
   shown is the remembered one if it is enabled, else `default-id`, else the first enabled one; a
   remembered entry that is disabled or gone is skipped, NOT forgotten. Without `persist-key` the
@@ -395,40 +395,40 @@ menu upwards to select another one.
 - `make check-web` prints "Found 2 warnings while optimizing generated CSS" (Invalid empty selector)
   since `join` is used: DaisyUI's z-index rules for a focused or hovered `join` child are dropped by
   the CSS optimiser. The focus ring and the hover still look right (checked in a built page): ignore it.
-- Tests: `mount('apm-split-button', { options })`; reset `lastAction.value = {}` and
+- Tests: `mount('opm-split-button', { options })`; reset `lastAction.value = {}` and
   `localStorage.clear()` in `afterEach`. Move a bar slider by setting `value`, then dispatch `input`.
 
 ## Settings (`src/tools/settings/`, `stores/settings.ts`)
-`/settings` is `apm-settings-page`: a title, DaisyUI `tabs-border` built from `settingsSections`
+`/settings` is `opm-settings-page`: a title, DaisyUI `tabs-border` built from `settingsSections`
 (`tools/settings/sections.ts`) and the open section below. The open id lives in `?section=<id>` (written
 with `replaceState`, so no history entry; the other query keys and the hash stay; Back/Forward are
 followed; a missing or unknown id opens the first tab). Today there is one section, `general`
-(`apm-settings-general`: three cards, "Files and sidecars", "Moving and deleting", "Indexing").
+(`opm-settings-general`: three cards, "Files and sidecars", "Moving and deleting", "Indexing").
 - **Add a section** (for example the Immich connection): append ONE entry to `settingsSections` and change
   nothing else, not the page, not `routes.ts`:
   ```ts
-  { id: 'immich', label: 'Immich', icon: 'plug', tag: 'apm-settings-immich',
-    load: () => import('@/tools/settings/apm-settings-immich') },
+  { id: 'immich', label: 'Immich', icon: 'plug', tag: 'opm-settings-immich',
+    load: () => import('@/tools/settings/opm-settings-immich') },
   ```
   The page draws the tab, imports the module the first time the tab opens (a failed import shows a Retry)
   and renders `<tag></tag>` with no properties or children. A section loads and saves its own data and
   reports its own errors. It stays in the page, hidden, while another tab is open, so edits that are not
   saved yet survive a switch of tabs: it is not disconnected, so it must not poll or hold a stream while
   `this.checkVisibility()` is false. Tests: `sections` can be injected
-  (`mount('apm-settings-page', { sections })`), see `apm-settings-page.test.ts`.
+  (`mount('opm-settings-page', { sections })`), see `opm-settings-page.test.ts`.
 - `stores/settings.ts` holds the server-wide settings document: `settings` (`ReadonlySignal<SettingsDto |
   null>`, `null` until a load or a save succeeded), `loadSettings()` (calls share one request; rejects
   with an `ApiError`) and `saveSettings(doc)` (PUTs the WHOLE document, resolves with and stores the
   document the server normalised: show that, not your draft; never run two saves at once). Other pages
   read it too, for example the trash page's `trash_retention_days`. Edit a copy, never the signal's value.
-- `apm-settings-general` is the reference for a form on the server's data: a draft copy, a dirty flag,
+- `opm-settings-general` is the reference for a form on the server's data: a draft copy, a dirty flag,
   a sticky Save/Discard bar only while dirty, a `beforeunload` guard only while dirty (the router has no
   navigation veto), fields disabled while saving, and a 422 mapped through `ApiError.fields` to the
   field or chip it names (what it cannot place goes in an alert; other failures in a toast).
 - `tools/settings/limits.ts` mirrors the server's bounds and normalisation (`SCAN_CONCURRENCY`,
   `NAME_MAX_LEN`, `normalizeExtension`, `validateJunkName`, ...) only to warn before Save. The server is
-  the authority (`crates/apm-core/src/dto/settings.rs`): when they disagree, show its message.
-- `apm-chip-input` (`@/components/apm-chip-input`): `label`, `hint`, `placeholder`, `max`, `.values`,
+  the authority (`crates/opm-core/src/dto/settings.rs`): when they disagree, show its message.
+- `opm-chip-input` (`@/components/opm-chip-input`): `label`, `hint`, `placeholder`, `max`, `.values`,
   `.normalizeEntry`, `.validateEntry`, `error`, `.errorIndexes`, `allow-spaces`, `disabled`; fires
   `values-change` (`detail.values`). It renders the whole labelled field, never mutates `values` and
   its `focus()` focuses its text box.
@@ -440,7 +440,7 @@ followed; a missing or unknown id opens the first tab). Today there is one secti
   (`remove`, `normalize`, `update`): TypeScript or the DOM will clash with it.
 
 ### Immich settings
-`apm-settings-immich` is the lazy Immich tab. Its Connection, Library mapping, Sync and Changes
+`opm-settings-immich` is the lazy Immich tab. Its Connection, Library mapping, Sync and Changes
 waiting for Immich cards use `api/immich.ts` (generated DTOs only) and the shared pure
 `describeImmichError(error)` for actionable errors, including stored sync/outbox reason codes.
 - `stores/immich.ts`: `immichStatus`, `immichStatusError`, `immichAttention` are read-only signals.
@@ -450,7 +450,7 @@ waiting for Immich cards use `api/immich.ts` (generated DTOs only) and the share
   `startImmich(): () => void`: initial load, SSE resync and a one-second debounced reload after
   finished `immich_sync`, `immich_cleanup`, `fs_move`, `fs_trash`, `fs_rmdir`, `plan_execute` or
   `trash_empty` tasks. No polling, including while Settings is hidden.
-- General and mapping forms share `apm-save-bar` (`invalid`, `saving`, `message`,
+- General and mapping forms share `opm-save-bar` (`invalid`, `saving`, `message`,
   `invalidMessage`; bubbling `save`/`discard` events) and `UnsavedGuard(host, () => dirty)`.
   Call the guard's `sync()` in `updated()`; it listens for `beforeunload` only while connected
   and dirty, and removes the listener on disconnect. Keep drafts across tab switches.
@@ -464,11 +464,11 @@ waiting for Immich cards use `api/immich.ts` (generated DTOs only) and the share
   `test/immich-fixtures.ts`. Await nested elements' `updateComplete` before querying their controls.
 
 ## File grid
-`<apm-file-grid>` (`@/components/apm-file-grid`) shows one listing as cards (`<apm-file-card>`), read
+`<opm-file-grid>` (`@/components/opm-file-grid`) shows one listing as cards (`<opm-file-card>`), read
 page by page through `PagedItems` (`@/stores/paged-items`). Both panes use it.
 ```ts
-html`<apm-file-grid .request=${request} sort=${sort} order=${order} size=${size}
-  .selectedIds=${selecting.selectedIds} .selectionActive=${selecting.active}></apm-file-grid>`;
+html`<opm-file-grid .request=${request} sort=${sort} order=${order} size=${size}
+  .selectedIds=${selecting.selectedIds} .selectionActive=${selecting.active}></opm-file-grid>`;
 ```
 - Properties: `request` (`BrowseRequest`; `undefined` shows placeholders), `sort`, `order`, `size` (card
   width in px, clamped to `GRID_SIZE` of `@/stores/prefs`: 96 to 320, step 16, default 160, and to the
@@ -509,7 +509,7 @@ html`<apm-file-grid .request=${request} sort=${sort} order=${order} size=${size}
   `cardFrameClasses` documents the border precedence. `fileItem()` (`@/test/file-item`) builds a
   `FileItem` for tests.
 
-## Task indicator (`stores/tasks.ts`, `apm-task-indicator`, `apm-task-row`)
+## Task indicator (`stores/tasks.ts`, `opm-task-indicator`, `opm-task-row`)
 Every background job (move, trash, index, plan execution, Immich) is a server task, and the shell top
 bar shows all of them in ONE place. **A tool view needs no progress UI of its own** (no bar, no spinner,
 no polling, no stream): submit the job (the request answers 202 with its `TaskDto`) and let the indicator
@@ -526,7 +526,7 @@ emit, not from the task.
   `DISMISSED_LIMIT` (200).
 - **Visibility.** Queued and running tasks always show. `done` and `cancelled` ones stay 5 s. `failed` and
   `interrupted` ones stay until dismissed (the trigger gets a red badge); the dismissed ids are kept in
-  `localStorage['apm.v1.tasks.dismissed']` (the newest 200), so a reload does not bring them back.
+  `localStorage['opm.v1.tasks.dismissed']` (the newest 200), so a reload does not bring them back.
   `GET /api/tasks` also lists history: the first list adds only a failure that ended less than 24 h ago
   and was not dismissed, never a finished task. Order: running (oldest start first), queued (by id),
   finished (newest first). A late event never moves a task back to an earlier state.
@@ -535,12 +535,12 @@ emit, not from the task.
   keeps saying "Cancelling…" without flicker: a running task stops only when its runner returns.
 - The title comes from the server and changes while a task runs: show it as text (never HTML), never cache
   it, and keep it short and specific ("Move 120 files"): it is also the label in the top bar.
-- `<apm-task-row .task=${task} .cancelling=${false} compact>` (host `block`) shows one task: kind icon,
+- `<opm-task-row .task=${task} .cancelling=${false} compact>` (host `block`) shows one task: kind icon,
   status dot, title, a bar (determinate with a total, indeterminate without, none while queued), the
   counts, speed and time left, and the error text of a failure. It reads no store and fires bubbling
   `task-cancel` and `task-dismiss` with `detail { id }`. `compact` (a narrow spot) drops the kind icon, the
   speed and the time left and tightens the spacing.
-- `<apm-task-indicator>` has no properties and no events (host `contents`) and renders NOTHING while no
+- `<opm-task-indicator>` has no properties and no events (host `contents`) and renders NOTHING while no
   task is visible, so it takes no room in the bar. Otherwise it is one button: a bar (indeterminate until
   a running task has a total; `w-16`, `md:w-28`, so it leaves room for the page heading on a phone), a
   `w-9` tabular share, the label from `md` up, a red badge with the failed count and a grey one with the
@@ -571,9 +571,9 @@ emit, not from the task.
   `vi.useFakeTimers()` after it; call `resetTasksForTests()` BEFORE `localStorage.clear()` in `beforeEach`
   and `afterEach`. happy-dom has no hover: dispatch `pointerenter` and `focusin` yourself.
 
-## Viewer (`openViewer`, `@/components/apm-viewer`)
+## Viewer (`openViewer`, `@/components/opm-viewer`)
 The photo and video modal. `openViewer(source: ViewerSource): Promise<void>` resolves when it closes. One
-`apm-viewer` (an `apm-modal size="full"`) is mounted lazily on the first call. Only the tool-view
+`opm-viewer` (an `opm-modal size="full"`) is mounted lazily on the first call. Only the tool-view
 framework calls it, once per pane, on the grid's `item-open`. Pass the pane's CURRENT request and sort so
 the viewer steps through what the grid shows, in its order:
 ```ts
@@ -594,9 +594,9 @@ this.addEventListener(ITEM_OPEN_EVENT, (event) => {
   only), Esc closes. Keys with a modifier, keys while a `video` or `audio` has the focus, and the arrows
   before the list has arrived are left alone. For `OPEN_GUARD_MS` after opening, clicks and double clicks
   anywhere in the viewer are swallowed: the grid opens it on the first click of a double click.
-- The pieces: `apm-viewer.ts` (the session: list, current file, requests, keys, focus), `viewer-chrome.ts`
+- The pieces: `opm-viewer.ts` (the session: list, current file, requests, keys, focus), `viewer-chrome.ts`
   (pure toolbar, step buttons and info panel markup over a `ChromeView` and `ChromeActions`),
-  `apm-viewer-stage.ts` (shows ONE file: `item`, `zoomed`, `failure`; non-bubbling `stage-settled`,
+  `opm-viewer-stage.ts` (shows ONE file: `item`, `zoomed`, `failure`; non-bubbling `stage-settled`,
   `stage-retry`, `zoom-toggle`; `release()`), `viewer-nav.ts` (the pure key, step and preload rules, the
   labels, `DETAIL_DEBOUNCE_MS`, `OPEN_GUARD_MS`, `PRELOAD_MAX_BYTES`), `viewer-preload.ts`
   (`ViewerPreloader`), `viewer-info.ts` (the info table).
@@ -612,8 +612,8 @@ this.addEventListener(ITEM_OPEN_EVENT, (event) => {
   link) and `fetchFileDetail(id, signal?)`. A link in the viewer needs `target` or `download`, or the router
   takes the click. `loadImage(url)` (`@/util/load-image`) loads and decodes off-screen and cancels by
   clearing `src`. `formatFileTime` (`@/util/format`) formats a mtime. `KIND_ICON` and `hasThumbnail(kind)`
-  come from `@/components/apm-file-card`.
-- `apm-modal size="full"` is a full-screen flex column with `p-3 sm:p-6`; its body wrapper is
+  come from `@/components/opm-file-card`.
+- `opm-modal size="full"` is a full-screen flex column with `p-3 sm:p-6`; its body wrapper is
   `flex min-h-0 flex-1 flex-col` with no vertical padding, so content can fill it. The other sizes are
   unchanged. The last file stays painted in the closed dialog, for its fade-out, until the next open.
 - Tests: use fake timers (the opening guard swallows clicks for 400 ms), `FakeImage` (`@/test/fake-image`,
@@ -622,18 +622,18 @@ this.addEventListener(ITEM_OPEN_EVENT, (event) => {
   the focus and the Range requests in a browser.
 
 ## Filter bar
-`<apm-filter-bar>` (`@/components/apm-filter-bar`, host `block`) is the filter row of every tool: cameras,
+`<opm-filter-bar>` (`@/components/opm-filter-bar`, host `block`) is the filter row of every tool: cameras,
 rating, flags, tags, a chip while a selection restricts the listing, "Clear filters" and the "Hide
 folders without matches" switch, plus an optional "Apply to" selector. It is CONTROLLED and reads no
 store: properties in, bubbling events out; the host stores the change and feeds it back.
 ```ts
-html`<apm-filter-bar .filter=${filterFor(tool)} .contexts=${contexts} .scope=${scope}
+html`<opm-filter-bar .filter=${filterFor(tool)} .contexts=${contexts} .scope=${scope}
   .hideUnmatched=${hideUnmatchedFolders.value} .selectionLabel=${label}
   @filter-change=${(e: FilterChangeEvent) => setFilter(tool, e.detail)}
   @scope-change=${(e: ScopeChangeEvent) => setScope(tool, e.detail)}
   @hide-unmatched-change=${(e: HideUnmatchedChangeEvent) => { hideUnmatchedFolders.value = e.detail; }}
   @selection-clear=${() => setFilter(tool, { ...filterFor(tool), selection_id: null })}
-></apm-filter-bar>`;
+></opm-filter-bar>`;
 ```
 - Properties: `filter`, `contexts` (`BrowseRequest[]`, one per pane the filter applies to; only
   `volume_id` and `dir` are read, the bar adds its own filter and no plan, and equal locations count
@@ -661,7 +661,7 @@ html`<apm-filter-bar .filter=${filterFor(tool)} .contexts=${contexts} .scope=${s
 - `stores/filters.ts`: `filterFor(tool)` (`EMPTY_FILTER` until set; read it where signals are tracked),
   `setFilter(tool, filter)` (normalises; a filter that selects the same files is a no-op),
   `resetFilters(tool?)` (also drops `selection_id`, keeps the scope), `scopeFor(tool, initial = 'both')`,
-  `setScope(tool, scope)` and the persisted signal `filterScopes` (`apm.v1.filterScope`). Filters are in
+  `setScope(tool, scope)` and the persisted signal `filterScopes` (`opm.v1.filterScope`). Filters are in
   memory only, so a reload clears them on purpose. `hideUnmatchedFolders` stays in `prefs`.
 - `@/util/filter`: `EMPTY_FILTER` (frozen), `normalizeFilter` (trims, de-duplicates by `textKey`
   keeping the first spelling, sorts, drops ratings outside 0 to 5, puts flags in a fixed order; like
@@ -676,7 +676,7 @@ html`<apm-filter-bar .filter=${filterFor(tool)} .contexts=${contexts} .scope=${s
   of its own that clips or scrolls (`overflow-hidden`, `overflow-x-auto`): the panels of the
   multi-selects are absolutely positioned dropdowns that overlay what follows the bar. The shell's
   `<main>` is fine, the panels stay inside it.
-- `apm-segmented` (`@/components/apm-segmented`): `mode` (`'single'`: a radio group, one tab stop,
+- `opm-segmented` (`@/components/opm-segmented`): `mode` (`'single'`: a radio group, one tab stop,
   arrows move and choose; `'multi'`: toggle buttons with `aria-pressed`), `options`
   (`SegmentOption { value; label; name?; icon?; title?; count?; disabled? }`: `name` is the accessible
   name when it differs from the short `label`, "3 stars" for "3"; a `count` shows as a small number and
@@ -686,7 +686,7 @@ html`<apm-filter-bar .filter=${filterFor(tool)} .contexts=${contexts} .scope=${s
   `multi`). Controlled: nothing changes until the host feeds `value` back. The host is `inline-flex
   max-w-full` and a row that does not fit scrolls sideways below `sm` (the rating strip with counts is
   wider than a phone).
-- `apm-multi-select` (`@/components/apm-multi-select`): a button that opens a searchable checklist.
+- `opm-multi-select` (`@/components/opm-multi-select`): a button that opens a searchable checklist.
   `options` (`{ value; count? }`), `selected`, `label`, `placeholder`, `icon`, `allow-custom` (an
   `Add "text"` row, and Enter adds the typed text), `loading` (a "Loading…" row; the values known stay),
   `disabled`, `max-visible` (default 100; more rows ask to type). The chosen values also show as chips
@@ -697,24 +697,24 @@ html`<apm-filter-bar .filter=${filterFor(tool)} .contexts=${contexts} .scope=${s
   from the start-aligned state on every update and on window `resize` while open, because choosing a
   value can reflow the bar and move the button) and spans the window (`max-sm:fixed max-sm:inset-x-2`)
   below `sm`.
-- Tests: `mount('apm-filter-bar', props)`, stub `api.post` for `/api/facets` and switch to
+- Tests: `mount('opm-filter-bar', props)`, stub `api.post` for `/api/facets` and switch to
   `vi.useFakeTimers()` AFTER mounting; `vi.advanceTimersByTimeAsync(250)` passes the debounce. Call
   `events.stop()` in `afterEach`: the first connection after a `stop()` also runs the resync handlers.
 
-## Pane and folder list (`apm-pane`, `apm-folder-list`, `FoldersController`, `apm-select`)
-`<apm-pane>` is the file-system pane that every tool view shows TWICE (`pane="source"` and
+## Pane and folder list (`opm-pane`, `opm-folder-list`, `FoldersController`, `opm-select`)
+`<opm-pane>` is the file-system pane that every tool view shows TWICE (`pane="source"` and
 `"comparison"`): a header (Up, breadcrumbs, heading, sort), the subfolders as a list, then the files as an
-`apm-file-grid`. It reads the per-pane stores itself (`nav.locations`, `prefs.sort`, `prefs.gridSize`,
+`opm-file-grid`. It reads the per-pane stores itself (`nav.locations`, `prefs.sort`, `prefs.gridSize`,
 `selection`) and fetches its own data, so a tool view passes only what its tool adds. Its host is
 `block h-full min-h-0 min-w-0`: give it a parent with a definite height, and keep it at least `gridSize + 16`
 px wide (a listing of more than 200 files is virtualised and renders no card in a narrower pane). ONLY
 `[data-pane-body]` scrolls.
 ```ts
-html`<apm-pane pane="comparison" heading="Comparison" .filter=${filter} .plan=${plan}
+html`<opm-pane pane="comparison" heading="Comparison" .filter=${filter} .plan=${plan}
   ?hide-unmatched=${hideUnmatchedFolders.value} show-matches
   @pane-counts=${(e: PaneCountsEvent) => (footers[e.detail.pane] = e.detail.counts)}
   @plan-stale=${(e: PlanStaleEvent) => rebuildPlan(e.detail)}
-  @item-open=${(e: ItemOpenEvent) => openIn(e)}></apm-pane>`;
+  @item-open=${(e: ItemOpenEvent) => openIn(e)}></opm-pane>`;
 ```
 - Properties: `pane`, `heading` (the header badge and the name of the region), `.filter` (`Filter`;
   `EMPTY_FILTER` from `@/util/filter` by default, pass `filterFor(tool)` only to a pane the filter applies
@@ -730,7 +730,7 @@ html`<apm-pane pane="comparison" heading="Comparison" .filter=${filter} .plan=${
   placeholders), `base-change { pane, base: PaneLocation | null }` (`null` = back to the default) and
   `item-open { id, index }` (from the selection controller).
 - **The pane never opens the viewer**: the tool view does, on `item-open`, with `event.target.closest(
-  'apm-pane')` and its read-only `browseRequest` (`null` while the volumes are unknown or the pane is
+  'opm-pane')` and its read-only `browseRequest` (`null` while the volumes are unknown or the pane is
   disabled; built by `requestFor(location, filter, plan)` in `@/api/browse`: nobody builds a
   `BrowseRequest` by hand), `sortSpec` and `itemAt(index)` (the loaded item: the viewer's `startItem`).
   `refresh()` fetches the folders, the counts and the files again (the rows stay until the answer): the
@@ -754,7 +754,7 @@ html`<apm-pane pane="comparison" heading="Comparison" .filter=${filter} .plan=${
   readable label with a red border and icon. `emptyTextFor(...)` words the grid's empty state from what
   the folder list shows: a folder that only holds subfolders is not empty, and the filters are blamed
   only while they are on.
-- `<apm-folder-list>` is presentational: `.folders`, `.hrefFor`, `hide-unmatched`, `show-matches`, `pane`,
+- `<opm-folder-list>` is presentational: `.folders`, `.hrefFor`, `hide-unmatched`, `show-matches`, `pane`,
   `loading` (skeletons for the first load only); event `folder-open { entry }` for a plain click. Rows use
   `content-visibility: auto` with the REAL row height (35px) as the intrinsic size, no virtualiser: a wrong
   intrinsic size makes the scroll height drift while scrolling. `crumbsFor(location)`,
@@ -766,7 +766,7 @@ html`<apm-pane pane="comparison" heading="Comparison" .filter=${filter} .plan=${
   `retry()` and `invalidate()`. A request for another listing starts over, a plan-only change refetches over
   the rows, a refetch never clears them. It refetches itself (debounced like `PagedItems`) after an
   `fs_change` below the folder, at once on a resync and when an `immich_sync` task ends.
-- `<apm-select>`: the ONE drop-down of the app, a light-DOM wrapper over the DaisyUI `select`; **never write
+- `<opm-select>`: the ONE drop-down of the app, a light-DOM wrapper over the DaisyUI `select`; **never write
   a raw `<select>`**. Properties: `.options` (`{ value, label, title?, disabled? }[]`), `value`, `label`
   (the accessible name: always set it), `show-label` (also shows it inside the control), `size` (`xs | sm
   | md`, default `sm`), `disabled`. Event: bubbling `select-change { value }` (the native `change` is
@@ -778,11 +778,11 @@ html`<apm-pane pane="comparison" heading="Comparison" .filter=${filter} .plan=${
   `folderEntry({ ... })` (`@/test/folder-entry`) builds a `FolderEntry`. Remove the mounted panes BEFORE
   `vi.unstubAllGlobals()` (your `afterEach` runs before the `mount` cleanup): a pane that re-renders after
   the stub is gone talks to the real network ("socket hang up"). The volumes store is a singleton that
-  never goes back to `idle`, so a test of its first load needs its own file (`apm-pane.volumes.test.ts`).
+  never goes back to `idle`, so a test of its first load needs its own file (`opm-pane.volumes.test.ts`).
   A removed pane can still have an update queued: the pane stops touching the shared stores once it is
   disconnected. Keep that.
 
-## Tool view (`apm-tool-view`, `ToolConfig`, `ToolContext`, `src/tools/framework/`)
+## Tool view (`opm-tool-view`, `ToolConfig`, `ToolContext`, `src/tools/framework/`)
 ### Batch rename
 `/rename` uses `tools/rename/` and the existing tool view, source filters, recursive scope,
 `followSource`, plan overlays and `executePlanAction`. Comparison browsing never changes rename
@@ -793,16 +793,16 @@ rename-specific validated storage keys. Smart, Skip and Rename are the only conf
 The live sample describes the first matching folder, not final conflict resolution or all folders.
 Execution requires a successful preview for the current scope/filter/rules revision.
 
-`apm-pattern-editor` accepts a stable typed `PatternPreviewAdapter` (`catalogue`, `preview`),
+`opm-pattern-editor` accepts a stable typed `PatternPreviewAdapter` (`catalogue`, `preview`),
 `rules: RenameRules | null`, and `requestKey`. Format is the default adapter; rename uses its own
 API/cache and maps generated responses to presentation rows, never to format wire DTOs.
 The editor still owns debounce, cancellation, IME, UTF-8 spans, suggestions and catalogue retry.
 `pattern-change` includes the request key and all rename issues; only name-pattern issues affect
 pattern highlights/suggestions, while the tool routes other issues to their controls.
 
-Every tool page is ONE declarative `ToolConfig` that `<apm-tool-view .config=${config}>` renders: a tool
+Every tool page is ONE declarative `ToolConfig` that `<opm-tool-view .config=${config}>` renders: a tool
 writes no layout, no event wiring and no store plumbing, and the framework never knows a tool by name.
-`tools/browse/` is the model (`tool.ts` holds the config, `apm-browse-page.ts` the page element). A tool
+`tools/browse/` is the model (`tool.ts` holds the config, `opm-browse-page.ts` the page element). A tool
 adds only its own folder `tools/<tool>/` and its route line (see Adding a page).
 ```ts
 // tools/tidy/tool.ts
@@ -833,21 +833,21 @@ export const tidyTool = defineTool({
   }),
 });
 
-// tools/tidy/apm-tidy-page.ts
-export class ApmTidyPage extends ApmElement {
+// tools/tidy/opm-tidy-page.ts
+export class OpmTidyPage extends OpmElement {
   override connectedCallback() {
     super.connectedCallback();
     this.classList.add('block', 'h-full', 'min-h-0'); // the router does it too; a test mount does not
   }
   protected override render() {
-    return html`<apm-tool-view .config=${tidyTool}></apm-tool-view>`;
+    return html`<opm-tool-view .config=${tidyTool}></opm-tool-view>`;
   }
 }
-customElements.define('apm-tidy-page', ApmTidyPage);
+customElements.define('opm-tidy-page', OpmTidyPage);
 
 // routes.ts: replace only your tool's comingSoon line
-{ path: '/cleanup', tag: 'apm-tidy-page', label: 'Tidy up', icon: 'trash-2', menu: 'tools',
-  load: () => import('@/tools/tidy/apm-tidy-page') },
+{ path: '/cleanup', tag: 'opm-tidy-page', label: 'Tidy up', icon: 'trash-2', menu: 'tools',
+  load: () => import('@/tools/tidy/opm-tidy-page') },
 ```
 - **`ToolConfig`** (`tool-config.ts`; `defineTool` checks it and throws `Tool "<id>": <problem>` when the
   module is imported, so a mistake fails the tool's own test): `id`, `title` (the tool bar's `h2`),
@@ -887,7 +887,7 @@ customElements.define('apm-tidy-page', ApmTidyPage);
   Retry (`plan.retry()`) on `error`, and an "N warnings" dropdown listing `plan.warnings`.
 - **Actions** (`tool-actions.ts`): `ToolActions { options, defaultId, count? }`, `ToolAction { id, label,
   icon?, danger?, hint?, disabled?(ctx), run(ctx) }`. One option is a `btn-lg` primary button (red when
-  `danger`), several the `apm-split-button`, which remembers the choice per tool (`lastAction`). `disabled`
+  `danger`), several the `opm-split-button`, which remembers the choice per tool (`lastAction`). `disabled`
   returns the reason (also the tooltip), `null` when the action can run. `run` owns its confirmation
   (`confirmDialog`); a rejection becomes ONE `toast.error` except an abort, which is silent; a click while
   busy is ignored. `actionReason(ctx, action)` is the one place that decides whether an action can run: the
@@ -909,7 +909,7 @@ customElements.define('apm-tidy-page', ApmTidyPage);
 - **What the view wires**, so a tool never does: the filter bar (`filter-change`, `scope-change` (the
   selector shows only for `applies: 'choice'`), `selection-clear`, `hide-unmatched-change`); the panes
   (`pane-counts`, `plan-stale`, `base-change` into `ctx.setBase`, and `item-open`, which opens the viewer on
-  THAT pane's listing through `event.target.closest('apm-pane').itemAt(index)` and `openViewer`); the bottom
+  THAT pane's listing through `event.target.closest('opm-pane').itemAt(index)` and `openViewer`); the bottom
   bar (`size-change`, `select-all`, `clear-selection`). It also installs the selection shortcuts and starts
   with both selections empty. The render is `keyed` by the context: another tool or a reconnection gets
   new panes and a new bar.
@@ -921,17 +921,17 @@ customElements.define('apm-tidy-page', ApmTidyPage);
   `controls` (wrapping), then the summary with the plan status at the right end of the SAME row. That row
   keeps its height, so no plan status moves the panes (only the error alert makes it taller): keep
   `controls` free of content that changes height. A tool without a plan has a 48 px bar.
-- **Grid and pane additions**: `ApmPane.refresh()` and `ApmFileGrid.refresh()` reload the lists (what is
-  shown stays until the answer arrives); `ctx.refresh()` asks both panes. `apm-file-grid` limits the card
+- **Grid and pane additions**: `OpmPane.refresh()` and `OpmFileGrid.refresh()` reload the lists (what is
+  shown stays until the answer arrives); `ctx.refresh()` asks both panes. `opm-file-grid` limits the card
   size to its own width, because the virtualiser renders no card in a grid narrower than one card (a phone
   with the largest size).
 - Tests: `toolConfig(patch)`, `plainPane(heading)` and `FakePlan` (`@/test/tool-config`). Fake the plan
   seam by mocking `createPlanBinding` of `@/tools/framework/plan-binding` (see the top of
-  `apm-tool-view.test.ts`); mock `@/components/apm-viewer` when the viewer is not under test; use
+  `opm-tool-view.test.ts`); mock `@/components/opm-viewer` when the viewer is not under test; use
   `stubBrowseServer()` for the panes. Reset in `afterEach`: `resetToolStateForTests()`, `resetFilters()`,
   `resetSelectionForTests()`, and remove the views BEFORE `vi.unstubAllGlobals()`.
 
-## Index controls (`api/indexing.ts`, `stores/index-status.ts`, `app/reindex.ts`, `apm-index-notices`)
+## Index controls (`api/indexing.ts`, `stores/index-status.ts`, `app/reindex.ts`, `opm-index-notices`)
 The server's `IndexJobs` is the only thing that starts index work (scan, metadata, checksums,
 thumbnails). The UI asks for it through ONE endpoint and watches the `index` task in the task indicator,
 so **nothing here has a progress UI of its own**. Identical requests coalesce into the job that is already
@@ -957,7 +957,7 @@ queued or running, so asking twice is harmless.
   `events.connection` is `reconnecting` or `closed`: a task started then could not be followed) and
   `startReindex()` (registers the `onReindex` handler; the shell calls it once). An offline volume is not
   filtered out here: the server answers 409 `volume_offline` and its message becomes the error toast.
-- `<apm-index-notices>` (no properties, no events; host `block flex-none`; the shell renders it between
+- `<opm-index-notices>` (no properties, no events; host `block flex-none`; the shell renders it between
   the connection banner and `<main>`): when a scan would remove at least 50 entries and more than a
   fifth of what a volume had (a share that is not mounted looks exactly like that), the scanner holds ALL
   removals of that volume back and reports the count in `held_removals`. One `alert alert-warning` per
@@ -968,13 +968,13 @@ queued or running, so asking twice is harmless.
   itself when the next scan ends.
 - Tests: `shownConfirm()` and `pressConfirm(label)` (`@/test/confirm`) drive the shared confirm dialog
   (the module also removes stray dialogs after each test). Set the connection with
-  `(events.connection as Signal<ConnectionState>).value = 'open'`. In `apm-app.test.ts` every test but the
+  `(events.connection as Signal<ConnectionState>).value = 'open'`. In `opm-app.test.ts` every test but the
   first mounts with the connection `reconnecting` (the shared client resyncs after `events.stop()`), so
   call `FakeEventSource.last().open()` before expecting an enabled Re-index entry or a notice without the
   connection banner above it. Call `resetIndexStatusForTests()` in `afterEach`.
 
 ## Trash page (`tools/trash/`, `api/trash.ts`, `test/trash-fixtures.ts`)
-The `/trash` route (`apm-trash-page`, footer menu, icon `trash-2`) lists what is in the trash, restores
+The `/trash` route (`opm-trash-page`, footer menu, icon `trash-2`) lists what is in the trash, restores
 it and empties it. The server side is the `trash` service (root AGENTS.md, "Trash"); the page only
 calls it and shows what it answers.
 - `@/api/trash`: `listTrash(query, signal?)` (`GET /api/trash`, `TrashListQuery`: send every field,
@@ -983,11 +983,11 @@ calls it and shows what it answers.
   signal?)` and `syncTrash(signal?)` (the POSTs answer the `TaskDto`). Both lists embed the GLOBAL
   `summary` (items, bytes, `max_id`, `retention_days`, `conflict_policy`, and `volumes` that hold
   trash with `online`/`writable`); the page takes its totals from whichever answer came last.
-- Files: `apm-trash-page.ts` is the only one that fetches, keeps state and runs actions.
-  `apm-trash-deletions.ts` and `apm-trash-items.ts` are presentational (properties down, bubbling
+- Files: `opm-trash-page.ts` is the only one that fetches, keeps state and runs actions.
+  `opm-trash-deletions.ts` and `opm-trash-items.ts` are presentational (properties down, bubbling
   events up: `trash-restore-batch`, `trash-view-batch`; `trash-search`, `trash-volume`, `trash-sort`,
   `trash-select`, `trash-select-page`, `trash-restore-items`, `trash-page`, `trash-clear-batch`,
-  `trash-clear-filters`). `trash-parts.ts` holds what both tabs share (volume `apm-select`, volume
+  `trash-clear-filters`). `trash-parts.ts` holds what both tabs share (volume `opm-select`, volume
   badges, pager, skeleton, empty state). `trash-text.ts` holds EVERY sentence the page says
   (retention rule, confirmations, why a button is disabled, task outcomes): the end-to-end tests key
   off that wording, so change it only together with them.
@@ -1026,7 +1026,7 @@ calls it and shows what it answers.
   trash; bursts coalesce), after the event stream resyncs and when the window regains focus. A new
   request supersedes the one in flight (its answer is ignored), a reload keeps the rows on screen, a
   page that no longer exists steps back to the last one and a failed load is an `alert` with "Retry".
-- Tests: `apm-trash-page.test.ts` fakes the server with `vi.spyOn(api, 'get' | 'post')`, runs on
+- Tests: `opm-trash-page.test.ts` fakes the server with `vi.spyOn(api, 'get' | 'post')`, runs on
   fake timers with the clock three days after `TRASHED_AT` (so ages read "3 days ago") and drives the
   volume `<select>` by setting its `value` and dispatching `change`. `@/test/trash-fixtures` has
   `makeTrashItem`, `makeTrashBatch`, `makeTrashVolume`, `makeTrashSummary` (items and bytes are the
@@ -1091,7 +1091,7 @@ or leave the tool. Only explicit confirmation and Details open a modal.
   Success without omissions is a success toast; failures/skips offer a warning toast's
   **Details** action and a dismissible Last run link in the status area. Other terminal states
   retain the task's title/error and use error/info/warning toasts.
-- `openPlanResult(run)` (`@/components/apm-plan-result`) reuses one large `apm-modal`, DaisyUI
+- `openPlanResult(run)` (`@/components/opm-plan-result`) reuses one large `opm-modal`, DaisyUI
   stats and a bounded table of outcome details. `PlanResult.failures` can contain coded skips
   as well as failures: **never infer failed counts from rows**. Display the server's separate
   done/skipped/failed counters, bytes, cancellation/note and the first N of failed + skipped.
@@ -1102,7 +1102,7 @@ or leave the tool. Only explicit confirmation and Details open a modal.
   keeping an obsolete Details target.
 
 ## Pattern editor
-`apm-pattern-editor` is controlled: `value`, `source: SideParams | null`, `basePrefix`,
+`opm-pattern-editor` is controlled: `value`, `source: SideParams | null`, `basePrefix`,
 `disabled`, `label`, `limit` (5 by default); bubbling `pattern-change { value, status }`
 reports `checking`, `valid`, `invalid` or `idle`. `api/format.ts` owns the shared catalogue
 cache (failed loads retry) and abortable 300 ms previews. Tokens and examples come only from
@@ -1116,7 +1116,7 @@ on narrow screens. `skipLabel` reuses the shared result reason map, not a second
 ## Asset move
 `tools/move/tool.ts` configures the shared tool framework with independently pinned source
 and destination bases, a source-only filter and recursive toggle. Move types are persisted;
-keep-destination uses the same `apm-match-mode` as Duplicate finder. Custom moves use the
+keep-destination uses the same `opm-match-mode` as Duplicate finder. Custom moves use the
 shared pattern editor (3 samples, inside a pattern disclosure).
 Reusable exports for other custom-move tools: `createRuleState(prefix)` / `RuleState`,
 `buildMoveParams(ctx, rules: MoveRules, reasons?)`, `renderPatternSection(ctx, rules, options)`,
@@ -1124,7 +1124,7 @@ Reusable exports for other custom-move tools: `createRuleState(prefix)` / `RuleS
 `ensureSettings()`, `moveActions(ctx, options)`, `confirmMove(ctx, wording)` / `MoveWording`.
 The shared plan action owns server-exact confirmation counts, selection restrictions,
 execution and results. Default-policy load errors remain visible; General Settings shares
-`CONFLICT_POLICIES` and `apm-select` while retaining its save bar and unsaved guard.
+`CONFLICT_POLICIES` and `opm-select` while retaining its save bar and unsaved guard.
 `isSameOrBelow` preserves exact path bytes and segment boundaries; both filesystem-event
 invalidation and the non-blocking nested-destination warning reuse it.
 
@@ -1138,7 +1138,7 @@ Repeated-run idempotence is decided by the backend's `already_in_place` status.
 
 ## Duplicate finder
 - Asset move reuses `util/match-modes.ts` (`MATCH_MODES`, `isMatchMode`, `matchModeLabel`) and
-  controlled `apm-match-mode`: `mode`, `strict`, `label`, `disabled`, bubbling
+  controlled `opm-match-mode`: `mode`, `strict`, `label`, `disabled`, bubbling
   `match-change { mode, strict }`, no store access.
 - `tools/framework/plan-notices.ts`: `renderPendingNotice(ctx, { code, text, title })`
   words a pending warning and retries through the plan client. Duplicate finder uses `unhashed_files`.

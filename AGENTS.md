@@ -1,13 +1,13 @@
-# Advanced Photo Manager (APM): rules for coding agents
+# Open Photo Manager (OPM): rules for coding agents
 
 A photo-management web app for a Synology NAS: a Rust/axum backend with a SQLite index (browse,
 filter, duplicates, move/format, empty-folder cleanup, trash, Immich sync) and a Lit/DaisyUI
 frontend, shipped as ONE Docker image. Frontend rules live in `web/AGENTS.md`.
 
 ## Layout
-- `crates/apm-core/`: pure domain logic and EVERY API type (`src/dto/`). No filesystem, network,
+- `crates/opm-core/`: pure domain logic and EVERY API type (`src/dto/`). No filesystem, network,
   database or tokio code of its own (`hash` only wraps readers it is handed).
-- `crates/apm-server/`: axum, sqlx, indexer, tasks, fsops, plans, immich. Library in `src/lib.rs`,
+- `crates/opm-server/`: axum, sqlx, indexer, tasks, fsops, plans, immich. Library in `src/lib.rs`,
   thin binary in `src/main.rs`, SQL in `migrations/`, integration tests in `tests/`.
 - `web/`: Vite + TypeScript + Lit + DaisyUI. `web/src/api/generated/` is written by ts-rs.
 - `docker/`, `fixtures/` (generator, output git-ignored), `docs/`: added by the todos that own them.
@@ -16,11 +16,11 @@ frontend, shipped as ONE Docker image. Frontend rules live in `web/AGENTS.md`.
 ## Commands (repo root)
 - `make check` = `check-rust` + `check-web`. It must be green before you finish.
 - `make check-rust`: `cargo fmt --all --check`, `cargo clippy --workspace --all-targets -- -D warnings`,
-  `cargo test --workspace`. One test: `cargo test -p apm-server --test api_routes`.
+  `cargo test --workspace`. One test: `cargo test -p opm-server --test api_routes`.
 - `make check-web`: installs `web/node_modules` when missing, then `npm --prefix web run check`.
 - `make fmt` (rustfmt + Biome), `make gen-api` (regenerate every TypeScript DTO), `make build`
   (web build + release binary), `make clean` (`cargo clean`).
-- `make dev-server`: backend on :8080 over `fixtures/out/volumes` and `.data` (every `APM_*` variable
+- `make dev-server`: backend on :8080 over `fixtures/out/volumes` and `.data` (every `OPM_*` variable
   is overridable from the caller). `make dev-web`: Vite on :5173, proxies `/api`.
 - Run tests with `cargo test`, not nextest: the ts-rs export tests rely on in-process locking.
 
@@ -35,7 +35,7 @@ frontend, shipped as ONE Docker image. Frontend rules live in `web/AGENTS.md`.
 | `RelPath` / `VolumeRoot` | every filesystem access |
 | `PatternFormatter` | move planner AND `POST /api/format/preview` (the UI never reimplements it) |
 | `SidecarMatcher` | scanner, move, delete |
-| `apm_core::hash` (`sha1_reader`, `HashingReader`, `Sha1Digest`) | indexer hashing, copy verification in `fsops`, Immich |
+| `opm_core::hash` (`sha1_reader`, `HashingReader`, `Sha1Digest`) | indexer hashing, copy verification in `fsops`, Immich |
 
 A second caller of a concern uses or extends the existing building block, never a parallel copy.
 
@@ -49,16 +49,16 @@ A second caller of a concern uses or extends the existing building block, never 
   `volume_id = ?`: it is an index range over `files_volume_dir_name` that stays correct for sibling
   names such as `2019.old` (reasons in the `db` module docs).
 - Handlers are thin: extract with `ApiJson` / `ApiPath` / `ApiQuery` (`api/extract.rs`, rejections
-  become the JSON `ErrorBody`), call a service, return DTOs. Logic lives in services and `apm-core`.
+  become the JSON `ErrorBody`), call a service, return DTOs. Logic lives in services and `opm-core`.
 - All errors are `AppError` (`error.rs`): `bad_request`, `forbidden`, `not_found`, `conflict`
   (code + message), `internal(cause)` (logs the cause, never leaks it), `not_implemented(todo_id)`.
   `?` converts `sqlx`, `std::io` and `anyhow` errors. Alias: `AppResult`.
 - No `unwrap` / `expect` in non-test code (clippy enforces it; tests are exempt). No `unsafe`
   (denied workspace-wide). Log with `tracing`; secrets (Immich key, tokens) are never logged.
 - No shell for external tools (exiftool, ffmpeg): pass arguments after `--` or as `./path`.
-- Hashing: `apm_core::hash` is the only SHA-1 code (`sha1_reader` with a cancel/progress callback,
+- Hashing: `opm_core::hash` is the only SHA-1 code (`sha1_reader` with a cancel/progress callback,
   `HashingReader` where the bytes are read anyway, hex helpers). Never write a second digest loop;
-  `apm-server` deliberately has no `sha1` dependency.
+  `opm-server` deliberately has no `sha1` dependency.
 - Only `fsops` changes user files: move, copy, trash, restore, delete and rmdir of volume paths all go
   through `FsOps` (journaled, sidecar-aware, with hooks for the index and Immich). The scanner,
   watcher, plan executors, trash and Immich code never call `std::fs` / `tokio::fs` mutators on a
@@ -75,15 +75,15 @@ A second caller of a concern uses or extends the existing building block, never 
   line, alphabetical: touch only your own line. Every module you own is already declared, so fill
   in your files instead of adding modules. New dependency: add it to `[workspace.dependencies]`
   (alphabetical, full `x.y.z` version) and use `workspace = true` in the crate.
-- Tests: unit tests beside the code; integration tests in `crates/apm-server/tests/` with
+- Tests: unit tests beside the code; integration tests in `crates/opm-server/tests/` with
   `tests/common` (`TestApp::new().await`, `app.call(method, path, body)` adds `Host` and
-  `x-apm-request`; `scratch_dir()` lives under `target/`, never use `/tmp`).
+  `x-opm-request`; `scratch_dir()` lives under `target/`, never use `/tmp`).
 - macOS is case-insensitive and stores NFD names: do not rely on either in tests.
 
 ## API conventions
 - JSON is `snake_case`, ids are integers, timestamps are epoch seconds (capture times are
   naive-local). Errors are `{"error":{"code","message"}}`.
-- Every non-GET request must carry header `x-apm-request: 1` (the web client always sends it;
+- Every non-GET request must carry header `x-opm-request: 1` (the web client always sends it;
   GET and SSE are exempt). The security layer (todo `securing-api-baseline`) enforces it.
 - CONTRACT DEVIATION from plan 5.12: browse and facets are POST with JSON bodies, not GET with
   query strings. `POST /api/browse/folders` (`BrowseRequest` -> `FoldersResponse`),
@@ -118,7 +118,7 @@ Backend and frontend agents build against these in parallel; change them only in
   to the server.
 
 ## Adding a DTO
-1. Define it in the `apm-core/src/dto/<area>.rs` of your area (all API types live there only).
+1. Define it in the `opm-core/src/dto/<area>.rs` of your area (all API types live there only).
 2. Derive `Debug, Clone, Serialize, Deserialize, TS` (plus `PartialEq, Eq, Default` where natural)
    and add `#[ts(export)]`. Enums use `#[serde(rename_all = "snake_case")]`. Prefer flat structs;
    with `#[serde(flatten)]` add `#[ts(flatten)]` and a JSON round-trip test. No intra-doc links in
@@ -135,16 +135,16 @@ file's `routes()` (axum 0.8 syntax: `/files/{id}`). 3. Add an integration test t
 `tests/api_routes.rs` only needs a new `ROUTES` row for a path that is not in plan 5.12.
 
 ## Migrations
-`crates/apm-server/migrations/`, run with `sqlx::migrate!`. Every todo owns a number block (rule 6 of
+`crates/opm-server/migrations/`, run with `sqlx::migrate!`. Every todo owns a number block (rule 6 of
 the parallel work protocol at the end of this file). Never edit a merged migration: add a new one.
 `build.rs` makes cargo rebuild when files are added.
 
 ## Ownership (module = owning todo; edit only what you own)
 - `designing-database-schema`: `db/**`, `settings/**`, `api/settings.rs`, `migrations/0001*`.
-- `implementing-core-domain` agent A: apm-core `pattern`, `conflict`, `datetime`.
-- `implementing-core-domain` agent B: apm-core `filter`, `sidecar`, `matching`, `junk`, `progress`,
+- `implementing-core-domain` agent A: opm-core `pattern`, `conflict`, `datetime`.
+- `implementing-core-domain` agent B: opm-core `filter`, `sidecar`, `matching`, `junk`, `progress`,
   `kind`.
-- apm-core `paths` (`RelPath`, ids), `names`, `consts` and `hash` are COMPLETE on `main`: reuse them, extend
+- opm-core `paths` (`RelPath`, ids), `names`, `consts` and `hash` are COMPLETE on `main`: reuse them, extend
   them only additively and with tests. Wire enums used by several modules (`FileKind`,
   `CaptureSource`, `FlagFilter`, `ConflictPolicy`, ...) live in `dto/common.rs`; never define a parallel enum.
 - `implementing-scanner`: `indexer/mod.rs`, `indexer/scanner.rs`.
@@ -165,19 +165,19 @@ the parallel work protocol at the end of this file). Never edit a merged migrati
 - `updating-immich-move-paths`: `immich/direct_db/**`, `immich/direct_db.rs`,
   `immich/outbox/direct.rs`, generic FsOps move guard, migration `0140` (reserved block `0140-0149`).
   The outbox's existing migration block remains `0120-0139`.
-- DTO files (`apm-core/src/dto/`): each owner edits only the file of their area; `common.rs` is
+- DTO files (`opm-core/src/dto/`): each owner edits only the file of their area; `common.rs` is
   shared, change it additively. The `plans.rs` and `immich.rs` files have one marked section per todo.
-- Server paths are under `crates/apm-server/src/`, core paths under `crates/apm-core/src/`.
+- Server paths are under `crates/opm-server/src/`, core paths under `crates/opm-core/src/`.
 
 ## Dev loop and runtime
 1. Edit, then iterate with a narrow `cargo test -p <crate> <name>`; finish with `make check`.
 2. UI against the real backend: `make dev-server` plus `make dev-web`, open http://localhost:5173.
    Agents in worktrees use their own ports instead (see `web/AGENTS.md`, Commands), and a
-   destructive check runs on a COPY of `fixtures/out/volumes` (`APM_VOLUMES_DIR`, with a throwaway
-   `APM_DATA_DIR`), never on the shared fixture output.
-3. Config comes from env (`config.rs`): `APM_VOLUMES_DIR` (/volumes), `APM_DATA_DIR` (/data),
-   `APM_LISTEN` (0.0.0.0:8080), `APM_ALLOWED_HOSTS`, `APM_INDEX_CONCURRENCY`, `APM_LOG` (info),
-   `APM_WEB_DIR` (`./web/dist`; the Docker image sets `APM_WEB_DIR=/app/web`).
+   destructive check runs on a COPY of `fixtures/out/volumes` (`OPM_VOLUMES_DIR`, with a throwaway
+   `OPM_DATA_DIR`), never on the shared fixture output.
+3. Config comes from env (`config.rs`): `OPM_VOLUMES_DIR` (/volumes), `OPM_DATA_DIR` (/data),
+   `OPM_LISTEN` (0.0.0.0:8080), `OPM_ALLOWED_HOSTS`, `OPM_INDEX_CONCURRENCY`, `OPM_LOG` (info),
+   `OPM_WEB_DIR` (`./web/dist`; the Docker image sets `OPM_WEB_DIR=/app/web`).
 
 ## Parallel work protocol (MANDATORY)
 
@@ -218,7 +218,7 @@ The design plan (source of truth for behaviour) is
 6. **Quality bar:** tests for everything you add (they are part of the todo, not optional); clippy clean
    (`-D warnings`); no `unwrap`/`expect`/`todo!`/`unimplemented!` in non-test code; Biome and `tsc` clean; no
    secrets in code or logs; follow the conventions above.
-   **Migrations** live in `crates/apm-server/migrations/` and are append-only once on `main` (never edit a landed
+   **Migrations** live in `crates/opm-server/migrations/` and are append-only once on `main` (never edit a landed
    migration, add a new one). Use ONLY the number block of your todo so parallel agents never collide:
    `0001` core schema; `0010-0019` scanner; `0020-0029` metadata, hashing, watcher; `0030-0039` query engine,
    browse API, media; `0040-0049` task engine, file ops, trash, index controls; `0100-0199` Immich;
@@ -249,11 +249,11 @@ binary, browser checks, end-to-end and load tests. Never write a throwaway Immic
   `mounts` an object `{ '/mnt/photos': '<real dir>' }`. It returns `{ url, stop(), state, control }`:
   `state.assets()|assetByPath()|albumsOf()|violations()|requests()`,
   `control.scan()|fail()|gate()|revokeKey()|reset()|addAssets()|generate()`.
-- Control API, never under `/api` and without the `x-apm-request` header (that one is our backend's):
+- Control API, never under `/api` and without the `x-opm-request` header (that one is our backend's):
   `/__mock/state|log|reset|scan|assets|generate|latency|revoke-key|fail|gate`.
 - Safety: a forced delete of an online asset removes the real file and is recorded in `violations()`.
   Every test that drives our backend asserts it is empty.
-- The in-process Rust fake (`crates/apm-server/tests/immich_support/mod.rs`) serves the Rust tests;
+- The in-process Rust fake (`crates/opm-server/tests/immich_support/mod.rs`) serves the Rust tests;
   the mock serves everything with a real HTTP server over real directories. They model the same
   API: change a shape, a modelled behaviour or `spec-permissions.txt` in BOTH, and keep
   `make mock-immich-smoke` passing: it drives the real backend against the mock, over a copy of the
@@ -262,7 +262,7 @@ binary, browser checks, end-to-end and load tests. Never write a throwaway Immic
   `tools/` or `e2e/` changes). Other todos add their own `check-*` prerequisite to it.
 
 ## Batch rename engine
-- `apm_core::rename` is the pure implementation of batch-rename matching and naming.
+- `opm_core::rename` is the pure implementation of batch-rename matching and naming.
 - Compile `RenameRules` once, then use `new_name` and `assign_counts` for each folder.
 - The planner, the preview and the execution re-check call this engine.
 - Never reimplement a rename matcher, clean rule, rewrite or name-pattern rule elsewhere.
@@ -315,7 +315,7 @@ binary, browser checks, end-to-end and load tests. Never write a throwaway Immic
   EXPLAIN verifies the scanner upsert executes none of these trigger programs. Host load during
   measurement was 44/59/55, ending 32/48/51. Populated upsert/delete took 7.95/9.35 s;
   deleting a 50k matched folder took 2.27 s, first 200-item flags page 52.28 ms.
-- Scale gate: `CARGO_BUILD_JOBS=2 cargo test -p apm-server --test plans_duplicates_perf --
+- Scale gate: `CARGO_BUILD_JOBS=2 cargo test -p opm-server --test plans_duplicates_perf --
   --ignored --nocapture` (release is preferable for production measurements). At 200k files per
   side / 520k pairs / 200 children, unoptimized builds took 18.2/18.6/24.2/16.4 seconds for
   hash/name+time/different-time/prefix; warm folder medians were 46.9/48.4/47.6/48.2 ms.
@@ -325,7 +325,7 @@ binary, browser checks, end-to-end and load tests. Never write a throwaway Immic
 
 ## Trash (`trash/`, `api/trash.rs`; reference: the module docs of `trash`)
 
-User-facing trash management over what `FsOps` puts in `<volume root>/.apm-trash/<batch>/<original
+User-facing trash management over what `FsOps` puts in `<volume root>/.opm-trash/<batch>/<original
 relative path>`: one `trash_items` row per trashed file or per whole trashed folder. A batch
 (`YYYYMMDD-HHMMSS-t<task id>`, `-r<hex>` ad hoc, `-x<journal id>` for the source a copy-and-delete
 move keeps) is one deletion on one volume. `reason` is `user`, `replaced`, `junk`, `moved` or
@@ -371,7 +371,7 @@ Moves, trashes, copies and restores of photos and videos reach Immich through an
 direct call: the `OutboxHook` (an `FsOps` hook, registered before `reconcile_at_startup`) writes an
 `immich_outbox` row in the finalising transaction, and `ImmichOutbox` (in `AppState.immich_outbox`)
 submits ONE `ImmichCleanup` task on the `immich` lane once file operations were quiet for
-`APM_IMMICH_QUIET_SECS` (default 15, 1 to 600). `ImmichOutbox::submit_now` starts a pass at once.
+`OPM_IMMICH_QUIET_SECS` (default 15, 1 to 600). `ImmichOutbox::submit_now` starts a pass at once.
 - Only the outbox deletes in Immich, and only an asset that a FRESH `GET /assets/{id}` showed
   offline (`OfflineAssetId::confirm`), whose `originalPath` is the old place of the row and whose
   file is absent from the volume. Keep every new Immich write behind the same rules.
@@ -385,11 +385,11 @@ submits ONE `ImmichCleanup` task on the `immich` lane once file operations were 
   a pass never looks at a row twice within the 15 s settle time; `FakeImmich::set_latency`,
   `call_count` and `assert_no_violations`). `tests/immich_outbox_perf.rs` is `#[ignore]`d: run it
   with `CARGO_PROFILE_RELEASE_STRIP=none CARGO_PROFILE_RELEASE_LTO=off cargo test --release -p
-  apm-server --test immich_outbox_perf -- --ignored --nocapture --test-threads=1` (a stripped
+  opm-server --test immich_outbox_perf -- --ignored --nocapture --test-threads=1` (a stripped
   release build cannot load the proc-macro dylibs on macOS). wiremock keeps every request it
   serves (about 9 KiB each), so long runs through the fake grow the test process.
 - Operating it: on-demand library scans need an administrator account (otherwise Immich's own
-  schedule), and Immich must exclude `**/.apm-trash/**` from its libraries.
+  schedule), and Immich must exclude `**/.opm-trash/**` from its libraries.
 
 ## Move plans
 
@@ -483,7 +483,7 @@ Smart.
 ## Windows hosts
 
 The Linux Docker image also supports Docker Desktop on Windows: probe mounted filesystems at runtime and keep
-unknown capabilities native. `APM_WATCH_MODE=auto|watch|poll` controls global watcher registration; unsafe
+unknown capabilities native. `OPM_WATCH_MODE=auto|watch|poll` controls global watcher registration; unsafe
 `/data` mounts or failed WAL probes stop startup with guidance to use a local Docker named volume. Never
 loosen identity or durability checks on a normal filesystem. Filesystem detection and WAL policy live in
-`apm_core::mounts` and `apm_server::hostfs`.
+`opm_core::mounts` and `opm_server::hostfs`.

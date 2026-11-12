@@ -4,7 +4,7 @@ import { createRuleState } from './move-state';
 afterEach(() => localStorage.clear());
 
 it('persists independent rules and rejects invalid policies', () => {
-  localStorage.setItem('apm.v1.invalid.policy', '"erase"');
+  localStorage.setItem('opm.v1.invalid.policy', '"erase"');
   const left = createRuleState('left');
   const right = createRuleState('right');
   const invalid = createRuleState('invalid');
@@ -14,7 +14,7 @@ it('persists independent rules and rejects invalid policies', () => {
   left.policy.value = 'rename';
   left.patternStatus.value = 'invalid';
   expect(right.pattern.value).toBe('{YYYY}/{mm}');
-  expect(localStorage.getItem('apm.v1.left.pattern')).toBe('"{camera}"');
-  expect(localStorage.getItem('apm.v1.left.policy')).toBe('"rename"');
-  expect(localStorage.getItem('apm.v1.left.patternStatus')).toBeNull();
+  expect(localStorage.getItem('opm.v1.left.pattern')).toBe('"{camera}"');
+  expect(localStorage.getItem('opm.v1.left.policy')).toBe('"rename"');
+  expect(localStorage.getItem('opm.v1.left.patternStatus')).toBeNull();
 });

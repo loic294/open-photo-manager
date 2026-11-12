@@ -19,25 +19,25 @@ Compose project's data and remove it afterwards.
 From the isolated checkout:
 
 ```sh
-export APM_IMMICH_TEST_DIR="$PWD/target/immich-postgres-test"
-export APM_IMMICH_TEST_PASSWORD="$(openssl rand -hex 24)"
-mkdir -p "$APM_IMMICH_TEST_DIR/tls"
+export OPM_IMMICH_TEST_DIR="$PWD/target/immich-postgres-test"
+export OPM_IMMICH_TEST_PASSWORD="$(openssl rand -hex 24)"
+mkdir -p "$OPM_IMMICH_TEST_DIR/tls"
 openssl req -x509 -newkey rsa:2048 -nodes -days 1 \
-  -keyout "$APM_IMMICH_TEST_DIR/tls/ca.key" \
-  -out "$APM_IMMICH_TEST_DIR/tls/ca.crt" \
-  -subj '/CN=APM disposable test CA' \
+  -keyout "$OPM_IMMICH_TEST_DIR/tls/ca.key" \
+  -out "$OPM_IMMICH_TEST_DIR/tls/ca.crt" \
+  -subj '/CN=OPM disposable test CA' \
   -addext 'basicConstraints=critical,CA:TRUE'
 openssl req -new -newkey rsa:2048 -nodes \
-  -keyout "$APM_IMMICH_TEST_DIR/tls/server.key" \
-  -out "$APM_IMMICH_TEST_DIR/tls/server.csr" \
+  -keyout "$OPM_IMMICH_TEST_DIR/tls/server.key" \
+  -out "$OPM_IMMICH_TEST_DIR/tls/server.csr" \
   -subj '/CN=localhost' -addext 'subjectAltName=DNS:localhost' \
   -addext 'basicConstraints=critical,CA:FALSE' \
   -addext 'extendedKeyUsage=serverAuth'
-openssl x509 -req -in "$APM_IMMICH_TEST_DIR/tls/server.csr" \
-  -CA "$APM_IMMICH_TEST_DIR/tls/ca.crt" \
-  -CAkey "$APM_IMMICH_TEST_DIR/tls/ca.key" -CAcreateserial \
-  -days 1 -copy_extensions copy -out "$APM_IMMICH_TEST_DIR/tls/server.crt"
-chmod 600 "$APM_IMMICH_TEST_DIR/tls/server.key" "$APM_IMMICH_TEST_DIR/tls/ca.key"
+openssl x509 -req -in "$OPM_IMMICH_TEST_DIR/tls/server.csr" \
+  -CA "$OPM_IMMICH_TEST_DIR/tls/ca.crt" \
+  -CAkey "$OPM_IMMICH_TEST_DIR/tls/ca.key" -CAcreateserial \
+  -days 1 -copy_extensions copy -out "$OPM_IMMICH_TEST_DIR/tls/server.crt"
+chmod 600 "$OPM_IMMICH_TEST_DIR/tls/server.key" "$OPM_IMMICH_TEST_DIR/tls/ca.key"
 docker compose -f docker/immich-postgres-test.compose.yml up -d --wait
 docker compose -f docker/immich-postgres-test.compose.yml logs --no-color server
 docker compose -f docker/immich-postgres-test.compose.yml exec -T server \
@@ -58,14 +58,14 @@ Stop Immich and its queues before synthetic writes; PostgreSQL stays running:
 ```sh
 docker compose -f docker/immich-postgres-test.compose.yml stop server redis
 docker compose -f docker/immich-postgres-test.compose.yml exec -T database \
-  psql -U postgres -d apm_immich_test_v333 -v ON_ERROR_STOP=1 \
-  -c "COMMENT ON DATABASE apm_immich_test_v333 IS 'apm-immich-v3.3.3-disposable'"
-printf 'postgresql://postgres:%s@localhost:25432/apm_immich_test_v333?sslmode=verify-full&sslrootcert=%s/tls/ca.crt\n' \
-  "$APM_IMMICH_TEST_PASSWORD" "$APM_IMMICH_TEST_DIR" \
-  > "$APM_IMMICH_TEST_DIR/database-url"
-chmod 600 "$APM_IMMICH_TEST_DIR/database-url"
-export APM_IMMICH_TEST_DATABASE_URL_FILE="$APM_IMMICH_TEST_DIR/database-url"
-CARGO_BUILD_JOBS=2 cargo test -p apm-server --lib \
+  psql -U postgres -d opm_immich_test_v333 -v ON_ERROR_STOP=1 \
+  -c "COMMENT ON DATABASE opm_immich_test_v333 IS 'opm-immich-v3.3.3-disposable'"
+printf 'postgresql://postgres:%s@localhost:25432/opm_immich_test_v333?sslmode=verify-full&sslrootcert=%s/tls/ca.crt\n' \
+  "$OPM_IMMICH_TEST_PASSWORD" "$OPM_IMMICH_TEST_DIR" \
+  > "$OPM_IMMICH_TEST_DIR/database-url"
+chmod 600 "$OPM_IMMICH_TEST_DIR/database-url"
+export OPM_IMMICH_TEST_DATABASE_URL_FILE="$OPM_IMMICH_TEST_DIR/database-url"
+CARGO_BUILD_JOBS=2 cargo test -p opm-server --lib \
   immich::direct_db::postgres_tests::real_v333_postgres_gate \
   -- --ignored --exact
 ```

@@ -28,7 +28,7 @@ export function sampleImmichStatus(overrides: Partial<ImmichStatusDto> = {}): Im
       email: 'admin@example.test',
       user_name: 'Test admin',
       is_admin: true,
-      api_key_name: 'APM test',
+      api_key_name: 'OPM test',
       allow_insecure_tls: false,
       server_version: 'v3.4.0',
       connected_at: 1700000000,

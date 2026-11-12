@@ -1,7 +1,7 @@
 import { render } from 'lit';
 import { afterEach, expect, it, vi } from 'vitest';
-import type { ApmPatternEditor } from '@/components/apm-pattern-editor';
-import type { ApmSelect } from '@/components/apm-select';
+import type { OpmPatternEditor } from '@/components/opm-pattern-editor';
+import type { OpmSelect } from '@/components/opm-select';
 import { FakePlan, toolConfig } from '@/test/tool-config';
 import { createToolContext } from '@/tools/framework/tool-context';
 import {
@@ -37,7 +37,7 @@ function setup() {
 it('uses shared selectors, conditional match controls, and the same pattern component for both tools', async () => {
   const { ctx, container } = setup();
   render(moveControls(ctx), container);
-  const type = container.querySelector<ApmSelect>('apm-select');
+  const type = container.querySelector<OpmSelect>('opm-select');
   expect(type?.options.map((option) => option.label)).toEqual([
     'Keep source file structure',
     'Keep destination file structure',
@@ -46,11 +46,11 @@ it('uses shared selectors, conditional match controls, and the same pattern comp
   ]);
   type?.dispatchEvent(new CustomEvent('select-change', { detail: { value: 'keep_destination' } }));
   render(moveControls(ctx), container);
-  expect(container.querySelector('apm-match-mode')).not.toBeNull();
+  expect(container.querySelector('opm-match-mode')).not.toBeNull();
   moveType.value = 'custom';
   render(moveControls(ctx), container);
-  expect(container.querySelector('apm-match-mode')).toBeNull();
-  let editor = container.querySelector<ApmPatternEditor>('apm-pattern-editor');
+  expect(container.querySelector('opm-match-mode')).toBeNull();
+  let editor = container.querySelector<OpmPatternEditor>('opm-pattern-editor');
   expect(editor?.limit).toBe(3);
   editor?.dispatchEvent(
     new CustomEvent('pattern-change', { detail: { value: '{camera}', status: 'invalid' } }),
@@ -61,7 +61,7 @@ it('uses shared selectors, conditional match controls, and the same pattern comp
   expect(container.querySelector('details')?.open).toBe(true);
   const other = createRuleState('controls-test');
   render(renderPatternSection(ctx, other, { collapsible: false, limit: 5 }), container);
-  editor = container.querySelector('apm-pattern-editor');
+  editor = container.querySelector('opm-pattern-editor');
   expect(editor?.limit).toBe(5);
   expect(editor?.parentElement?.tagName).toBe('DIV');
 });

@@ -2,7 +2,7 @@ import { html, nothing, type TemplateResult } from 'lit';
 import { contentUrl } from '@/api/files';
 import type { FileDetail } from '@/api/generated/FileDetail';
 import type { FileItem } from '@/api/generated/FileItem';
-import '@/components/apm-icon';
+import '@/components/opm-icon';
 import { renderInfoTable } from '@/components/viewer-info';
 import type { NavAction } from '@/components/viewer-nav';
 import { positionLabel } from '@/components/viewer-nav';
@@ -82,7 +82,7 @@ export function renderToolbar(view: ChromeView, actions: ChromeActions): Templat
           title="Info (I)"
           @click=${actions.toggleInfo}
         >
-          <apm-icon name="info" size="sm"></apm-icon>
+          <opm-icon name="info" size="sm"></opm-icon>
           <span class="hidden sm:inline">Info</span>
         </button>
         <button
@@ -94,7 +94,7 @@ export function renderToolbar(view: ChromeView, actions: ChromeActions): Templat
           ?disabled=${!canZoom}
           @click=${actions.toggleZoom}
         >
-          <apm-icon name=${zoomed ? 'zoom-out' : 'zoom-in'} size="sm"></apm-icon>
+          <opm-icon name=${zoomed ? 'zoom-out' : 'zoom-in'} size="sm"></opm-icon>
           <span class="hidden sm:inline">100%</span>
         </button>
         ${
@@ -109,7 +109,7 @@ export function renderToolbar(view: ChromeView, actions: ChromeActions): Templat
                 aria-label="Open original"
                 title="Open the original in a new tab"
               >
-                <apm-icon name="external-link" size="sm"></apm-icon>
+                <opm-icon name="external-link" size="sm"></opm-icon>
                 <span class="hidden sm:inline">Open original</span>
               </a>
               <a
@@ -119,7 +119,7 @@ export function renderToolbar(view: ChromeView, actions: ChromeActions): Templat
                 aria-label="Download"
                 title="Download the original"
               >
-                <apm-icon name="download" size="sm"></apm-icon>
+                <opm-icon name="download" size="sm"></opm-icon>
                 <span class="hidden sm:inline">Download</span>
               </a>`
         }
@@ -146,7 +146,7 @@ export function renderStepButtons(
       ?disabled=${index <= 0}
       @click=${() => actions.step('previous')}
     >
-      <apm-icon name="chevron-left" size="lg"></apm-icon>
+      <opm-icon name="chevron-left" size="lg"></opm-icon>
     </button>
     <button
       type="button"
@@ -156,7 +156,7 @@ export function renderStepButtons(
       ?disabled=${index >= count - 1}
       @click=${() => actions.step('next')}
     >
-      <apm-icon name="chevron-right" size="lg"></apm-icon>
+      <opm-icon name="chevron-right" size="lg"></opm-icon>
     </button>
   `;
 }
@@ -168,10 +168,10 @@ function renderDetailAlert(
 ): TemplateResult {
   return html`
     <div role="alert" class="alert alert-soft ${tone} alert-vertical mb-2" data-info-alert>
-      <apm-icon name="circle-alert"></apm-icon>
+      <opm-icon name="circle-alert"></opm-icon>
       <span>${message}</span>
       <button type="button" class="btn btn-sm" @click=${actions.retryDetail}>
-        <apm-icon name="refresh-cw" size="sm"></apm-icon>
+        <opm-icon name="refresh-cw" size="sm"></opm-icon>
         Retry
       </button>
     </div>

@@ -103,7 +103,7 @@ export async function connect(
   const token = await login(mock, options.account ?? ADMIN);
   const reply = await call(mock, 'POST', '/api/api-keys', {
     token,
-    body: { name: options.name ?? 'apm', permissions: options.permissions ?? APP_PERMISSIONS },
+    body: { name: options.name ?? 'opm', permissions: options.permissions ?? APP_PERMISSIONS },
   });
   assert.equal(reply.status, 201, JSON.stringify(reply.body));
   return { key: reply.body.secret, keyId: reply.body.id, token };

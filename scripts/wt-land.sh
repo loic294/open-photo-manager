@@ -9,8 +9,8 @@ set -uo pipefail
 cd "$(git rev-parse --show-toplevel)" || exit 2
 MAIN="$(dirname "$(git rev-parse --path-format=absolute --git-common-dir)")"
 BR="$(git rev-parse --abbrev-ref HEAD)"
-LOCK="${APM_LAND_LOCK:-/tmp/apm-land.lock}"
-WAIT_MAX="${APM_LAND_WAIT_SECS:-2700}"
+LOCK="${OPM_LAND_LOCK:-/tmp/opm-land.lock}"
+WAIT_MAX="${OPM_LAND_WAIT_SECS:-2700}"
 
 if [ "$BR" = "main" ] || [ "$BR" = "HEAD" ]; then
   echo "ERROR: run this inside a feat/* worktree, not on main"
@@ -65,7 +65,7 @@ if printf '%s\n' "$CHANGED" | grep -qE '^(crates/|Cargo\.|\.cargo/|rust-toolchai
   echo ">> gate: make check-rust"
   make check-rust || { echo "GATE_FAILED(rust): fix it, commit, and re-run scripts/wt-land.sh"; exit 4; }
 fi
-if printf '%s\n' "$CHANGED" | grep -qE '^(web/|crates/apm-core/src/dto/)'; then
+if printf '%s\n' "$CHANGED" | grep -qE '^(web/|crates/opm-core/src/dto/)'; then
   echo ">> gate: make check-web"
   scripts/ensure-web-deps.sh || { echo "GATE_FAILED(web): 'npm ci' failed, fix the cause and re-run scripts/wt-land.sh"; exit 4; }
   make check-web || { echo "GATE_FAILED(web): fix it, commit, and re-run scripts/wt-land.sh"; exit 4; }

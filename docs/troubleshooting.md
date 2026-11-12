@@ -20,11 +20,11 @@ not verified on a DSM device.
 | Startup refuses with `does not safely support SQLite WAL` or `SQLite WAL could not be verified` | `/data` is on a known WAL-unsafe filesystem, or the live WAL probe failed | Keep `/data` on a local Docker named volume. Back up existing app data before migrating it; there is no rollback-journal fallback. See the [Windows host guide](windows.md#keep-app-data-on-a-local-docker-volume). |
 | `No space left on device` | Storage used for data, scratch or Docker image layers is full | Check that specific filesystem/engine's free space. Host free space does not prove a Docker Desktop VM has room; DSM storage is a separate environment. Do not prune unrelated containers/volumes. |
 | SQLite refuses app data | `/data` is on NFS/SMB, corrupted, or contains newer migrations | Use local storage. An old binary cannot open a newer schema; restore a matching backup for downgrade, never delete the database casually. |
-| `host_not_allowed` (403) | Browser hostname is not accepted | Set `APM_ALLOWED_HOSTS` and recreate the container; behind a proxy forward the original `Host`. |
-| `csrf_rejected` (403) | Request header missing, cross-site request, or proxy changes `Host` | The web client sends `x-apm-request: 1`; check same-origin routing. API scripts must send that header for non-GET requests. Do not weaken the guard. |
+| `host_not_allowed` (403) | Browser hostname is not accepted | Set `OPM_ALLOWED_HOSTS` and recreate the container; behind a proxy forward the original `Host`. |
+| `csrf_rejected` (403) | Request header missing, cross-site request, or proxy changes `Host` | The web client sends `x-opm-request: 1`; check same-origin routing. API scripts must send that header for non-GET requests. Do not weaken the guard. |
 | Image pull denied or not found | The image name or tag is wrong, or the package was made private | Use `ghcr.io/loic294/open-photo-manager` with an existing tag such as `edge`. If both are right, the owner checks the package visibility in its GitHub package settings; see [GHCR publishing](../docker/README.md#public-ghcr-publishing). |
 | Wrong architecture / executable will not start | Unsupported 32-bit NAS or offline image for another platform | Compare `uname -m` with [image architectures](../docker/README.md#build). |
-| Running but `unhealthy` | Server is not answering the configured health-check port | Read logs and verify `APM_LISTEN` and published port; see [health checks](../docker/README.md#health-check). |
+| Running but `unhealthy` | Server is not answering the configured health-check port | Read logs and verify `OPM_LISTEN` and published port; see [health checks](../docker/README.md#health-check). |
 
 ## Indexing
 
@@ -57,7 +57,7 @@ not verified on a DSM device.
 |---|---|---|
 | `folder_not_found` (404) | Folder no longer exists in the index | Navigate to an existing ancestor and refresh after indexing. |
 | HEIC/TIFF/RAW has no viewer image | JPEG rendering failed or media tooling lacks support for that file | Check logs and [Docker media-tool guidance](../docker/README.md#troubleshooting). Originals remain unchanged. |
-| Video thumbnail works but playback fails | Browser does not support the original container/codec | Download/open the original in a compatible player. APM does not transcode video for playback. |
+| Video thumbnail works but playback fails | Browser does not support the original container/codec | Download/open the original in a compatible player. OPM does not transcode video for playback. |
 | Sidecar/unknown file has no preview | No supported viewer rendition for that kind | Use the original download; thumbnails are not a universal preview guarantee. |
 
 ## Immich
@@ -78,7 +78,7 @@ not delete/recreate.
 | `scan_timeout` | Immich has not observed/imported a change in time | Check scan completion and library path/exclusions, then **Retry selected**. |
 | `carry_failed` | Immich refused album/metadata transfer | Inspect the replacement asset and permissions before retrying. Permanent carry failure blocks deletion. |
 | `path_mismatch` | Fresh asset path differs from the mapped old location | Correct mapping; do not bypass the path check. |
-| Trash appears as new photos | Immich watcher imported `.apm-trash` | Use **Keep the trash out of Immich** or ask an admin to set exclusions; check [shared paths](immich.md#prerequisites-and-shared-paths). |
+| Trash appears as new photos | Immich watcher imported `.opm-trash` | Use **Keep the trash out of Immich** or ask an admin to set exclusions; check [shared paths](immich.md#prerequisites-and-shared-paths). |
 | Changes wait in limited mode | Regular account cannot trigger scans | Wait for or request Immich's own library scan through an admin. |
 | Associations missing after direct move, or albums missing after restore | Concurrent scanner race, or legacy trash/reimport limits | Direct moves preserve the existing asset; stop conflicting scans and inspect backups. Read [carry-over limits](immich.md#carry-over-limits) for trash/reimport, not as the direct-move mechanism. |
 
@@ -95,7 +95,7 @@ not delete/recreate.
 
    ```sh
    docker compose ps
-   docker compose logs --tail=200 apm
+   docker compose logs --tail=200 opm
    curl --fail http://NAS_ADDRESS:PORT/api/health
    curl --fail http://NAS_ADDRESS:PORT/api/index/status
    ```
@@ -105,7 +105,7 @@ not delete/recreate.
 
    You should see: health output plus index tasks, held removals and watcher state.
 
-2. If necessary set `APM_LOG` to `info,apm_server::indexer=debug` in Compose and recreate the service.
+2. If necessary set `OPM_LOG` to `info,opm_server::indexer=debug` in Compose and recreate the service.
    Revert elevated logging after the investigation. Debug logs can include private paths;
    redact paths, user identities and addresses, and never share passwords, tokens, database files
    or `/data/immich.key`.

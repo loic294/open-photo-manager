@@ -6,7 +6,7 @@ for (const theme of ['light', 'dark'] as const) {
     page,
   }, info) => {
     await page.addInitScript(
-      (value) => localStorage.setItem('apm.v1.theme', JSON.stringify(value)),
+      (value) => localStorage.setItem('opm.v1.theme', JSON.stringify(value)),
       theme,
     );
     await page.goto(app.url);

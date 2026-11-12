@@ -31,7 +31,7 @@ test('a regular account connects in limited mode with manual mappings', async ({
   const prefix = page.getByLabel('Path prefix for photos', { exact: true });
   await prefix.fill('/mnt/photos');
   await expect(prefix).toHaveValue('/mnt/photos');
-  await expectNoSeriousA11yViolations(page, { include: ['apm-settings-immich'] });
+  await expectNoSeriousA11yViolations(page, { include: ['opm-settings-immich'] });
   const status = await app.api.request<ImmichStatusDto>('GET', '/api/immich/status');
   expect(status.mode).toBe('limited');
   expect(status.connection?.email).toBe(testUsers.user.email);

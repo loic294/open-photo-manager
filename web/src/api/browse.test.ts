@@ -180,7 +180,7 @@ describe('fetchFolders', () => {
     const [url, init] = fetchSpy.mock.calls[0] ?? [];
     expect(url).toBe('/api/browse/folders');
     expect(init.method).toBe('POST');
-    expect(init.headers.get('x-apm-request')).toBe('1');
+    expect(init.headers.get('x-opm-request')).toBe('1');
     vi.unstubAllGlobals();
   });
 

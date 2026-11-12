@@ -91,7 +91,7 @@ export class PanePage {
     return new FileCard(this.element, name);
   }
   folders() {
-    return this.element.locator('apm-folder-list a[data-name]');
+    return this.element.locator('opm-folder-list a[data-name]');
   }
   folder(name: string) {
     return this.folders().filter({
@@ -130,8 +130,8 @@ export class PanePage {
   }
   async foldersBeforeFiles() {
     return this.body.evaluate((body) => {
-      const folders = body.querySelector('apm-folder-list');
-      const files = body.querySelector('apm-file-grid');
+      const folders = body.querySelector('opm-folder-list');
+      const files = body.querySelector('opm-file-grid');
       return (
         folders !== null &&
         files !== null &&

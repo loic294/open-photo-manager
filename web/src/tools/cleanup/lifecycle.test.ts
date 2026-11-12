@@ -12,14 +12,14 @@ import { loadVolumes } from '@/stores/volumes';
 import { stubBrowseServer } from '@/test/browse-server';
 import { mount } from '@/test/helpers';
 import { makeTask, taskEvent } from '@/test/task-fixtures';
-import '@/tools/cleanup/apm-cleanup-page';
+import '@/tools/cleanup/opm-cleanup-page';
 
 vi.mock('@/components/confirm-dialog', () => ({ confirmDialog: vi.fn(async () => true) }));
-vi.mock('@/components/apm-viewer', () => ({ openViewer: vi.fn() }));
+vi.mock('@/components/opm-viewer', () => ({ openViewer: vi.fn() }));
 
 const stops: (() => void)[] = [];
 afterEach(() => {
-  for (const page of document.querySelectorAll('apm-cleanup-page')) page.remove();
+  for (const page of document.querySelectorAll('opm-cleanup-page')) page.remove();
   for (const stop of stops.splice(0)) stop();
   events.stop();
   resetPlanRunsForTests();
@@ -82,14 +82,14 @@ it('builds the real binding, executes without selected IDs, refreshes both panes
   vi.spyOn(api, 'delete').mockResolvedValue(undefined);
   stops.push(startTasks());
   vi.useFakeTimers();
-  const page = await mount('apm-cleanup-page');
+  const page = await mount('opm-cleanup-page');
   await settle(page);
-  const action = () => page.querySelector<HTMLButtonElement>('apm-bottom-bar .btn-lg');
+  const action = () => page.querySelector<HTMLButtonElement>('opm-bottom-bar .btn-lg');
   expect(action()?.disabled).toBe(true);
   await vi.advanceTimersByTimeAsync(300);
   await settle(page);
   expect(action()?.disabled).toBe(false);
-  expect([...page.querySelectorAll('apm-pane')].map((pane) => pane.plan)).toEqual([
+  expect([...page.querySelectorAll('opm-pane')].map((pane) => pane.plan)).toEqual([
     null,
     { plan_id: 1, side: 'comparison' },
   ]);

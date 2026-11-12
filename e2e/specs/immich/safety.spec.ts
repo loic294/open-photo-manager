@@ -10,7 +10,7 @@ import { expect, test } from '../../src/immich-readonly-test';
 import { waitForIndexed } from '../../src/waits';
 
 test.use({
-  appOptions: { env: { APM_IMMICH_DATABASE_URL_FILE: '', APM_IMMICH_QUIET_SECS: '1' } },
+  appOptions: { env: { OPM_IMMICH_DATABASE_URL_FILE: '', OPM_IMMICH_QUIET_SECS: '1' } },
   allowedErrors: [/^requestfailed: .*\/api\/events net::ERR_ABORTED$/],
 });
 
@@ -72,7 +72,7 @@ test('a tracked move without database configuration refuses before changing file
   const result = await app.api.request<PlanDto>('GET', `/api/plans/${planId}`);
   expect(result.result).toMatchObject({ done: 0, skipped: 1, failed: 0 });
   await page.getByRole('button', { name: /Last run: 0 failed, 1 skipped/ }).click();
-  const dialog = page.locator('apm-plan-result');
+  const dialog = page.locator('opm-plan-result');
   await expect(
     dialog.getByText('Immich database update refused:', { exact: false }).first(),
   ).toBeVisible();

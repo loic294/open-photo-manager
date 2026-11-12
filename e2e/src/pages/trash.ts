@@ -6,7 +6,7 @@ export class TrashPage {
     await this.page.getByRole('tab', { name, exact: true }).click();
   }
   rows() {
-    return this.page.locator('apm-trash-items tbody').getByRole('row');
+    return this.page.locator('opm-trash-items tbody').getByRole('row');
   }
   selectedRestore() {
     return this.page.getByRole('button', { name: /^Restore selected \(\d+\)$/ });
@@ -33,7 +33,7 @@ export class TrashPage {
 
   // testing-e2e-system
   batches() {
-    return this.page.locator('apm-trash-deletions tbody').getByRole('row');
+    return this.page.locator('opm-trash-deletions tbody').getByRole('row');
   }
   row(name: string) {
     return this.rows().filter({ has: this.page.getByText(name, { exact: true }) });

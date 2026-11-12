@@ -1,14 +1,14 @@
 import type { TemplateResult } from 'lit';
 import type { PlanKind } from '@/api/generated/PlanKind';
 import type { PlanSide } from '@/api/generated/PlanSide';
-import type { IconName } from '@/components/apm-icon';
-import type { BaseMode } from '@/components/apm-pane';
+import type { IconName } from '@/components/opm-icon';
+import type { BaseMode } from '@/components/opm-pane';
 import { PANES, type PaneId, type ToolId } from '@/stores/nav';
 import type { ToolContext } from '@/tools/framework/tool-context';
 import type { ScopeLabels } from '@/util/filter';
 
 /**
- * The declarative description of a tool: `<apm-tool-view .config=${config}>` renders it, so a new
+ * The declarative description of a tool: `<opm-tool-view .config=${config}>` renders it, so a new
  * tool needs no layout code. Build it with `defineTool` and put the page element next to it (see
  * `tools/browse/`). The view never knows a tool by name: everything a tool does is in its config.
  * Everything a callback needs comes from its `ToolContext` argument (`./tool-context.ts`).

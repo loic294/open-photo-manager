@@ -8,7 +8,7 @@ import { expectStaysFalse } from '../../src/waits';
 test.describe('polling-only host policy', () => {
   test.use({
     appOptions: {
-      env: { APM_WATCH_MODE: 'poll' },
+      env: { OPM_WATCH_MODE: 'poll' },
       settings: (settings) => ({ ...settings, index: { ...settings.index, watch_enabled: true } }),
     },
   });
@@ -32,13 +32,13 @@ test.describe('polling-only host policy', () => {
     );
     for (const volume of await app.api.volumes()) {
       expect(volume.watch_mode).toBe('polling_only');
-      expect(volume.watch_reason).toContain('APM_WATCH_MODE=poll');
+      expect(volume.watch_reason).toContain('OPM_WATCH_MODE=poll');
     }
     await page.goto(`${app.url}/browse?src=photos/stale&cmp=photos/stale`);
     await expect(shell.notices()).toContainText('noticed only by the next rescan');
     await shell.navigate('Settings');
     await expect(settingsPage.volumes()).toContainText('polling only');
-    await expect(settingsPage.volumes().locator('[data-tip*="APM_WATCH_MODE=poll"]')).toHaveCount(
+    await expect(settingsPage.volumes().locator('[data-tip*="OPM_WATCH_MODE=poll"]')).toHaveCount(
       2,
     );
     const file = manifest.filesOf('stale.rename')[0];
@@ -67,7 +67,7 @@ test.describe('polling-only host policy', () => {
 
 for (const mode of [undefined, 'auto', 'watch']) {
   test.describe(`native policy ${mode ?? 'default'}`, () => {
-    test.use({ appOptions: { watcher: true, env: mode ? { APM_WATCH_MODE: mode } : {} } });
+    test.use({ appOptions: { watcher: true, env: mode ? { OPM_WATCH_MODE: mode } : {} } });
     test('native watch and WAL remain supported @slow', async ({
       app,
       page,
@@ -82,7 +82,7 @@ for (const mode of [undefined, 'auto', 'watch']) {
       for (const volume of await app.api.volumes()) {
         expect(volume.watch_mode).toBe('watching');
         expect(volume.watch_reason).toBe(
-          mode === 'watch' ? 'filesystem watching is forced by APM_WATCH_MODE=watch' : null,
+          mode === 'watch' ? 'filesystem watching is forced by OPM_WATCH_MODE=watch' : null,
         );
         expect(volume.case_insensitive).toEqual(expect.any(Boolean));
         if (process.platform === 'darwin') expect(volume.fs_type).toBeNull();
@@ -106,8 +106,8 @@ for (const mode of [undefined, 'auto', 'watch']) {
   });
 }
 
-test('invalid APM_WATCH_MODE refuses startup rather than silently defaulting @smoke', async () => {
-  await expect(AppInstance.start({ env: { APM_WATCH_MODE: 'sometimes' } })).rejects.toThrow(
-    /APM_WATCH_MODE[\s\S]*auto[\s\S]*watch[\s\S]*poll/,
+test('invalid OPM_WATCH_MODE refuses startup rather than silently defaulting @smoke', async () => {
+  await expect(AppInstance.start({ env: { OPM_WATCH_MODE: 'sometimes' } })).rejects.toThrow(
+    /OPM_WATCH_MODE[\s\S]*auto[\s\S]*watch[\s\S]*poll/,
   );
 });

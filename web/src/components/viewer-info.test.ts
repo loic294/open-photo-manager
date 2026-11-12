@@ -298,7 +298,7 @@ describe('viewerInfoOpen', () => {
 
   it('is stored under the app prefix, and restored by the next page load', async () => {
     viewerInfoOpen.value = true;
-    expect(localStorage.getItem('apm.v1.viewerInfoOpen')).toBe('true');
+    expect(localStorage.getItem('opm.v1.viewerInfoOpen')).toBe('true');
 
     vi.resetModules();
     const fresh = await import('@/components/viewer-info');
@@ -308,7 +308,7 @@ describe('viewerInfoOpen', () => {
   });
 
   it('ignores a stored value that is not a boolean', async () => {
-    localStorage.setItem('apm.v1.viewerInfoOpen', '"yes"');
+    localStorage.setItem('opm.v1.viewerInfoOpen', '"yes"');
     vi.resetModules();
     const fresh = await import('@/components/viewer-info');
     expect(fresh.viewerInfoOpen.value).toBe(false);

@@ -75,7 +75,7 @@ test('a sync can be cancelled from the task indicator and run again', async ({
     await shell.hoverTasks();
     const row = shell
       .taskIndicator()
-      .locator('apm-task-row')
+      .locator('opm-task-row')
       .filter({
         has: page.getByRole('button', { name: `Cancel ${task.title}`, exact: true }),
       });

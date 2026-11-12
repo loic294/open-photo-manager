@@ -6,7 +6,7 @@ test('Sidebar and Trash text retain contrast through focused theme changes', asy
   page,
 }, info) => {
   await page.goto(`${sharedApp.url}/trash`);
-  await expect(page.locator('apm-trash-page .alert-info')).toBeVisible();
+  await expect(page.locator('opm-trash-page .alert-info')).toBeVisible();
   const settings = page.getByRole('navigation', { name: 'Main', exact: true }).getByRole('link', {
     name: 'Settings',
     exact: true,
@@ -39,9 +39,9 @@ test('Sidebar and Trash text retain contrast through focused theme changes', asy
         })
         .reduce((sum, value, index) => sum + value * [0.2126, 0.7152, 0.0722][index], 0);
     const selectors = [
-      '#apm-menu a[href$="browse"]',
-      '#apm-menu a[href$="settings"]',
-      '#apm-menu li > button',
+      '#opm-menu a[href$="browse"]',
+      '#opm-menu a[href$="settings"]',
+      '#opm-menu li > button',
     ];
     const result = [];
     for (const theme of ['light', 'dark', 'light']) {
@@ -54,7 +54,7 @@ test('Sidebar and Trash text retain contrast through focused theme changes', asy
             [...document.querySelectorAll(selector)].map((element) => {
               const style = getComputedStyle(element);
               const parentBackground = getComputedStyle(
-                document.querySelector('#apm-menu') ?? document.documentElement,
+                document.querySelector('#opm-menu') ?? document.documentElement,
               ).backgroundColor;
               const background = composite(pixel(style.backgroundColor), pixel(parentBackground));
               const foreground = composite(pixel(style.color), background);

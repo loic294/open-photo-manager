@@ -129,9 +129,9 @@ fx_stamp_get() {
   awk -v k="$2" '{ i = index($0, "="); if (i > 0 && substr($0, 1, i - 1) == k) { print substr($0, i + 1); exit } }' "$1" 2>/dev/null || true
 }
 
-# Extension tables (mirrors crates/apm-core/src/consts.rs and kind.rs; keep in sync).
+# Extension tables (mirrors crates/opm-core/src/consts.rs and kind.rs; keep in sync).
 # fx_kind_of NAME : sets FX_KIND (image|raw|video|sidecar|other) and FX_DBK (Image|Video|Sidecar|Other).
-# The extension is whatever follows the last dot, except for ".hidden" style names (apm_core::names::split_name).
+# The extension is whatever follows the last dot, except for ".hidden" style names (opm_core::names::split_name).
 fx_kind_of() {
   local name=$1 rest ext='' nc=0
   rest=${name#?}
@@ -280,7 +280,7 @@ fx_write_xmp() {
   fi
   {
     printf '%s\n' '<?xpacket begin="" id="W5M0MpCehiHzreSzNTczkc9d"?>'
-    printf '%s\n' '<x:xmpmeta xmlns:x="adobe:ns:meta/" x:xmptk="apm-fixtures">'
+    printf '%s\n' '<x:xmpmeta xmlns:x="adobe:ns:meta/" x:xmptk="opm-fixtures">'
     printf '%s\n' ' <rdf:RDF xmlns:rdf="http://www.w3.org/1999/02/22-rdf-syntax-ns#">'
     printf '%s' '  <rdf:Description rdf:about=""'
     printf '%s\n' ''

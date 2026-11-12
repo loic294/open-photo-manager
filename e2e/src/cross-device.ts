@@ -42,7 +42,7 @@ export class CrossDevice {
       '-fs',
       'APFS',
       '-volname',
-      'APM private E2E',
+      'OPM private E2E',
       device.image,
     ]);
     // Cleanup is registered before attaching: even a partially failed attach must not be traversed.

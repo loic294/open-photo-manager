@@ -9,7 +9,7 @@ import {
   redirects as defaultRedirects,
   routes as defaultRoutes,
 } from '@/app/routes';
-import '@/components/apm-icon';
+import '@/components/opm-icon';
 import { navigate, syncFromLocation } from '@/stores/nav';
 
 const TAG_NAME = /^[a-z][a-z0-9]*(?:-[a-z0-9]+)+$/;
@@ -138,7 +138,7 @@ export function createAppRouter(host: ReactiveElement, options: AppRouterOptions
     return html`
       <div class="flex h-full items-center justify-center p-6">
         <div role="alert" class="alert alert-error alert-soft max-w-xl">
-          <apm-icon name="circle-alert"></apm-icon>
+          <opm-icon name="circle-alert"></opm-icon>
           <div>
             <h2 class="font-semibold">${route.label} could not be loaded</h2>
             <p class="text-sm">

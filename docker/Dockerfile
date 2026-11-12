@@ -1,4 +1,4 @@
-# Advanced Photo Manager: production image (Rust server + built web UI + the media tools it shells out to).
+# Open Photo Manager: production image (Rust server + built web UI + the media tools it shells out to).
 #
 # Build from the repository root with scripts/build-image.sh (or `docker buildx build -f docker/Dockerfile .`).
 # Running, configuration and troubleshooting: docker/README.md.
@@ -50,14 +50,14 @@ ARG CARGO_BUILD_JOBS
 COPY --from=planner /recipe.json /recipe.json
 RUN --mount=type=cache,target=/usr/local/cargo/registry,sharing=locked \
     --mount=type=cache,target=/usr/local/cargo/git,sharing=locked \
-    cargo chef cook --release --locked --recipe-path /recipe.json -p apm-server
+    cargo chef cook --release --locked --recipe-path /recipe.json -p opm-server
 COPY Cargo.toml Cargo.lock ./
 COPY .cargo .cargo
 COPY crates crates
 RUN --mount=type=cache,target=/usr/local/cargo/registry,sharing=locked \
     --mount=type=cache,target=/usr/local/cargo/git,sharing=locked \
-    cargo build --release --locked -p apm-server \
- && install -D -m 0755 target/release/apm-server /out/apm-server
+    cargo build --release --locked -p opm-server \
+ && install -D -m 0755 target/release/opm-server /out/opm-server
 
 # ---- runtime ---------------------------------------------------------------------------------------------------
 FROM debian:${DEBIAN_RELEASE}-slim AS runtime
@@ -85,13 +85,13 @@ RUN set -eu; \
 # uid/gid 1000 is only the default: the container is meant to run as whatever user owns the shared folders
 # (compose `user: "UID:GID"`). /data is owned by 1000 so a fresh named volume is writable by the default user;
 # bind mounts keep the host's ownership. Setuid/setgid bits are dropped (nothing here needs them).
-RUN groupadd --gid 1000 apm \
- && useradd --uid 1000 --gid 1000 --no-create-home --home-dir /nonexistent --shell /usr/sbin/nologin apm \
+RUN groupadd --gid 1000 opm \
+ && useradd --uid 1000 --gid 1000 --no-create-home --home-dir /nonexistent --shell /usr/sbin/nologin opm \
  && install -d -o 1000 -g 1000 -m 0755 /data \
  && install -d -m 0755 /volumes /app \
  && find / -xdev -type f \( -perm -4000 -o -perm -2000 \) -exec chmod a-s {} +
 
-COPY --from=builder /out/apm-server /app/apm-server
+COPY --from=builder /out/opm-server /app/opm-server
 COPY --from=web /src/web/dist /app/web
 COPY --chmod=0755 docker/entrypoint.sh docker/healthcheck.sh /app/
 COPY LICENSE /app/LICENSE
@@ -99,19 +99,19 @@ COPY LICENSE /app/LICENSE
 # The image documents its own configuration contract; see docker/README.md for each variable.
 # Empty values mean "unset" to the server. TMPDIR/HOME live on the /data volume so any uid can write them and
 # temp files can be renamed into /data/cache atomically (same filesystem); the entrypoint empties it on start.
-ENV APM_LISTEN=0.0.0.0:8080 \
-    APM_VOLUMES_DIR=/volumes \
-    APM_DATA_DIR=/data \
-    APM_WEB_DIR=/app/web \
-    APM_LOG=info \
-    APM_ALLOWED_HOSTS="" \
-    APM_INDEX_CONCURRENCY="" \
+ENV OPM_LISTEN=0.0.0.0:8080 \
+    OPM_VOLUMES_DIR=/volumes \
+    OPM_DATA_DIR=/data \
+    OPM_WEB_DIR=/app/web \
+    OPM_LOG=info \
+    OPM_ALLOWED_HOSTS="" \
+    OPM_INDEX_CONCURRENCY="" \
     TZ=UTC \
     LANG=C.UTF-8 \
     TMPDIR=/data/tmp \
     HOME=/data/tmp
 
-LABEL org.opencontainers.image.title="Advanced Photo Manager" \
+LABEL org.opencontainers.image.title="Open Photo Manager" \
       org.opencontainers.image.description="Browse, de-duplicate and organise a photo library on a NAS." \
       org.opencontainers.image.licenses="MIT"
 
@@ -120,4 +120,4 @@ WORKDIR /app
 EXPOSE 8080
 HEALTHCHECK --interval=30s --timeout=5s --start-period=20s --retries=3 CMD ["/app/healthcheck.sh"]
 ENTRYPOINT ["/usr/bin/tini", "--", "/app/entrypoint.sh"]
-CMD ["/app/apm-server"]
+CMD ["/app/opm-server"]

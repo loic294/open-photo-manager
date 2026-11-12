@@ -4,7 +4,7 @@ import { api } from '@/api/client';
 import { FakeEventSource } from '@/test/fake-event-source';
 import { mount } from '@/test/helpers';
 import { sampleImmichStatus } from '@/test/immich-fixtures';
-import '@/app/apm-app';
+import '@/app/opm-app';
 
 afterEach(() => {
   vi.restoreAllMocks();
@@ -19,15 +19,15 @@ it('shows and clears the accessible Settings menu dot reactively', async () => {
     return [];
   });
   const attention = signal(false);
-  if (!customElements.get('apm-immich-test-page'))
-    customElements.define('apm-immich-test-page', class extends HTMLElement {});
-  const el = await mount('apm-app', {
+  if (!customElements.get('opm-immich-test-page'))
+    customElements.define('opm-immich-test-page', class extends HTMLElement {});
+  const el = await mount('opm-app', {
     routes: [
       {
         path: '/settings',
         label: 'Settings',
         icon: 'settings',
-        tag: 'apm-immich-test-page',
+        tag: 'opm-immich-test-page',
         menu: 'footer',
         load: async () => {},
         attention: () => attention.value,

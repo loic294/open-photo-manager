@@ -1,14 +1,14 @@
 # Mock Immich
 
 One shared mock Immich server for development, browser checks and end-to-end tests. It answers the
-calls our Rust client makes (`crates/apm-server/src/immich/`) and nothing else, scans real mounted
+calls our Rust client makes (`crates/opm-server/src/immich/`) and nothing else, scans real mounted
 directories the way an Immich external library does, fails on demand, and records a **violation**
 when a call would remove the original file of an online asset (the one thing our backend must never
 cause). State is in memory and a scenario file seeds it: no UI, no persistence, no Docker.
 
 Zero npm dependencies. The source is TypeScript that Node 24 runs directly by type stripping (no
 build step); `tsc --noEmit` and Biome from `web/node_modules` check it. The permission list is read
-from `crates/apm-server/src/immich/spec-permissions.txt`, so the package works inside this repository.
+from `crates/opm-server/src/immich/spec-permissions.txt`, so the package works inside this repository.
 
 ## Run it
 
@@ -105,7 +105,7 @@ invalid scenario) and the types `MockImmich`, `MockImmichOptions`, `MockState`, 
 ## Control API (`/__mock/*`)
 
 Never under `/api`: it bypasses authentication, the request log, latency, failure rules and gates, and
-needs no `x-apm-request` header (that one is our backend's). Bodies are JSON; unknown fields are a 400.
+needs no `x-opm-request` header (that one is our backend's). Bodies are JSON; unknown fields are a 400.
 
 | Request | Effect |
 |---|---|
@@ -212,7 +212,7 @@ make mock-immich-smoke    # the real backend against the mock
 `test/*.test.ts` run over real HTTP on port 0 (and `--tls` when `openssl` exists); their scratch
 directories live in `tools/mock-immich/.scratch` (git-ignored; `MOCK_IMMICH_SCRATCH_DIR` moves it).
 
-`smoke.mjs` proves the mock agrees with the **real** `apm-server`: it runs `cargo build -p apm-server`
+`smoke.mjs` proves the mock agrees with the **real** `opm-server`: it runs `cargo build -p opm-server`
 (a no-op when current), copies `fixtures/out/volumes` (volumes `photos` and `archive`; a tiny
 generated tree of the same names when it is absent) into a scratch directory, starts the mock (the
 `fixtures` scenario, `/mnt/photos` and `/mnt/archive` mounted on the copies) and the backend, and
@@ -223,7 +223,7 @@ status check, revoked key then `needs_reconnect`, reconnect, TLS mock (untrusted
 and no violation. Steps whose backend feature is not on `main` yet (index rescan, detect-prefix,
 sync) print `skip`; they have marked extension points for the sync and outbox flows. It prints one
 line per step, and on a failure the mock's request log and the output of both processes; it removes
-its processes and directories either way. `APM_SERVER_BIN` uses a given backend binary as it is.
+its processes and directories either way. `OPM_SERVER_BIN` uses a given backend binary as it is.
 
 ## Who starts it, and how
 
@@ -245,7 +245,7 @@ its processes and directories either way. `APM_SERVER_BIN` uses a given backend 
 
 ## The Rust fake and this mock
 
-`crates/apm-server/tests/immich_support/mod.rs` is the in-process Rust fake: fast, no process, for
+`crates/opm-server/tests/immich_support/mod.rs` is the in-process Rust fake: fast, no process, for
 Rust integration tests. This mock serves everything that needs a real HTTP server over real
 directories: the real binary, browser checks, end-to-end tests and load tests. They model the same API,
 so a change to a request or response shape, a modelled behaviour or the permission list is made in

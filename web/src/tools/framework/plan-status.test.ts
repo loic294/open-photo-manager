@@ -237,7 +237,7 @@ describe('warnings', () => {
     const trigger = part(area, '[role="button"]');
     expect(trigger.classList.contains('text-base-content')).toBe(true);
     expect(trigger.classList.contains('text-warning')).toBe(false);
-    expect(part(trigger, 'apm-icon').classList.contains('text-warning')).toBe(true);
+    expect(part(trigger, 'opm-icon').classList.contains('text-warning')).toBe(true);
   });
 
   it('lists each message with its count', () => {

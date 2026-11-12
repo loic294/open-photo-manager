@@ -228,7 +228,7 @@ not accepted by **Folder formatting**. The examples use the generated sample fil
 
 ## Trash and recovery
 
-1. File-deletion actions send content to `<volume>/.apm-trash/<batch>/<original-relative-path>`,
+1. File-deletion actions send content to `<volume>/.opm-trash/<batch>/<original-relative-path>`,
    not to Synology's recycle bin. Linked sidecars follow owner-aware rules: a shared sidecar is
    trashed only when all its owners are trashed. Moves are not automatically reversible;
    cross-volume source removal is separate from trash, as explained above.
@@ -244,7 +244,7 @@ not accepted by **Folder formatting**. The examples use the generated sample fil
 
 3. **Empty trash…** opens a confirmation and permanently removes the trash covered by the displayed
    snapshot. Items newly trashed after that snapshot are not swept into the same manual empty task.
-   This is not undoable in APM.
+   This is not undoable in OPM.
 
    You should see: a warning before permanent deletion, then a background trash-empty task.
 
@@ -314,10 +314,10 @@ minutes use `{min}`. Month names are English. The sample is `IMG_0042.CR3`, capt
    You should see: image/video preview and file details where available. Video playback uses the
    original codec; browser support varies.
 
-3. File deletions go to the volume's `.apm-trash` and can be restored from **Trash**. Empty
+3. File deletions go to the volume's `.opm-trash` and can be restored from **Trash**. Empty
    folders are removed, not trashed. **Empty trash…** permanently deletes the displayed snapshot;
    **Delete trashed files automatically** is off by default, but enabling retention also permanently
-   deletes old items. A permanent delete cannot be restored by APM.
+   deletes old items. A permanent delete cannot be restored by OPM.
 
    You should see: the warning and a confirmation before a permanent delete.
 

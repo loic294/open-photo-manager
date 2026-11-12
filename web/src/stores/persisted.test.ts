@@ -37,18 +37,18 @@ afterEach(() => {
 
 describe('persistedSignal', () => {
   it('uses the versioned key prefix', () => {
-    expect(STORAGE_PREFIX).toBe('apm.v1.');
+    expect(STORAGE_PREFIX).toBe('opm.v1.');
   });
 
   it('starts from the fallback and does not write it back', () => {
     const color = persisted('color', 'red', isColor);
 
     expect(color.value).toBe('red');
-    expect(localStorage.getItem('apm.v1.color')).toBeNull();
+    expect(localStorage.getItem('opm.v1.color')).toBeNull();
   });
 
   it('starts from a valid stored value', () => {
-    localStorage.setItem('apm.v1.color', '"green"');
+    localStorage.setItem('opm.v1.color', '"green"');
 
     expect(persisted('color', 'red', isColor).value).toBe('green');
   });
@@ -58,7 +58,7 @@ describe('persistedSignal', () => {
     ['corrupt JSON', '{nope'],
     ['a value of the wrong type', '12'],
   ])('falls back on %s', (_label, stored) => {
-    localStorage.setItem('apm.v1.color', stored);
+    localStorage.setItem('opm.v1.color', stored);
 
     expect(persisted('color', 'red', isColor).value).toBe('red');
   });
@@ -68,7 +68,7 @@ describe('persistedSignal', () => {
 
     color.value = 'green';
 
-    expect(localStorage.getItem('apm.v1.color')).toBe('"green"');
+    expect(localStorage.getItem('opm.v1.color')).toBe('"green"');
   });
 
   it('round-trips object values', () => {
@@ -77,7 +77,7 @@ describe('persistedSignal', () => {
 
     map.value = { ...map.value, browse: 'open' };
 
-    expect(JSON.parse(localStorage.getItem('apm.v1.map') ?? 'null')).toEqual({ browse: 'open' });
+    expect(JSON.parse(localStorage.getItem('opm.v1.map') ?? 'null')).toEqual({ browse: 'open' });
     expect(persisted('map', {}, guard).value).toEqual({ browse: 'open' });
   });
 });
@@ -88,7 +88,7 @@ describe('cross-tab sync', () => {
     color.value = 'green';
     const setItem = vi.spyOn(Storage.prototype, 'setItem');
 
-    remoteChange('apm.v1.color', '"red"');
+    remoteChange('opm.v1.color', '"red"');
 
     expect(color.value).toBe('red');
     expect(setItem).not.toHaveBeenCalled();
@@ -98,11 +98,11 @@ describe('cross-tab sync', () => {
     const color = persisted('color', 'red', isColor);
     color.value = 'green';
 
-    remoteChange('apm.v1.color', '"blue"');
+    remoteChange('opm.v1.color', '"blue"');
     expect(color.value).toBe('red');
 
     color.value = 'green';
-    remoteChange('apm.v1.color', null);
+    remoteChange('opm.v1.color', null);
     expect(color.value).toBe('red');
   });
 
@@ -118,8 +118,8 @@ describe('cross-tab sync', () => {
   it('ignores other keys and other storage areas', () => {
     const color = persisted('color', 'red', isColor);
 
-    remoteChange('apm.v1.other', '"green"');
-    remoteChange('apm.v1.color', '"green"', sessionStorage);
+    remoteChange('opm.v1.other', '"green"');
+    remoteChange('opm.v1.color', '"green"', sessionStorage);
 
     expect(color.value).toBe('red');
   });
@@ -130,7 +130,7 @@ describe('cross-tab sync', () => {
     map.subscribe(seen);
     seen.mockClear();
 
-    remoteChange('apm.v1.map', '{"a":"b"}');
+    remoteChange('opm.v1.map', '{"a":"b"}');
 
     expect(seen).not.toHaveBeenCalled();
   });
@@ -139,11 +139,11 @@ describe('cross-tab sync', () => {
     const color = persisted('color', 'red', isColor);
     color.dispose();
 
-    remoteChange('apm.v1.color', '"green"');
+    remoteChange('opm.v1.color', '"green"');
     color.value = 'green';
 
     expect(color.value).toBe('green');
-    expect(localStorage.getItem('apm.v1.color')).toBeNull();
+    expect(localStorage.getItem('opm.v1.color')).toBeNull();
   });
 });
 

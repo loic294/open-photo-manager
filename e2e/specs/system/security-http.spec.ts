@@ -29,14 +29,14 @@ test('all non-GET routes reject missing, ambiguous and cross-site markers', asyn
   for (const route of routes.filter((route) => route.method !== 'GET')) {
     const rejectedHeaders: Record<string, string | string[]>[] = [
       {},
-      { 'x-apm-request': '0' },
-      { 'x-apm-request': 'true' },
-      { 'x-apm-request': ['1', '1'] },
-      { 'x-apm-request': '1', Origin: 'https://evil.example' },
-      { 'x-apm-request': '1', Origin: 'null' },
-      { 'x-apm-request': '1', Origin: 'not an origin' },
-      { 'x-apm-request': '1', 'Sec-Fetch-Site': 'cross-site' },
-      { 'x-apm-request': '1', 'Sec-Fetch-Site': 'same-site' },
+      { 'x-opm-request': '0' },
+      { 'x-opm-request': 'true' },
+      { 'x-opm-request': ['1', '1'] },
+      { 'x-opm-request': '1', Origin: 'https://evil.example' },
+      { 'x-opm-request': '1', Origin: 'null' },
+      { 'x-opm-request': '1', Origin: 'not an origin' },
+      { 'x-opm-request': '1', 'Sec-Fetch-Site': 'cross-site' },
+      { 'x-opm-request': '1', 'Sec-Fetch-Site': 'same-site' },
     ];
     for (const headers of rejectedHeaders) {
       const response = await rawRequest({
@@ -72,7 +72,7 @@ test('same-origin and script requests reach validation; preflight has no CORS @s
       url: app.url,
       method: 'PUT',
       path: '/api/settings',
-      headers: { Host: host, 'x-apm-request': '1', 'Content-Type': 'application/json', ...headers },
+      headers: { Host: host, 'x-opm-request': '1', 'Content-Type': 'application/json', ...headers },
       body: JSON.stringify(settings),
     });
     expect(response.status).toBe(200);
@@ -153,7 +153,7 @@ test('headers, limits, fallbacks, request IDs and log redaction @smoke', async (
       body,
       headers: {
         Host: new URL(app.url).host,
-        'x-apm-request': '1',
+        'x-opm-request': '1',
         'Content-Type': 'application/json',
         'x-request-id': id ?? 'system-e2e',
       },
@@ -177,7 +177,7 @@ test('headers, limits, fallbacks, request IDs and log redaction @smoke', async (
     path: '/api/settings',
     headers: {
       Host: new URL(app.url).host,
-      'x-apm-request': '1',
+      'x-opm-request': '1',
       'Content-Type': 'application/json',
       'Content-Length': String(1024 ** 2 + 1),
     },
@@ -198,7 +198,7 @@ test('Host rejection covers API, event stream, media and escaped HTML', async ({
       if (path.startsWith('/api/'))
         expect(response.json()).toMatchObject({ error: { code: 'host_not_allowed' } });
       else {
-        expect(response.text).toContain('APM_ALLOWED_HOSTS');
+        expect(response.text).toContain('OPM_ALLOWED_HOSTS');
         expect(response.text).not.toContain('<script>x</script>');
         for (const [header, value] of Object.entries(standardHeaders))
           expect(response.headers[header]).toBe(value);
@@ -221,7 +221,7 @@ test('Host rejection covers API, event stream, media and escaped HTML', async ({
 });
 
 test.describe('configured host names', () => {
-  test.use({ appOptions: { env: { APM_ALLOWED_HOSTS: 'nas.local, *.example.com' } } });
+  test.use({ appOptions: { env: { OPM_ALLOWED_HOSTS: 'nas.local, *.example.com' } } });
   test('explicit host and wildcard do not allow the wildcard apex', async ({ app }) => {
     for (const [host, status] of [
       ['nas.local:42', 200],

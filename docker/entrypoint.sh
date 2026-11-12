@@ -5,13 +5,13 @@
 # Any other command (`docker run IMAGE exiftool -ver`) is passed through untouched.
 set -eu
 
-data_dir="${APM_DATA_DIR:-/data}"
-volumes_dir="${APM_VOLUMES_DIR:-/volumes}"
+data_dir="${OPM_DATA_DIR:-/data}"
+volumes_dir="${OPM_VOLUMES_DIR:-/volumes}"
 tmp_dir="${TMPDIR:-/tmp}"
 
-[ "$#" -gt 0 ] || set -- /app/apm-server
+[ "$#" -gt 0 ] || set -- /app/opm-server
 case "$1" in
-  /app/apm-server | apm-server) is_server=1 ;;
+  /app/opm-server | opm-server) is_server=1 ;;
   *) is_server=0 ;;
 esac
 
@@ -21,7 +21,7 @@ log() {
 }
 
 if [ "$is_server" = 1 ]; then
-  probe="$data_dir/.apm-write-test.$$"
+  probe="$data_dir/.opm-write-test.$$"
   if ! touch "$probe" 2>/dev/null; then
     uid="$(id -u)"
     gid="$(id -g)"
@@ -29,7 +29,7 @@ if [ "$is_server" = 1 ]; then
 entrypoint: ERROR: the data directory $data_dir is not writable by uid $uid (gid $gid).
 The app keeps its database, settings and thumbnail cache there, so it cannot start.
 Fix the ownership of the folder mounted at $data_dir on the host, for example over SSH on the NAS:
-    sudo chown -R $uid:$gid /volume1/docker/apm
+    sudo chown -R $uid:$gid /volume1/docker/opm
 or run the container as the user that owns that folder (compose: user: "UID:GID"; find the numbers with: id <user>).
 If the folder is mounted read-only (":ro"), remove that suffix.
 On Docker Desktop for Windows, use a Docker named volume for /data and omit the compose "user:" line.

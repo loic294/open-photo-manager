@@ -4,7 +4,7 @@ export type { ToastOptions } from '@/stores/toasts';
 
 /**
  * Shows a notification in the corner of the screen. The app shell renders the one
- * `<apm-toast-host>` that displays them, so never add another.
+ * `<opm-toast-host>` that displays them, so never add another.
  *
  *   toast.success('Moved 12 files');
  *   toast.error(errorMessage(error));

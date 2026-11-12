@@ -13,7 +13,7 @@ check-tools: check-e2e
 e2e-build:
 	test -d web/node_modules || npm --prefix web ci
 	npm --prefix web run build
-	cargo build -p apm-server $(if $(filter release,$(E2E_PROFILE)),--release)
+	cargo build -p opm-server $(if $(filter release,$(E2E_PROFILE)),--release)
 
 e2e: e2e-build check-e2e
 	cd e2e && npx playwright test $(E2E_ARGS)

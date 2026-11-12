@@ -1,13 +1,13 @@
 #!/usr/bin/env bash
-# Builds the Advanced Photo Manager container image from docker/Dockerfile.
+# Builds the Open Photo Manager container image from docker/Dockerfile.
 #
 #   scripts/build-image.sh [--platform LIST] [--tag NAME:TAG]... [--load | --push | --tar DIR] [-- BUILDX_ARGS...]
 #
 # See docker/README.md for what each mode is for. Compatible with the bash 3.2 that ships with macOS.
 set -euo pipefail
 
-DEFAULT_TAG="advanced-photo-manager:dev"
-FALLBACK_BUILDER="apm-builder"
+DEFAULT_TAG="open-photo-manager:dev"
+FALLBACK_BUILDER="opm-builder"
 ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 
 usage() {
@@ -17,7 +17,7 @@ Usage: scripts/build-image.sh [options] [-- extra "docker buildx build" argument
 Options:
   --platform LIST   Comma-separated target platforms, e.g. linux/amd64,linux/arm64
                     (default: the platform of the Docker engine, so builds are native and fast)
-  --tag NAME:TAG    Image name; may be repeated (default: advanced-photo-manager:dev)
+  --tag NAME:TAG    Image name; may be repeated (default: open-photo-manager:dev)
   --load            Load the image into the local Docker engine (default; one platform)
   --push            Push a multi-platform manifest to the registry named in --tag
   --tar DIR         Write one docker-load-able tarball per platform into DIR, for a NAS that cannot
@@ -27,11 +27,11 @@ Options:
 Examples:
   scripts/build-image.sh
   scripts/build-image.sh --platform linux/amd64 --tar target/images
-  scripts/build-image.sh --platform linux/amd64,linux/arm64 --tag ghcr.io/me/apm:1.0 --push
+  scripts/build-image.sh --platform linux/amd64,linux/arm64 --tag ghcr.io/me/opm:1.0 --push
   scripts/build-image.sh -- --build-arg CARGO_BUILD_JOBS=2 --progress=plain
 
 Set BUILDX_BUILDER to use a specific buildx builder; otherwise a docker-container builder named
-apm-builder is created when the active builder cannot do what was asked.
+opm-builder is created when the active builder cannot do what was asked.
 EOF
 }
 

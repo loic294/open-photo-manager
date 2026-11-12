@@ -1,6 +1,6 @@
 import { html, nothing } from 'lit';
-import type { MatchChangeEvent } from '@/components/apm-match-mode';
-import '@/components/apm-match-mode';
+import type { MatchChangeEvent } from '@/components/opm-match-mode';
+import '@/components/opm-match-mode';
 import { matchMode, strictPrefix } from '@/tools/duplicates/duplicates-state';
 import { renderPendingNotice } from '@/tools/framework/plan-notices';
 import type { ToolContext } from '@/tools/framework/tool-context';
@@ -13,7 +13,7 @@ export function duplicateControls(ctx: ToolContext) {
   const comparison = stats.comparison_matched ?? 0;
   const source = stats.source_matched ?? 0;
   return html`
-    <apm-match-mode
+    <opm-match-mode
       .mode=${matchMode.value}
       .strict=${strictPrefix.value}
       @match-change=${(event: MatchChangeEvent) => {
@@ -22,7 +22,7 @@ export function duplicateControls(ctx: ToolContext) {
         matchMode.value = detail.mode;
         strictPrefix.value = detail.strict;
       }}
-    ></apm-match-mode>
+    ></opm-match-mode>
     ${
       ctx.plan.status === 'ready'
         ? html`<span

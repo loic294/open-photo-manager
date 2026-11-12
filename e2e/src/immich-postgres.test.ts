@@ -72,7 +72,7 @@ test('real v3.3.3 SQL path updates are visible through the mock API', {
   const createKey = await fetch(`${mock.url}/api/api-keys`, {
     method: 'POST',
     headers: { 'content-type': 'application/json', authorization: `Bearer ${session.accessToken}` },
-    body: JSON.stringify({ name: 'apm-test', permissions: ['asset.read', 'asset.delete'] }),
+    body: JSON.stringify({ name: 'opm-test', permissions: ['asset.read', 'asset.delete'] }),
   });
   assert.equal(createKey.status, 201);
   const key: { secret: string } = await createKey.json();

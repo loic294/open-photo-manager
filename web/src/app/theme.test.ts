@@ -106,7 +106,7 @@ describe('startTheme', () => {
 
 describe('public/theme-init.js', () => {
   it.each(['light', 'dark'])('applies a stored %s theme', (stored) => {
-    localStorage.setItem('apm.v1.theme', JSON.stringify(stored));
+    localStorage.setItem('opm.v1.theme', JSON.stringify(stored));
 
     runThemeInit();
 
@@ -117,7 +117,7 @@ describe('public/theme-init.js', () => {
     runThemeInit();
     expect(dataTheme()).toBeNull();
 
-    localStorage.setItem('apm.v1.theme', '"system"');
+    localStorage.setItem('opm.v1.theme', '"system"');
     runThemeInit();
     expect(dataTheme()).toBeNull();
   });
@@ -129,7 +129,7 @@ describe('public/theme-init.js', () => {
     ['text that is not JSON', 'dark'],
     ['an empty value', ''],
   ])('ignores %s', (_, stored) => {
-    localStorage.setItem('apm.v1.theme', stored);
+    localStorage.setItem('opm.v1.theme', stored);
 
     expect(runThemeInit).not.toThrow();
     expect(dataTheme()).toBeNull();

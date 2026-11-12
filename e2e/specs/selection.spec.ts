@@ -93,7 +93,7 @@ test('file options have no nested controls and retain keyboard selection and vie
   await expect.poll(() => source.names()).not.toEqual([]);
   await expect.poll(() => comparison.names()).not.toEqual([]);
   const names = await source.names();
-  await expectNoSeriousA11yViolations(page, { include: ['apm-file-grid'] });
+  await expectNoSeriousA11yViolations(page, { include: ['opm-file-grid'] });
   for (const pane of [source, comparison]) {
     const first = pane.card(names[0]);
     const second = pane.card(names[1]);
@@ -124,7 +124,7 @@ test('file options have no nested controls and retain keyboard selection and vie
     await pane.clear();
     await expect(first.element).toHaveAttribute('aria-selected', 'false');
   }
-  await expectNoSeriousA11yViolations(page, { include: ['apm-file-grid'] });
+  await expectNoSeriousA11yViolations(page, { include: ['opm-file-grid'] });
   await source.card(names[0]).element.focus();
   await page.keyboard.press('Enter');
   await viewer.expectOpen(names[0]);

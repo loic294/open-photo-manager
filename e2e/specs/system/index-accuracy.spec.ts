@@ -159,7 +159,7 @@ test('UI facet values and counts match the manifest, including XMP-only filters'
     ['Tags', facets.tags, counts((file) => file.tags_expected ?? [])],
   ] as const) {
     expect([...actual].sort((a, b) => a.value.localeCompare(b.value))).toEqual(expected);
-    await filterBar.element.locator(`apm-multi-select[label="${label}"] summary`).click();
+    await filterBar.element.locator(`opm-multi-select[label="${label}"] summary`).click();
     for (const entry of expected) {
       await expect(
         filterBar.facets(label).and(

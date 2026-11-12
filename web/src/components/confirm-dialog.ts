@@ -1,9 +1,9 @@
 import { signal } from '@preact/signals-core';
 import { html, type TemplateResult } from 'lit';
 import { live } from 'lit/directives/live.js';
-import { ApmElement } from '@/base/apm-element';
-import '@/components/apm-icon';
-import '@/components/apm-modal';
+import { OpmElement } from '@/base/opm-element';
+import '@/components/opm-icon';
+import '@/components/opm-modal';
 
 export interface ConfirmOptions {
   /** The heading, e.g. "Delete 12 files?". */
@@ -22,11 +22,11 @@ interface Request extends ConfirmOptions {
   resolve: (confirmed: boolean) => void;
 }
 
-const MESSAGE_ID = 'apm-confirm-message';
+const MESSAGE_ID = 'opm-confirm-message';
 
 const queue: Request[] = [];
 const active = signal<Request | undefined>(undefined);
-let host: ApmConfirmDialog | undefined;
+let host: OpmConfirmDialog | undefined;
 
 /**
  * Asks the user to confirm and resolves with their answer: `true` for the confirm button,
@@ -52,7 +52,7 @@ export function confirmDialog(options: ConfirmOptions): Promise<boolean> {
 
 function ensureHost(): void {
   if (host?.isConnected) return;
-  host = document.createElement('apm-confirm-dialog');
+  host = document.createElement('opm-confirm-dialog');
   document.body.append(host);
 }
 
@@ -77,7 +77,7 @@ function cancelAll(): void {
  * The view of the shared confirm dialog. Not for direct use: call `confirmDialog()`.
  * Removing it from the page answers everything still waiting with `false`.
  */
-export class ApmConfirmDialog extends ApmElement {
+export class OpmConfirmDialog extends OpmElement {
   /** What the latest render showed; undefined when it rendered the dialog closed. */
   private current: Request | undefined;
   /** Kept after closing so the content does not vanish during the closing animation. */
@@ -96,7 +96,7 @@ export class ApmConfirmDialog extends ApmElement {
   }
 
   private async focusPreferredButton(): Promise<void> {
-    const modal = this.querySelector('apm-modal');
+    const modal = this.querySelector('opm-modal');
     await modal?.updateComplete;
     modal?.querySelector<HTMLElement>('[autofocus]')?.focus();
   }
@@ -115,7 +115,7 @@ export class ApmConfirmDialog extends ApmElement {
     this.last = this.current ?? this.last;
     const request = this.last;
     return html`
-      <apm-modal
+      <opm-modal
         size="sm"
         .open=${live(this.current !== undefined)}
         .heading=${request?.title ?? ''}
@@ -123,14 +123,14 @@ export class ApmConfirmDialog extends ApmElement {
         .actions=${request ? this.renderActions(request) : undefined}
         .describedBy=${MESSAGE_ID}
         @close=${this.onClose}
-      ></apm-modal>
+      ></opm-modal>
     `;
   }
 
   private renderMessage({ message, danger }: Request) {
     return danger
       ? html`<div class="alert alert-soft alert-warning">
-          <apm-icon name="triangle-alert"></apm-icon>
+          <opm-icon name="triangle-alert"></opm-icon>
           <span id=${MESSAGE_ID} class="whitespace-pre-line">${message}</span>
         </div>`
       : html`<p id=${MESSAGE_ID} class="whitespace-pre-line">${message}</p>`;
@@ -159,10 +159,10 @@ export class ApmConfirmDialog extends ApmElement {
   }
 }
 
-customElements.define('apm-confirm-dialog', ApmConfirmDialog);
+customElements.define('opm-confirm-dialog', OpmConfirmDialog);
 
 declare global {
   interface HTMLElementTagNameMap {
-    'apm-confirm-dialog': ApmConfirmDialog;
+    'opm-confirm-dialog': OpmConfirmDialog;
   }
 }

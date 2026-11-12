@@ -52,7 +52,7 @@ test('real cross-device copy preserves bytes and exposes measured progress @slow
   const device = await CrossDevice.create(app, COPY_BYTES);
   try {
     const existingParts = (await snapshotTree(app.volumesDir))
-      .filter((entry) => entry.path.endsWith('.apm-part'))
+      .filter((entry) => entry.path.endsWith('.opm-part'))
       .map((entry) => entry.path);
     await makeSparseFile(app, 'photos', 'system-copy/large.bin', COPY_BYTES);
     await app.rescan();
@@ -90,7 +90,7 @@ test('real cross-device copy preserves bytes and exposes measured progress @slow
             headers: {
               Host: new URL(app.url).host,
               Origin: app.url,
-              'x-apm-request': '1',
+              'x-opm-request': '1',
               'Content-Type': 'application/json',
             },
             body: JSON.stringify(browse),
@@ -141,7 +141,7 @@ test('real cross-device copy preserves bytes and exposes measured progress @slow
     expect(await diskHash(app.volumePath(`${device.volume}/copied/large.bin`))).toBe(original.hash);
     const tree = await snapshotTree(app.volumesDir);
     expect(
-      tree.filter((entry) => entry.path.endsWith('.apm-part')).map((entry) => entry.path),
+      tree.filter((entry) => entry.path.endsWith('.opm-part')).map((entry) => entry.path),
     ).toEqual(existingParts);
     expect(tree.some((entry) => entry.path === 'photos/system-copy/large.bin')).toBe(false);
   } finally {
@@ -168,7 +168,7 @@ test('task hover, keyboard, live reload and cancel leave the rest of the UI resp
   const device = await CrossDevice.create(app, COPY_BYTES);
   try {
     const existingParts = (await snapshotTree(app.volumesDir))
-      .filter((entry) => entry.path.endsWith('.apm-part'))
+      .filter((entry) => entry.path.endsWith('.opm-part'))
       .map((entry) => entry.path);
     const template = manifest.filesOf('exif.full_nikon')[0];
     await makeSparseFile(app, 'photos', 'system-cancel/large.bin', COPY_BYTES);
@@ -212,7 +212,7 @@ test('task hover, keyboard, live reload and cancel leave the rest of the UI resp
     await expect(shell.taskPanel()).toContainText('left');
     for (const theme of ['light', 'dark'] as const) {
       await shell.theme(theme);
-      await expectNoSeriousA11yViolations(page, { include: ['apm-task-indicator'] });
+      await expectNoSeriousA11yViolations(page, { include: ['opm-task-indicator'] });
     }
     await captureScreens(page, 'system-task-panel');
     await page.keyboard.press('Escape');
@@ -281,7 +281,7 @@ test('task hover, keyboard, live reload and cancel leave the rest of the UI resp
     expect((await indexedFile(app, device.volume, 'queued/queued.jpg')).hash).toBe(template.sha1);
     const tree = await snapshotTree(app.volumesDir);
     expect(
-      tree.filter((entry) => entry.path.endsWith('.apm-part')).map((entry) => entry.path),
+      tree.filter((entry) => entry.path.endsWith('.opm-part')).map((entry) => entry.path),
     ).toEqual(existingParts);
     expect(tree.some((entry) => entry.path === `${device.volume}/cancelled/large.bin`)).toBe(false);
     await expect(shell.taskTrigger()).toHaveCount(0, { timeout: 10_000 });
@@ -305,7 +305,7 @@ test('failed tasks retain the full error, dismiss persistently and raise a new b
   );
   await trashFixtures(app, manifest.filesOf('deep.grid_500').slice(0, 1));
   const item = (await trashList(app)).items[0];
-  const parent = app.volumePath(`${item.volume}/.apm-trash/${item.batch}/${item.dir}`);
+  const parent = app.volumePath(`${item.volume}/.opm-trash/${item.batch}/${item.dir}`);
   await chmod(parent, 0o555);
   try {
     await page.goto(`${app.url}/trash`);
@@ -356,7 +356,7 @@ test.describe('intentional SIGKILL outage', () => {
     const device = await CrossDevice.create(app, COPY_BYTES);
     try {
       const existingParts = (await snapshotTree(app.volumesDir))
-        .filter((entry) => entry.path.endsWith('.apm-part'))
+        .filter((entry) => entry.path.endsWith('.opm-part'))
         .map((entry) => entry.path);
       await makeSparseFile(app, 'photos', 'system-crash/large.bin', COPY_BYTES);
       await app.rescan();
@@ -397,7 +397,7 @@ test.describe('intentional SIGKILL outage', () => {
       await expect(shell.taskPanel()).toContainText('Interrupted');
       const tree = await snapshotTree(app.volumesDir);
       expect(
-        tree.filter((entry) => entry.path.endsWith('.apm-part')).map((entry) => entry.path),
+        tree.filter((entry) => entry.path.endsWith('.opm-part')).map((entry) => entry.path),
       ).toEqual(existingParts);
       const survivors = tree.filter(
         (entry) => entry.type === 'file' && entry.path.endsWith('/large.bin'),

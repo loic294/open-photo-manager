@@ -1,6 +1,6 @@
 import type { MoveExecuteOptions } from '@/api/generated/MoveExecuteOptions';
-import type { IconName } from '@/components/apm-icon';
 import type { ConfirmOptions } from '@/components/confirm-dialog';
+import type { IconName } from '@/components/opm-icon';
 import type { PaneLocation } from '@/stores/nav';
 import { executePlanAction, type PlanActionSpec } from '@/tools/framework/plan-actions';
 import type { ToolActions } from '@/tools/framework/tool-config';

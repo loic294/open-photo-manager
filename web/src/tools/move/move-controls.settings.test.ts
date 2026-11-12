@@ -24,14 +24,14 @@ it('keeps Default usable before settings load and shows the shared policy label 
   const container = document.createElement('div');
   document.body.append(container);
   render(renderConflictPolicy(rules), container);
-  expect(container.querySelector('apm-select')?.options[0]?.label).toBe('Default');
+  expect(container.querySelector('opm-select')?.options[0]?.label).toBe('Default');
   (settings as ReturnType<typeof signal<SettingsDto | null>>).value = sampleSettings({
     default_conflict_policy: 'replace',
   });
   render(renderConflictPolicy(rules), container);
-  expect(container.querySelector('apm-select')?.options[0]?.label).toBe('Default (Replace)');
+  expect(container.querySelector('opm-select')?.options[0]?.label).toBe('Default (Replace)');
   container
-    .querySelector('apm-select')
+    .querySelector('opm-select')
     ?.dispatchEvent(new CustomEvent('select-change', { detail: { value: 'rename' } }));
   expect(rules.policy.value).toBe('rename');
 });

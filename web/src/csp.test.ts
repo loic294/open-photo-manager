@@ -77,7 +77,7 @@ describe('index.html', () => {
 
   it('puts the app shell in the body', () => {
     expect([...doc.body.children].map((element) => element.localName)).toEqual([
-      'apm-app',
+      'opm-app',
       'script',
     ]);
     expect(doc.documentElement.lang).toBe('en');

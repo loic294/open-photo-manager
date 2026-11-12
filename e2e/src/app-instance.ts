@@ -131,11 +131,11 @@ export class AppInstance {
         ...process.env,
         ...this.options.env,
         TZ: 'UTC',
-        APM_LOG: 'info',
-        APM_LISTEN: `127.0.0.1:${address.port}`,
-        APM_DATA_DIR: this.dataDir,
-        APM_VOLUMES_DIR: this.volumesDir,
-        APM_WEB_DIR: join(root, 'web/dist'),
+        OPM_LOG: 'info',
+        OPM_LISTEN: `127.0.0.1:${address.port}`,
+        OPM_DATA_DIR: this.dataDir,
+        OPM_VOLUMES_DIR: this.volumesDir,
+        OPM_WEB_DIR: join(root, 'web/dist'),
       },
       stdio: ['ignore', 'pipe', 'pipe'],
     });
@@ -239,7 +239,7 @@ export class AppInstance {
     return this.output;
   }
   sql(query: string) {
-    const db = new DatabaseSync(join(this.dataDir, 'apm.db'), { readOnly: true });
+    const db = new DatabaseSync(join(this.dataDir, 'opm.db'), { readOnly: true });
     try {
       return db.prepare(query).all();
     } finally {

@@ -79,11 +79,11 @@ test('an API key is created with the bearer token and works at once', async (t) 
   const token = await login(mock);
   const created = await call(mock, 'POST', '/api/api-keys', {
     token,
-    body: { name: 'apm', permissions: APP_PERMISSIONS },
+    body: { name: 'opm', permissions: APP_PERMISSIONS },
   });
   assert.equal(created.status, 201);
   assert.match(created.body.id, /^[0-9a-f-]{36}$/);
-  assert.equal(created.body.name, 'apm');
+  assert.equal(created.body.name, 'opm');
   assert.deepEqual(created.body.permissions, APP_PERMISSIONS);
   assert.equal(typeof created.body.secret, 'string');
   assert.deepEqual(observed, [created.body.secret]);
@@ -100,7 +100,7 @@ test('an API key is created with the bearer token and works at once', async (t) 
   assert.ok(!JSON.stringify(mock.state.requests()).includes(created.body.secret));
   const entry = mock.state.requests().entries.at(-1);
   assert.equal(entry?.auth, 'apiKey');
-  assert.equal(entry?.keyName, 'apm');
+  assert.equal(entry?.keyName, 'opm');
 });
 
 test('creating a key needs a session or the apiKey.create permission, and valid permissions', async (t) => {
@@ -109,7 +109,7 @@ test('creating a key needs a session or the apiKey.create permission, and valid 
 
   const unknown = await call(mock, 'POST', '/api/api-keys', {
     token,
-    body: { name: 'apm', permissions: ['asset.read', 'bogus.permission'] },
+    body: { name: 'opm', permissions: ['asset.read', 'bogus.permission'] },
   });
   assert.equal(unknown.status, 400);
   assert.ok(
@@ -119,16 +119,16 @@ test('creating a key needs a session or the apiKey.create permission, and valid 
     JSON.stringify(unknown.body),
   );
 
-  const none = await call(mock, 'POST', '/api/api-keys', { token, body: { name: 'apm' } });
+  const none = await call(mock, 'POST', '/api/api-keys', { token, body: { name: 'opm' } });
   assert.equal(none.status, 400);
   const empty = await call(mock, 'POST', '/api/api-keys', {
     token,
-    body: { name: 'apm', permissions: [] },
+    body: { name: 'opm', permissions: [] },
   });
   assert.equal(empty.status, 400);
 
   const anonymous = await call(mock, 'POST', '/api/api-keys', {
-    body: { name: 'apm', permissions: ['all'] },
+    body: { name: 'opm', permissions: ['all'] },
   });
   assert.equal(anonymous.status, 401);
 
@@ -221,7 +221,7 @@ test('a login session is accepted only where the application uses one', async (t
   assert.deepEqual(loggedOut.body, { successful: true, redirectUri: '/auth/login?autoLaunch=0' });
   const stale = await call(mock, 'POST', '/api/api-keys', {
     token,
-    body: { name: 'apm', permissions: ['all'] },
+    body: { name: 'opm', permissions: ['all'] },
   });
   assert.equal(stale.status, 401);
   assert.equal(stale.body.message, 'Invalid user token');

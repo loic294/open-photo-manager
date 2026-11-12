@@ -62,7 +62,7 @@ describe('requests', () => {
     const { url, init, headers } = sent(fetchMock);
     expect(url).toBe('/api/volumes?a=1');
     expect(init.method).toBe('GET');
-    expect(headers.get('x-apm-request')).toBeNull();
+    expect(headers.get('x-opm-request')).toBeNull();
     expect(headers.get('accept')).toBe('application/json');
     expect(headers.get('content-type')).toBeNull();
     expect(init.body).toBeNull();
@@ -78,7 +78,7 @@ describe('requests', () => {
 
       const { init, headers } = sent(fetchMock);
       expect(init.method).toBe(verb.toUpperCase());
-      expect(headers.get('x-apm-request')).toBe('1');
+      expect(headers.get('x-opm-request')).toBe('1');
       expect(headers.get('content-type')).toBe('application/json');
       expect(JSON.parse(String(init.body))).toEqual({ name: 'é', ids: [1, 2] });
     },
@@ -88,10 +88,10 @@ describe('requests', () => {
     const fetchMock = stubFetch(() => respond(null, { status: 204 }));
     const client = createApiClient({ fetch: fetchMock });
 
-    await client.post('/api/rescan', { headers: { 'x-apm-request': '0', 'x-extra': 'yes' } });
+    await client.post('/api/rescan', { headers: { 'x-opm-request': '0', 'x-extra': 'yes' } });
 
     const { headers, init } = sent(fetchMock);
-    expect(headers.get('x-apm-request')).toBe('1');
+    expect(headers.get('x-opm-request')).toBe('1');
     expect(headers.get('x-extra')).toBe('yes');
     expect(headers.get('content-type')).toBeNull();
     expect(init.body).toBeNull();

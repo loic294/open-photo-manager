@@ -344,14 +344,14 @@ _small_junk() {
   put_junk photos "$j/#recycle/x.jpg" '\xff\xd8\xff\xd9'
   scn junk.snapshot junk "Synology #snapshot folder with a photo inside"
   put_junk photos "$j/#snapshot/y.jpg" '\xff\xd8\xff\xd9'
-  scn junk.apm_trash junk "The app's own .apm-trash folder"
-  put_junk photos $j/.apm-trash/old/z.jpg '\xff\xd8\xff\xd9'
-  scn junk.apm_part junk "Partial upload (.apm-part)"
-  put_junk photos $j/upload.jpg.apm-part 'partial upload'
+  scn junk.opm_trash junk "The app's own .opm-trash folder"
+  put_junk photos $j/.opm-trash/old/z.jpg '\xff\xd8\xff\xd9'
+  scn junk.opm_part junk "Partial upload (.opm-part)"
+  put_junk photos $j/upload.jpg.opm-part 'partial upload'
   scn junk.volume_root junk "Junk folders directly under the archive volume root"
   put_junk archive '#recycle/deleted.jpg' '\xff\xd8\xff\xd9'
   put_junk archive '@eaDir/ARC.jpg/SYNOPHOTO_THUMB_S.jpg' '\xff\xd8\xff\xd9'
-  put_junk archive .apm-trash/old.jpg '\xff\xd8\xff\xd9'
+  put_junk archive .opm-trash/old.jpg '\xff\xd8\xff\xd9'
 }
 
 # Empty means "no indexable file anywhere below" (junk does not count), so cleanup tests can predict what to remove.

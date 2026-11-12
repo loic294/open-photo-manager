@@ -17,7 +17,7 @@ export const isRecord = (value: unknown): value is Obj =>
  * every reset: ids the backend stored (a library id in a mapping) stay valid.
  */
 export function stableUuid(kind: string, key: string): string {
-  const bytes = createHash('sha1').update(`apm-mock-immich:${kind}:${key}`).digest();
+  const bytes = createHash('sha1').update(`opm-mock-immich:${kind}:${key}`).digest();
   bytes[6] = ((bytes[6] ?? 0) & 0x0f) | 0x40;
   bytes[8] = ((bytes[8] ?? 0) & 0x3f) | 0x80;
   const hex = bytes.subarray(0, 16).toString('hex');

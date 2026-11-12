@@ -49,68 +49,6 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "330a5ed07fa54e4702c9d6c4174f74427fc0ef6e214bbd677ae50a5099946470"
 
 [[package]]
-name = "apm-core"
-version = "0.1.0"
-dependencies = [
- "chrono",
- "chrono-tz",
- "globset",
- "proptest",
- "regex",
- "serde",
- "serde_json",
- "sha1",
- "thiserror",
- "ts-rs",
- "unicode-normalization",
-]
-
-[[package]]
-name = "apm-server"
-version = "0.1.0"
-dependencies = [
- "anyhow",
- "apm-core",
- "async-trait",
- "axum",
- "base64 0.23.1",
- "bytes",
- "chacha20poly1305",
- "chrono",
- "chrono-tz",
- "fast_image_resize",
- "futures-util",
- "hex",
- "http",
- "http-body-util",
- "httpdate",
- "image",
- "mime",
- "mime_guess",
- "notify",
- "proptest",
- "quick-xml",
- "rand",
- "reqwest",
- "rustix",
- "serde",
- "serde_json",
- "sqlx",
- "tempfile",
- "thiserror",
- "tokio",
- "tokio-stream",
- "tokio-util",
- "tower",
- "tower-http 0.7.1",
- "tracing",
- "tracing-subscriber",
- "url",
- "walkdir",
- "wiremock",
-]
-
-[[package]]
 name = "assert-json-diff"
 version = "2.0.2"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -1734,6 +1672,68 @@ name = "openssl-probe"
 version = "0.2.2"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "7e036b411754132fd6b74e94b74e9a13c5cf606fa93d1885c35860d3060820b1"
+
+[[package]]
+name = "opm-core"
+version = "0.1.0"
+dependencies = [
+ "chrono",
+ "chrono-tz",
+ "globset",
+ "proptest",
+ "regex",
+ "serde",
+ "serde_json",
+ "sha1",
+ "thiserror",
+ "ts-rs",
+ "unicode-normalization",
+]
+
+[[package]]
+name = "opm-server"
+version = "0.1.0"
+dependencies = [
+ "anyhow",
+ "async-trait",
+ "axum",
+ "base64 0.23.1",
+ "bytes",
+ "chacha20poly1305",
+ "chrono",
+ "chrono-tz",
+ "fast_image_resize",
+ "futures-util",
+ "hex",
+ "http",
+ "http-body-util",
+ "httpdate",
+ "image",
+ "mime",
+ "mime_guess",
+ "notify",
+ "opm-core",
+ "proptest",
+ "quick-xml",
+ "rand",
+ "reqwest",
+ "rustix",
+ "serde",
+ "serde_json",
+ "sqlx",
+ "tempfile",
+ "thiserror",
+ "tokio",
+ "tokio-stream",
+ "tokio-util",
+ "tower",
+ "tower-http 0.7.1",
+ "tracing",
+ "tracing-subscriber",
+ "url",
+ "walkdir",
+ "wiremock",
+]
 
 [[package]]
 name = "parking"

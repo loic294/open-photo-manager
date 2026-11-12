@@ -1,10 +1,10 @@
-import type { IconName } from '@/components/apm-icon';
+import type { IconName } from '@/components/opm-icon';
 
 /**
  * One tab of the settings page.
  *
  * To add a section, append ONE entry to `settingsSections` below and change nothing else: the page
- * (`apm-settings-page`) builds its tabs from the list, keeps the active `id` in `?section=<id>`
+ * (`opm-settings-page`) builds its tabs from the list, keeps the active `id` in `?section=<id>`
  * and calls `load()` the first time the tab is opened. The section is a custom element that is
  * independent of the page: it loads and saves its own data (the general section uses the
  * `settings` store, another one may call its own endpoint) and reports its own errors. The page
@@ -20,11 +20,11 @@ export interface SettingsSection {
   id: string;
   /** The text of the tab. */
   label: string;
-  /** One of the icons registered in `components/apm-icon.ts`, shown before the label. */
+  /** One of the icons registered in `components/opm-icon.ts`, shown before the label. */
   icon: IconName;
   /** The custom element that is the section's panel. `load()` must define it. */
   tag: string;
-  /** Imports the module that defines `tag`: `() => import('@/tools/settings/apm-settings-x')`. */
+  /** Imports the module that defines `tag`: `() => import('@/tools/settings/opm-settings-x')`. */
   load: () => Promise<unknown>;
 }
 
@@ -34,14 +34,14 @@ export const settingsSections: readonly SettingsSection[] = [
     id: 'general',
     label: 'General',
     icon: 'settings',
-    tag: 'apm-settings-general',
-    load: () => import('@/tools/settings/apm-settings-general'),
+    tag: 'opm-settings-general',
+    load: () => import('@/tools/settings/opm-settings-general'),
   },
   {
     id: 'immich',
     label: 'Immich',
     icon: 'plug',
-    tag: 'apm-settings-immich',
-    load: () => import('@/tools/settings/apm-settings-immich'),
+    tag: 'opm-settings-immich',
+    load: () => import('@/tools/settings/opm-settings-immich'),
   },
 ];

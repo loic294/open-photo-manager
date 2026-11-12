@@ -1,4 +1,4 @@
-import type { IconName } from '@/components/apm-icon';
+import type { IconName } from '@/components/opm-icon';
 import { immichAttention } from '@/stores/immich';
 
 /** Where a route appears in the main menu. */
@@ -21,70 +21,70 @@ export interface AppRoute {
   attention?: () => boolean;
 }
 
-const loadPlaceholder = () => import('@/components/apm-route-placeholder');
+const loadPlaceholder = () => import('@/components/opm-route-placeholder');
 
 /** The pages of the app, in menu order. One line each. */
 export const routes: readonly AppRoute[] = [
   {
     path: '/browse',
-    tag: 'apm-browse-page',
-    load: () => import('@/tools/browse/apm-browse-page'),
+    tag: 'opm-browse-page',
+    load: () => import('@/tools/browse/opm-browse-page'),
     label: 'Browse',
     icon: 'images',
     menu: 'tools',
   },
   {
     path: '/duplicates',
-    tag: 'apm-duplicates-page',
+    tag: 'opm-duplicates-page',
     label: 'Duplicate finder',
     icon: 'copy',
-    load: () => import('@/tools/duplicates/apm-duplicates-page'),
+    load: () => import('@/tools/duplicates/opm-duplicates-page'),
     menu: 'tools',
   },
   {
     path: '/move',
-    tag: 'apm-move-page',
+    tag: 'opm-move-page',
     label: 'Asset move',
     icon: 'folder-input',
-    load: () => import('@/tools/move/apm-move-page'),
+    load: () => import('@/tools/move/opm-move-page'),
     menu: 'tools',
   },
   {
     path: '/format',
-    tag: 'apm-format-page',
+    tag: 'opm-format-page',
     label: 'Folder formatting',
     icon: 'folder-tree',
-    load: () => import('@/tools/format/apm-format-page'),
+    load: () => import('@/tools/format/opm-format-page'),
     menu: 'tools',
   },
   {
     path: '/cleanup',
-    tag: 'apm-cleanup-page',
+    tag: 'opm-cleanup-page',
     label: 'Empty folder cleanup',
     icon: 'folder-x',
     menu: 'tools',
-    load: () => import('@/tools/cleanup/apm-cleanup-page'),
+    load: () => import('@/tools/cleanup/opm-cleanup-page'),
   },
   {
     path: '/rename',
-    tag: 'apm-rename-page',
+    tag: 'opm-rename-page',
     label: 'Batch rename',
     icon: 'pencil',
     menu: 'tools',
-    load: () => import('@/tools/rename/apm-rename-page'),
+    load: () => import('@/tools/rename/opm-rename-page'),
   },
   {
     path: '/trash',
-    tag: 'apm-trash-page',
-    load: () => import('@/tools/trash/apm-trash-page'),
+    tag: 'opm-trash-page',
+    load: () => import('@/tools/trash/opm-trash-page'),
     label: 'Trash',
     icon: 'trash-2',
     menu: 'footer',
   },
   {
     path: '/settings',
-    tag: 'apm-settings-page',
-    load: () => import('@/tools/settings/apm-settings-page'),
+    tag: 'opm-settings-page',
+    load: () => import('@/tools/settings/opm-settings-page'),
     label: 'Settings',
     icon: 'settings',
     menu: 'footer',
@@ -95,7 +95,7 @@ export const routes: readonly AppRoute[] = [
 /** Shown for any address that no route matches. */
 export const notFound: AppRoute = {
   path: '/*',
-  tag: 'apm-route-placeholder',
+  tag: 'opm-route-placeholder',
   load: loadPlaceholder,
   label: 'Page not found',
   icon: 'circle-question-mark',

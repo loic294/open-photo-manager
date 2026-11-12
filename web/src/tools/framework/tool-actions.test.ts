@@ -1,7 +1,7 @@
 import { effect, signal } from '@preact/signals-core';
 import { nothing, render } from 'lit';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
-import type { ApmSplitButton } from '@/components/apm-split-button';
+import type { OpmSplitButton } from '@/components/opm-split-button';
 import { lastAction, setLastAction } from '@/stores/prefs';
 import { clearToasts, toasts } from '@/stores/toasts';
 import { toolConfig } from '@/test/tool-config';
@@ -60,7 +60,7 @@ function show(ctx: ToolContext): HTMLElement {
 /** Waits for the split buttons in `area` to render what they were given. */
 async function settle(area: HTMLElement): Promise<void> {
   await Promise.resolve();
-  const splits = area.querySelectorAll<ApmSplitButton>('apm-split-button');
+  const splits = area.querySelectorAll<OpmSplitButton>('opm-split-button');
   await Promise.all([...splits].map((split) => split.updateComplete));
 }
 
@@ -86,7 +86,7 @@ const text = (element: Element | null | undefined) =>
   element?.textContent?.replace(/\s+/g, ' ').trim() ?? '';
 
 const button = (area: HTMLElement) => part<HTMLButtonElement>(area, 'button');
-const split = (area: HTMLElement) => part<ApmSplitButton>(area, 'apm-split-button');
+const split = (area: HTMLElement) => part<OpmSplitButton>(area, 'opm-split-button');
 const mainButton = (area: HTMLElement) => part<HTMLButtonElement>(split(area), '.join > button');
 
 /** The wrapper that carries the tooltip: its `data-tip`, `null` when there is none. */
@@ -130,7 +130,7 @@ describe('one action', () => {
     expect(go.classList.contains('btn-primary')).toBe(true);
     expect(go.classList.contains('btn-lg')).toBe(true);
     expect(go.classList.contains('btn-error')).toBe(false);
-    expect(part(go, 'apm-icon').getAttribute('name')).toBe('search');
+    expect(part(go, 'opm-icon').getAttribute('name')).toBe('search');
     expect(text(go)).toBe(`Find matches ${formatCount(1234)}`);
     expect(part(go, '.badge').classList.contains('badge-neutral')).toBe(true);
   });
@@ -149,7 +149,7 @@ describe('one action', () => {
   it('shows no badge without a count, and no icon without an icon', () => {
     const area = show(contextFor(() => actionsOf('go')));
     expect(area.querySelector('.badge')).toBeNull();
-    expect(area.querySelector('apm-icon')).toBeNull();
+    expect(area.querySelector('opm-icon')).toBeNull();
   });
 
   it('shows a count of zero', () => {

@@ -1,22 +1,22 @@
-# Advanced Photo Manager: example Docker Compose file for a Synology NAS (also fine on any Docker host).
+# Open Photo Manager: example Docker Compose file for a Synology NAS (also fine on any Docker host).
 #
 # How to use it (details in README.md; offline builds in docker/README.md):
-#   1. Copy this file to the NAS, for example /volume1/docker/apm/compose.yml, and edit the lines marked CHANGE ME.
+#   1. Copy this file to the NAS, for example /volume1/docker/opm/compose.yml, and edit the lines marked CHANGE ME.
 #   2. Create the data folder and give it to the user in "user:" below (see "Users and permissions" in the README):
-#        sudo mkdir -p /volume1/docker/apm/data && sudo chown -R 1026:100 /volume1/docker/apm/data
+#        sudo mkdir -p /volume1/docker/opm/data && sudo chown -R 1026:100 /volume1/docker/opm/data
 #   3. Pull and start it: `docker compose pull && docker compose up -d`, or Container Manager > Project > Create
 #      (pick the folder with this file). The image is public: no registry login is needed.
 #   4. Open http://<nas-ip>:8080
 
 services:
-  apm:
+  opm:
     # Public image. `edge` follows the main branch (development builds); pin a version or digest for repeatable deployments.
     image: ghcr.io/loic294/open-photo-manager:edge
     # Alternatively let Compose build it from a checkout of the repository (slow on a NAS, building on a PC is easier):
     # build:
     #   context: ..
     #   dockerfile: docker/Dockerfile
-    container_name: apm
+    container_name: opm
     restart: unless-stopped
 
     # CHANGE ME: the numeric "uid:gid" the app runs as. It decides which files the app may read and change.
@@ -36,7 +36,7 @@ services:
       # A read-only volume: the app can browse it but can never change or delete anything in it.
       # - /volume1/archive:/volumes/archive:ro
       # The app's own files (database, thumbnails, secret key). It must be writable by the user above.
-      - /volume1/docker/apm/data:/data
+      - /volume1/docker/opm/data:/data
 
     environment:
       # CHANGE ME: your time zone, e.g. Europe/Paris or America/New_York. Used for log times and for photos without
@@ -44,11 +44,11 @@ services:
       TZ: Europe/Paris
       # Names (not IP addresses) you type in the browser to reach the app. Without this line the app answers
       # "host not allowed" when you use a name. Comma separated, e.g. "diskstation,diskstation.local,photos.example.com".
-      APM_ALLOWED_HOSTS: "diskstation,diskstation.local"
+      OPM_ALLOWED_HOSTS: "diskstation,diskstation.local"
       # How much the app logs (error, warn, info, debug).
-      # APM_LOG: info
+      # OPM_LOG: info
       # How many photos are analysed at the same time. Lower it to 1 on a NAS with little memory.
-      # APM_INDEX_CONCURRENCY: 2
+      # OPM_INDEX_CONCURRENCY: 2
 
     # Hardening: nothing inside the container can change the image, gain privileges or use special capabilities.
     read_only: true

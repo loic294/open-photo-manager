@@ -155,7 +155,7 @@ describe('renderVolumeBadges', () => {
       true,
       false,
     ]);
-    expect(badges.map((badge) => badge.querySelector('apm-icon')?.getAttribute('name'))).toEqual([
+    expect(badges.map((badge) => badge.querySelector('opm-icon')?.getAttribute('name'))).toEqual([
       'wifi-off',
       'lock',
       undefined,

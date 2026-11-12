@@ -22,7 +22,7 @@ describe('requestReindex', () => {
     });
   });
 
-  it('dispatches a cancelable apm-reindex event on the document with the scope', () => {
+  it('dispatches a cancelable opm-reindex event on the document with the scope', () => {
     const seen: CustomEvent<{ scope: string }>[] = [];
     const listener = (event: CustomEvent<{ scope: string }>) => seen.push(event);
     document.addEventListener(REINDEX_EVENT, listener);
@@ -31,7 +31,7 @@ describe('requestReindex', () => {
     document.removeEventListener(REINDEX_EVENT, listener);
 
     expect(seen).toHaveLength(1);
-    expect(seen[0]?.type).toBe('apm-reindex');
+    expect(seen[0]?.type).toBe('opm-reindex');
     expect(seen[0]?.detail).toEqual({ scope: 'current' });
     expect(seen[0]?.cancelable).toBe(true);
   });

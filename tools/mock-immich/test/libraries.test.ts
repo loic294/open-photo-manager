@@ -64,7 +64,7 @@ test('the exclusion patterns are updated alone, like the application does', asyn
   const mock = await startMock(t);
   const { key } = await connect(mock);
   const [library] = mock.state.libraries();
-  const patterns = ['**/@eaDir/**', '**/.apm-trash/**'];
+  const patterns = ['**/@eaDir/**', '**/.opm-trash/**'];
   const updated = await call(mock, 'PUT', `/api/libraries/${library?.id}`, {
     key,
     body: { exclusionPatterns: patterns },

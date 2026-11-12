@@ -16,7 +16,7 @@ it.each([
   ['rename.countDigits', '3'],
 ])('rejects invalid persisted %s=%s without enabling unsafe rules', async (key, value) => {
   vi.resetModules();
-  localStorage.setItem(`apm.v1.${key}`, JSON.stringify(value));
+  localStorage.setItem(`opm.v1.${key}`, JSON.stringify(value));
   const state = await import('./rename-state');
   expect(state.policy.value).toBe('smart');
   expect(state.matchMode.value).toBe('all');
@@ -27,15 +27,15 @@ it.each([
 
 it('loads valid rename preferences independently of move and format preferences', async () => {
   vi.resetModules();
-  localStorage.setItem('apm.v1.rename.countDigits', '9');
-  localStorage.setItem('apm.v1.rename.policy', '"skip"');
-  localStorage.setItem('apm.v1.rename.pattern', '"{name}_{count}"');
-  localStorage.setItem('apm.v1.move.pattern', '"untouched-move"');
-  localStorage.setItem('apm.v1.format.pattern', '"untouched-format"');
+  localStorage.setItem('opm.v1.rename.countDigits', '9');
+  localStorage.setItem('opm.v1.rename.policy', '"skip"');
+  localStorage.setItem('opm.v1.rename.pattern', '"{name}_{count}"');
+  localStorage.setItem('opm.v1.move.pattern', '"untouched-move"');
+  localStorage.setItem('opm.v1.format.pattern', '"untouched-format"');
   const state = await import('./rename-state');
   expect(state.currentRules()).toMatchObject({ count_digits: 9, pattern: '{name}_{count}' });
   expect(state.policy.value).toBe('skip');
   state.pattern.value = '{YYYY}_{count}';
-  expect(localStorage.getItem('apm.v1.move.pattern')).toBe('"untouched-move"');
-  expect(localStorage.getItem('apm.v1.format.pattern')).toBe('"untouched-format"');
+  expect(localStorage.getItem('opm.v1.move.pattern')).toBe('"untouched-move"');
+  expect(localStorage.getItem('opm.v1.format.pattern')).toBe('"untouched-format"');
 });

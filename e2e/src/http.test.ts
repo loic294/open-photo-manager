@@ -29,7 +29,7 @@ test('rawRequest queues 200 requests under the agent socket cap and releases soc
   let maximumSockets = 0;
   const sockets = new Set<import('node:net').Socket>();
   const app = await fixture((request, response) => {
-    assert.equal(request.headers['x-apm-request'], '1');
+    assert.equal(request.headers['x-opm-request'], '1');
     let body = '';
     request.setEncoding('utf8');
     request.on('data', (chunk) => {
@@ -57,7 +57,7 @@ test('rawRequest queues 200 requests under the agent socket cap and releases soc
           url: app.url,
           path: '/burst',
           method: 'POST',
-          headers: { Host: new URL(app.url).host, 'x-apm-request': '1' },
+          headers: { Host: new URL(app.url).host, 'x-opm-request': '1' },
           body: JSON.stringify({ index }),
           agent,
           signal: AbortSignal.timeout(15_000),

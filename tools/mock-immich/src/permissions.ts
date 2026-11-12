@@ -2,7 +2,7 @@ import { readFileSync } from 'node:fs';
 import type { ApiKey } from './types.ts';
 
 const PERMISSIONS_FILE = new URL(
-  '../../../crates/apm-server/src/immich/spec-permissions.txt',
+  '../../../crates/opm-server/src/immich/spec-permissions.txt',
   import.meta.url,
 );
 

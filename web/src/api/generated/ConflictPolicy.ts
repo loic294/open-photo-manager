@@ -2,6 +2,6 @@
 
 /**
  * What to do when a destination name is already taken. Shared by the settings (the default
- * policy) and by plan execution; the pure decision logic lives in `apm_core::conflict`.
+ * policy) and by plan execution; the pure decision logic lives in `opm_core::conflict`.
  */
 export type ConflictPolicy = "smart" | "skip" | "rename" | "replace";

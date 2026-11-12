@@ -3,7 +3,7 @@ import { expect, type Page } from '@playwright/test';
 export class ViewerPage {
   constructor(readonly page: Page) {}
   dialog() {
-    return this.page.locator('apm-viewer').getByRole('dialog');
+    return this.page.locator('opm-viewer').getByRole('dialog');
   }
   async expectOpen(name: string) {
     await expect(this.dialog()).toBeVisible();
@@ -16,7 +16,7 @@ export class ViewerPage {
     return this.dialog().getByRole('heading').first().textContent();
   }
   image() {
-    return this.dialog().locator('apm-viewer-stage img');
+    return this.dialog().locator('opm-viewer-stage img');
   }
   video() {
     return this.dialog().locator('video');
@@ -32,7 +32,7 @@ export class ViewerPage {
     await expect
       .poll(() =>
         this.page
-          .locator('apm-viewer')
+          .locator('opm-viewer')
           .evaluate((element) => 'guarded' in element && element.guarded === false),
       )
       .toBe(true);

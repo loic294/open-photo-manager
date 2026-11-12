@@ -1,5 +1,5 @@
 {
-  "name": "apm-e2e",
+  "name": "opm-e2e",
   "license": "MIT",
   "private": true,
   "type": "module",

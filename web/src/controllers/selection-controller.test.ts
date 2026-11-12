@@ -1,6 +1,6 @@
 import { html } from 'lit';
 import { afterEach, describe, expect, it } from 'vitest';
-import { ApmElement } from '@/base/apm-element';
+import { OpmElement } from '@/base/opm-element';
 import {
   type CardActivation,
   ITEM_OPEN_EVENT,
@@ -24,7 +24,7 @@ const ITEMS = [1, 2, 3, 4, 5];
  * the grid's contract (a bubbling `card-activate` from a card, `selectedIds` and `active` read
  * from the controller).
  */
-class ApmTestSelectionPane extends ApmElement {
+class OpmTestSelectionPane extends OpmElement {
   static override properties = { pane: { type: String } };
 
   pane: PaneId = 'source';
@@ -68,19 +68,19 @@ class ApmTestSelectionPane extends ApmElement {
 }
 
 /** A host with no controller: each test attaches its own. */
-class ApmTestSelectionBare extends ApmElement {
+class OpmTestSelectionBare extends OpmElement {
   protected override render() {
     return html``;
   }
 }
 
-customElements.define('apm-test-selection-pane', ApmTestSelectionPane);
-customElements.define('apm-test-selection-bare', ApmTestSelectionBare);
+customElements.define('opm-test-selection-pane', OpmTestSelectionPane);
+customElements.define('opm-test-selection-bare', OpmTestSelectionBare);
 
 declare global {
   interface HTMLElementTagNameMap {
-    'apm-test-selection-pane': ApmTestSelectionPane;
-    'apm-test-selection-bare': ApmTestSelectionBare;
+    'opm-test-selection-pane': OpmTestSelectionPane;
+    'opm-test-selection-bare': OpmTestSelectionBare;
   }
 }
 
@@ -91,8 +91,8 @@ afterEach(() => {
   resetSelectionForTests();
 });
 
-function mountPane(pane: PaneId = 'source'): Promise<ApmTestSelectionPane> {
-  return mount('apm-test-selection-pane', { pane });
+function mountPane(pane: PaneId = 'source'): Promise<OpmTestSelectionPane> {
+  return mount('opm-test-selection-pane', { pane });
 }
 
 function flush(): Promise<void> {
@@ -475,7 +475,7 @@ describe('SelectionController: lifecycle', () => {
   });
 
   it('starts listening at once when added to a host that is already connected', async () => {
-    const host = await mount('apm-test-selection-bare');
+    const host = await mount('opm-test-selection-bare');
     const controller = new SelectionController(host, { pane: 'comparison' });
     send(host, activation({ id: 6, via: 'checkbox' }));
     expect(controller.pane).toBe('comparison');
@@ -483,7 +483,7 @@ describe('SelectionController: lifecycle', () => {
   });
 
   it('drives the selection it is given instead of the registry one', async () => {
-    const host = await mount('apm-test-selection-bare');
+    const host = await mount('opm-test-selection-bare');
     const own = new PaneSelection();
     const controller = new SelectionController(host, { pane: 'source', selection: own });
     send(host, activation({ id: 7, via: 'checkbox' }));
@@ -498,7 +498,7 @@ describe('SelectionController: lifecycle', () => {
   });
 
   it('defaults to the registry selection of its pane', async () => {
-    const host = await mount('apm-test-selection-bare');
+    const host = await mount('opm-test-selection-bare');
     const controller = new SelectionController(host, { pane: 'source' });
     expect(controller.selection).toBe(selection.source);
   });

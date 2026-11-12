@@ -2,6 +2,6 @@
 
 /**
  * How the duplicate finder pairs a source item with comparison items. The rules are the contract
- * of `apm_core::matching`.
+ * of `opm_core::matching`.
  */
 export type MatchMode = "hash" | "name_and_time" | "name_different_time" | "name_prefix";

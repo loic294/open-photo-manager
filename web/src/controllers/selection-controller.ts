@@ -1,5 +1,5 @@
 import type { ReactiveController } from 'lit';
-import type { ApmElement } from '@/base/apm-element';
+import type { OpmElement } from '@/base/opm-element';
 import {
   activePane,
   type PaneId,
@@ -72,10 +72,10 @@ export interface SelectionControllerOptions {
  * The selection outlives the controller: disconnecting never clears it (the context key does).
  */
 export class SelectionController implements ReactiveController {
-  private readonly host: ApmElement;
+  private readonly host: OpmElement;
   private readonly options: SelectionControllerOptions;
 
-  constructor(host: ApmElement, options: SelectionControllerOptions) {
+  constructor(host: OpmElement, options: SelectionControllerOptions) {
     this.host = host;
     this.options = options;
     host.addController(this);

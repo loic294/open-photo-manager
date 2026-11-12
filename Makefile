@@ -1,10 +1,10 @@
-# Advanced Photo Manager: development shortcuts (see AGENTS.md).
+# Open Photo Manager: development shortcuts (see AGENTS.md).
 
 # Defaults for `make dev-server`; override from the environment or the make command line.
-APM_LOG ?= debug
-APM_VOLUMES_DIR ?= fixtures/out/volumes
-APM_DATA_DIR ?= .data
-APM_WEB_DIR ?= web/dist
+OPM_LOG ?= debug
+OPM_VOLUMES_DIR ?= fixtures/out/volumes
+OPM_DATA_DIR ?= .data
+OPM_WEB_DIR ?= web/dist
 
 .DEFAULT_GOAL := check
 
@@ -22,13 +22,13 @@ check-web:
 fmt:
 	cargo fmt --all && npm --prefix web run format
 
-# Regenerates every TypeScript type from apm-core::dto (stale files are removed first).
+# Regenerates every TypeScript type from opm-core::dto (stale files are removed first).
 gen-api:
 	rm -f web/src/api/generated/*.ts
-	cargo test -p apm-core export_bindings
+	cargo test -p opm-core export_bindings
 
 dev-server:
-	APM_LOG=$(APM_LOG) APM_VOLUMES_DIR=$(APM_VOLUMES_DIR) APM_DATA_DIR=$(APM_DATA_DIR) APM_WEB_DIR=$(APM_WEB_DIR) cargo run -p apm-server
+	OPM_LOG=$(OPM_LOG) OPM_VOLUMES_DIR=$(OPM_VOLUMES_DIR) OPM_DATA_DIR=$(OPM_DATA_DIR) OPM_WEB_DIR=$(OPM_WEB_DIR) cargo run -p opm-server
 
 dev-web:
 	npm --prefix web run dev

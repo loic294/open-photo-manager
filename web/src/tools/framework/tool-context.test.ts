@@ -1,7 +1,7 @@
 import { effect } from '@preact/signals-core';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import type { FooterCounts } from '@/api/generated/FooterCounts';
-import { ApmPane } from '@/components/apm-pane';
+import { OpmPane } from '@/components/opm-pane';
 import { filterScopes, resetFilters, setFilter, setScope } from '@/stores/filters';
 import { type PaneLocation, ROOT_LOCATION, setLocation, syncFromLocation } from '@/stores/nav';
 import { resetSelectionForTests, selection } from '@/stores/selection';
@@ -542,10 +542,10 @@ describe('request', () => {
 describe('refresh', () => {
   it('asks every pane inside the host to reload, and nothing else', () => {
     const host = document.createElement('div');
-    const first = document.createElement('apm-pane');
-    const second = document.createElement('apm-pane');
+    const first = document.createElement('opm-pane');
+    const second = document.createElement('opm-pane');
     host.append(first, document.createElement('p'), second);
-    const refresh = vi.spyOn(ApmPane.prototype, 'refresh').mockImplementation(() => {});
+    const refresh = vi.spyOn(OpmPane.prototype, 'refresh').mockImplementation(() => {});
     const ctx = createToolContext(toolConfig(), host);
     ctx.refresh();
     expect(refresh).toHaveBeenCalledTimes(2);
@@ -553,7 +553,7 @@ describe('refresh', () => {
   });
 
   it('does nothing without panes', () => {
-    const refresh = vi.spyOn(ApmPane.prototype, 'refresh').mockImplementation(() => {});
+    const refresh = vi.spyOn(OpmPane.prototype, 'refresh').mockImplementation(() => {});
     expect(() => context().refresh()).not.toThrow();
     expect(refresh).not.toHaveBeenCalled();
   });

@@ -1,14 +1,14 @@
 import { afterEach, expect, vi } from 'vitest';
-import type { ApmModal } from '@/components/apm-modal';
+import type { OpmModal } from '@/components/opm-modal';
 
-const HOST = 'apm-confirm-dialog';
+const HOST = 'opm-confirm-dialog';
 
 // The shared dialog outlives a test; removing it also answers anything still waiting with false.
 afterEach(() => {
   for (const host of document.querySelectorAll(HOST)) host.remove();
 });
 
-const modal = () => document.querySelector<ApmModal>(`${HOST} apm-modal`);
+const modal = () => document.querySelector<OpmModal>(`${HOST} opm-modal`);
 
 const text = (element: Element | null | undefined) =>
   element?.textContent?.replace(/\s+/g, ' ').trim() ?? '';
@@ -27,7 +27,7 @@ export async function shownConfirm(): Promise<ShownConfirm> {
   await modal()?.updateComplete;
   return {
     title: text(modal()?.querySelector('h3')),
-    message: text(modal()?.querySelector('#apm-confirm-message')),
+    message: text(modal()?.querySelector('#opm-confirm-message')),
     buttons: [...(modal()?.querySelectorAll('.modal-action button') ?? [])].map(text),
   };
 }

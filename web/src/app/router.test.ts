@@ -2,11 +2,11 @@ import { html } from 'lit';
 import { afterEach, beforeEach, describe, expect, it, type Mock, vi } from 'vitest';
 import { type AppRouter, type AppRouterOptions, createAppRouter } from '@/app/router';
 import type { AppRoute } from '@/app/routes';
-import { ApmElement } from '@/base/apm-element';
+import { OpmElement } from '@/base/opm-element';
 import { currentPath, locations, navigate, syncFromLocation } from '@/stores/nav';
 import { mount } from '@/test/helpers';
 
-class RouterHost extends ApmElement {
+class RouterHost extends OpmElement {
   static override properties = { options: { attribute: false } };
 
   declare options: AppRouterOptions;
@@ -33,11 +33,11 @@ class RouterHost extends ApmElement {
   }
 }
 
-customElements.define('apm-router-host', RouterHost);
+customElements.define('opm-router-host', RouterHost);
 
 declare global {
   interface HTMLElementTagNameMap {
-    'apm-router-host': RouterHost;
+    'opm-router-host': RouterHost;
   }
 }
 
@@ -60,7 +60,7 @@ type StubRoute = AppRoute & { load: Mock<() => Promise<void>> };
 
 /** A route whose loader defines its (unique) tag, like a real lazy module does. */
 function stubRoute(path: string, overrides: Partial<AppRoute> = {}): StubRoute {
-  const tag = overrides.tag ?? `apm-stub-${serial++}`;
+  const tag = overrides.tag ?? `opm-stub-${serial++}`;
   const load = vi.fn(overrides.load ?? (async () => definePage(tag)));
   return { path, tag, label: path.slice(1), icon: 'file', ...overrides, load } as StubRoute;
 }
@@ -90,7 +90,7 @@ function visit(url: string) {
 
 async function mountAt(url: string, options: AppRouterOptions) {
   visit(url);
-  return mount('apm-router-host', { options: { redirects: {}, ...options } });
+  return mount('opm-router-host', { options: { redirects: {}, ...options } });
 }
 
 const shows = (host: RouterHost, route: StubRoute) => host.querySelector(route.tag) !== null;
@@ -164,17 +164,17 @@ describe('rendering pages', () => {
   });
 
   it('gives each route its own element even when routes share a tag', async () => {
-    const first = stubRoute('/first', { tag: 'apm-stub-shared', props: { note: 'one' } });
-    const second = stubRoute('/second', { tag: 'apm-stub-shared', props: { note: 'two' } });
+    const first = stubRoute('/first', { tag: 'opm-stub-shared', props: { note: 'one' } });
+    const second = stubRoute('/second', { tag: 'opm-stub-shared', props: { note: 'two' } });
 
     const host = await mountAt('/first', { routes: [first, second] });
     await until(() => expect(connections).toHaveLength(1));
-    const before = host.querySelector('apm-stub-shared');
+    const before = host.querySelector('opm-stub-shared');
     navigate('/second');
     await until(() => expect(connections).toHaveLength(2));
 
-    expect(host.querySelectorAll('apm-stub-shared')).toHaveLength(1);
-    expect(host.querySelector('apm-stub-shared')).not.toBe(before);
+    expect(host.querySelectorAll('opm-stub-shared')).toHaveLength(1);
+    expect(host.querySelector('opm-stub-shared')).not.toBe(before);
     expect(connections.map((connection) => connection.note)).toEqual(['one', 'two']);
   });
 
@@ -221,7 +221,7 @@ describe('redirects', () => {
     visit('/');
     const before = window.history.length;
 
-    const host = await mount('apm-router-host', {
+    const host = await mount('opm-router-host', {
       options: { routes: [a], redirects: { '/': '/a' } },
     });
     await until(() => expect(shows(host, a)).toBe(true));
@@ -233,7 +233,7 @@ describe('redirects', () => {
     const browse = stubRoute('/browse');
 
     visit('/');
-    const host = await mount('apm-router-host', { options: { routes: [browse] } });
+    const host = await mount('opm-router-host', { options: { routes: [browse] } });
     await until(() => expect(shows(host, browse)).toBe(true));
 
     expect(window.location.pathname).toBe('/browse');
@@ -318,8 +318,8 @@ describe('not found', () => {
     const a = stubRoute('/a');
 
     const host = await mountAt('/nowhere', { routes: [a] });
-    await until(() => expect(host.querySelector('apm-route-placeholder')).not.toBeNull());
-    const state = host.querySelector('apm-route-placeholder');
+    await until(() => expect(host.querySelector('opm-route-placeholder')).not.toBeNull());
+    const state = host.querySelector('opm-route-placeholder');
     await state?.updateComplete;
 
     expect(state?.querySelector('h2')?.textContent).toBe('Page not found');
@@ -331,7 +331,7 @@ describe('not found', () => {
     const a = stubRoute('/a');
 
     const host = await mountAt('/a/extra', { routes: [a] });
-    await until(() => expect(host.querySelector('apm-route-placeholder')).not.toBeNull());
+    await until(() => expect(host.querySelector('opm-route-placeholder')).not.toBeNull());
 
     expect(shows(host, a)).toBe(false);
   });
@@ -339,12 +339,12 @@ describe('not found', () => {
   it('leaves the not-found state when the user follows a link', async () => {
     const a = stubRoute('/a');
     const host = await mountAt('/nowhere', { routes: [a] });
-    await until(() => expect(host.querySelector('apm-route-placeholder')).not.toBeNull());
+    await until(() => expect(host.querySelector('opm-route-placeholder')).not.toBeNull());
 
     navigate('/a');
     await until(() => expect(shows(host, a)).toBe(true));
 
-    expect(host.querySelector('apm-route-placeholder')).toBeNull();
+    expect(host.querySelector('opm-route-placeholder')).toBeNull();
   });
 });
 
@@ -408,13 +408,13 @@ describe('load failures', () => {
   });
 
   it('treats a module that does not define its tag as a failure', async () => {
-    const a = stubRoute('/a', { tag: 'apm-stub-never-defined', load: async () => undefined });
+    const a = stubRoute('/a', { tag: 'opm-stub-never-defined', load: async () => undefined });
 
     const host = await mountAt('/a', { routes: [a] });
     await until(() => expect(alertOf(host)).not.toBeNull());
 
     expect(String(consoleError.mock.calls[0]?.[1])).toContain(
-      'did not define <apm-stub-never-defined>',
+      'did not define <opm-stub-never-defined>',
     );
   });
 

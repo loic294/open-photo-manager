@@ -2,9 +2,9 @@ import { html, nothing } from 'lit';
 import type { TrashVolumeSummary } from '@/api/generated/TrashVolumeSummary';
 import { itemsLabel, rangeText, reasonStyle } from '@/tools/trash/trash-text';
 import { formatFileSize } from '@/util/format';
-import '@/components/apm-icon';
-import '@/components/apm-select';
-import type { SelectChangeEvent, SelectOption } from '@/components/apm-select';
+import '@/components/opm-icon';
+import '@/components/opm-select';
+import type { SelectChangeEvent, SelectOption } from '@/components/opm-select';
 
 /** Why an item was trashed, as a badge; the tooltip says it in a sentence. */
 export function renderReasonBadge(reason: string | null) {
@@ -30,7 +30,7 @@ export function renderVolumeSelect(
   onChange: (volumeId: number | null) => void,
 ) {
   return html`
-    <apm-select
+    <opm-select
       label="Volume"
       size="sm"
       .options=${volumeOptions(volumes)}
@@ -39,7 +39,7 @@ export function renderVolumeSelect(
         event.stopPropagation();
         onChange(event.detail.value === '' ? null : Number(event.detail.value));
       }}
-    ></apm-select>
+    ></opm-select>
   `;
 }
 
@@ -60,7 +60,7 @@ export function renderVolumeBadges(volumes: readonly TrashVolumeSummary[]) {
             ${
               note === null
                 ? nothing
-                : html`<apm-icon name=${volume.online ? 'lock' : 'wifi-off'} size="xs"></apm-icon>`
+                : html`<opm-icon name=${volume.online ? 'lock' : 'wifi-off'} size="xs"></opm-icon>`
             }
             ${label}
           </li>
@@ -95,7 +95,7 @@ export function renderPager(state: PagerState, onPage: (offset: number) => void)
           ?disabled=${offset <= 0}
           @click=${() => onPage(Math.max(0, offset - limit))}
         >
-          <apm-icon name="chevron-left" size="sm"></apm-icon>
+          <opm-icon name="chevron-left" size="sm"></opm-icon>
         </button>
         <button
           type="button"
@@ -105,7 +105,7 @@ export function renderPager(state: PagerState, onPage: (offset: number) => void)
           ?disabled=${offset + limit >= total}
           @click=${() => onPage(offset + limit)}
         >
-          <apm-icon name="chevron-right" size="sm"></apm-icon>
+          <opm-icon name="chevron-right" size="sm"></opm-icon>
         </button>
       </div>
     </nav>
@@ -132,7 +132,7 @@ export function renderEmpty(filtered: boolean, onClear: () => void, hint = '') {
   if (filtered) {
     return html`
       <div class="flex flex-col items-center gap-2 px-4 py-12 text-center" role="status">
-        <apm-icon name="funnel-x" size="lg"></apm-icon>
+        <opm-icon name="funnel-x" size="lg"></opm-icon>
         <p class="font-medium">Nothing matches</p>
         <p class="text-sm text-base-content/70">No item in the trash matches these filters.</p>
         <button type="button" class="btn btn-sm mt-2" @click=${onClear}>Clear filters</button>
@@ -141,7 +141,7 @@ export function renderEmpty(filtered: boolean, onClear: () => void, hint = '') {
   }
   return html`
     <div class="flex flex-col items-center gap-2 px-4 py-12 text-center" role="status">
-      <apm-icon name="trash-2" size="lg"></apm-icon>
+      <opm-icon name="trash-2" size="lg"></opm-icon>
       <p class="font-medium">The trash is empty</p>
       ${hint === '' ? nothing : html`<p class="text-sm text-base-content/70">${hint}</p>`}
     </div>

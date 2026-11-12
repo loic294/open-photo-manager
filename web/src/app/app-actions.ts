@@ -6,11 +6,11 @@ import { toast } from '@/components/toast';
  * Re-indexing: the shell's "Re-index" menu entries call `requestReindex(scope)`. `startReindex`
  * (`app/reindex.ts`, started by the shell) registers with `onReindex(handler)` and does the work;
  * with no handler registered (the shell is not mounted) the user gets a toast that it is not
- * available. The request travels as a cancelable `apm-reindex` event on `document`, so
- * `document.addEventListener('apm-reindex', ...)` works too (call `preventDefault()` to mark it
+ * available. The request travels as a cancelable `opm-reindex` event on `document`, so
+ * `document.addEventListener('opm-reindex', ...)` works too (call `preventDefault()` to mark it
  * handled).
  */
-export const REINDEX_EVENT = 'apm-reindex';
+export const REINDEX_EVENT = 'opm-reindex';
 
 /** `current`: the folders currently shown in the panes. `all`: every asset of every volume. */
 export type ReindexScope = 'current' | 'all';

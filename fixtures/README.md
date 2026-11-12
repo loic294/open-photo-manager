@@ -11,7 +11,7 @@ make fixtures-large    # 200000 tiny files in fixtures/out-large; about 1 minute
 make fixtures-clean    # remove both output directories
 ```
 
-Point the app at `fixtures/out/volumes` (`APM_VOLUMES_DIR`, the root Makefile default). Every folder in it is a volume:
+Point the app at `fixtures/out/volumes` (`OPM_VOLUMES_DIR`, the root Makefile default). Every folder in it is a volume:
 `photos` holds the whole catalogue and `archive` is the second volume for cross-volume tests.
 
 1. [Requirements](#requirements)
@@ -246,8 +246,8 @@ they also coexist on case-insensitive or normalising filesystems.
 | `junk.ds_store`, `junk.thumbs_db`, `junk.desktop_ini` | `junk/.DS_Store`, `junk/Thumbs.db`, `junk/desktop.ini` | skipped |
 | `junk.appledouble` | `junk/._IMG_0001.jpg` | skipped |
 | `junk.recycle`, `junk.snapshot` | `junk/#recycle/x.jpg`, `junk/#snapshot/y.jpg` | skipped, folders never entered |
-| `junk.apm_trash`, `junk.apm_part` | `junk/.apm-trash/old/z.jpg`, `junk/upload.jpg.apm-part` | skipped |
-| `junk.volume_root` | `archive:#recycle/deleted.jpg`, `archive:.apm-trash/old.jpg`, `archive:@eaDir/ARC.jpg/SYNOPHOTO_THUMB_S.jpg` | junk directly under a volume root |
+| `junk.opm_trash`, `junk.opm_part` | `junk/.opm-trash/old/z.jpg`, `junk/upload.jpg.opm-part` | skipped |
+| `junk.volume_root` | `archive:#recycle/deleted.jpg`, `archive:.opm-trash/old.jpg`, `archive:@eaDir/ARC.jpg/SYNOPHOTO_THUMB_S.jpg` | junk directly under a volume root |
 | `empty.nested_tree` | `empty/nested/a/b/c` | every level empty |
 | `empty.junk_only` | `empty/junk_only` (`.DS_Store`, `Thumbs.db`) | empty for the index |
 | `empty.eadir_only` | `empty/eadir_only` (only an `@eaDir`) | empty for the index |
@@ -433,8 +433,8 @@ They follow the plan (sections 5.3 and 5.4) and describe what a correct indexer 
   its last extension equals the full name of the owner (`IMG_0001.CR3.xmp`), `stem` when the sidecar stem equals the
   owner stem (`IMG_0002.xmp`). Sidecar extensions: `xmp`, `json`, `aae`, `dop`, `pp3`, `xml` (not `txt`). Only `xmp`
   is parsed. A sidecar never links across folders, and `IMG_0004.xmp` does not link to `IMG_00041.jpg`.
-- **Junk** (never indexed, folders never entered, case-insensitive): `@eaDir`, `#recycle`, `#snapshot`, `.apm-trash`,
-  `.DS_Store`, `Thumbs.db`, `desktop.ini`, `._*`, `*.apm-part`. Symlinks are skipped too. `.hidden.jpg` is not junk.
+- **Junk** (never indexed, folders never entered, case-insensitive): `@eaDir`, `#recycle`, `#snapshot`, `.opm-trash`,
+  `.DS_Store`, `Thumbs.db`, `desktop.ini`, `._*`, `*.opm-part`. Symlinks are skipped too. `.hidden.jpg` is not junk.
 - **Indexable** is false only for junk, symlinks and files below an unreadable folder. An unreadable file stays
   indexable (the scanner sees it; only its content cannot be read).
 - **Empty folder**: a folder with no indexable file anywhere below it. Junk does not count, so a folder holding only
@@ -478,7 +478,7 @@ They follow the plan (sections 5.3 and 5.4) and describe what a correct indexer 
 - **Skipped scenarios.** Check `skipped` before asserting on `media.gif`, `media.webp`, `media.heic`, the three
   `media.video_*`, `other.trailing_space_ext`, `names.unicode_nfc` and `names.unicode_nfd`: they are skipped (with a
   placeholder row) where the encoder or the filesystem cannot provide them.
-- **Load tests**: `make fixtures-large` once, point `APM_VOLUMES_DIR` at `fixtures/out-large/volumes`, and read
+- **Load tests**: `make fixtures-large` once, point `OPM_VOLUMES_DIR` at `fixtures/out-large/volumes`, and read
   `manifest.tsv`.
 
 ## verify.sh

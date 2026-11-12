@@ -6,7 +6,7 @@ export class FilterBarPage {
     this.element = page.getByRole('group', { name: 'Filters', exact: true });
   }
   async pick(label: 'Cameras' | 'Tags', value: string) {
-    const control = this.element.locator(`apm-multi-select[label="${label}"]`);
+    const control = this.element.locator(`opm-multi-select[label="${label}"]`);
     await control.locator('summary').click();
     await control
       .getByRole('checkbox', {
@@ -48,10 +48,10 @@ export class FilterBarPage {
     await this.element.getByRole('combobox', { name: 'Apply to' }).selectOption(value);
   }
   facets(label: 'Cameras' | 'Tags') {
-    return this.element.locator(`apm-multi-select[label="${label}"]`).getByRole('checkbox');
+    return this.element.locator(`opm-multi-select[label="${label}"]`).getByRole('checkbox');
   }
   async searchCamera(value: string) {
-    await this.element.locator('apm-multi-select[label="Cameras"] summary').click();
+    await this.element.locator('opm-multi-select[label="Cameras"] summary').click();
     const input = this.element.getByRole('searchbox');
     await input.fill(value);
     return input;

@@ -102,7 +102,7 @@ describe('fetchItems', () => {
     const [url, init] = fetchMock.mock.calls[0] ?? [];
     expect(String(url)).toBe('/api/browse/items');
     expect(init?.method).toBe('POST');
-    expect(new Headers(init?.headers).get('x-apm-request')).toBe('1');
+    expect(new Headers(init?.headers).get('x-opm-request')).toBe('1');
     expect(JSON.parse(String(init?.body))).toMatchObject({ dir: 'trip/day 1', limit: 200 });
   });
 

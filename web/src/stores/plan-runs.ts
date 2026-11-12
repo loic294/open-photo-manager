@@ -6,7 +6,7 @@ import type { TaskDto } from '@/api/generated/TaskDto';
 import { getPlan } from '@/api/plans';
 import { events } from '@/api/sse';
 import { listTasks } from '@/api/tasks';
-import { openPlanResult } from '@/components/apm-plan-result';
+import { openPlanResult } from '@/components/opm-plan-result';
 import { toast } from '@/components/toast';
 import type { ToolId } from '@/stores/nav';
 import { isEnded, onTaskFinished, tasks } from '@/stores/tasks';

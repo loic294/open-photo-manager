@@ -11,7 +11,7 @@ async function loadPrefs(): Promise<Prefs> {
 }
 
 function stored(key: string): unknown {
-  const raw = localStorage.getItem(`apm.v1.${key}`);
+  const raw = localStorage.getItem(`opm.v1.${key}`);
   return raw === null ? undefined : JSON.parse(raw);
 }
 
@@ -60,13 +60,13 @@ describe('theme', () => {
   });
 
   it('restores a stored choice', async () => {
-    localStorage.setItem('apm.v1.theme', '"light"');
+    localStorage.setItem('opm.v1.theme', '"light"');
 
     expect((await loadPrefs()).theme.value).toBe('light');
   });
 
   it.each(['"blue"', '3', 'null', '{bad'])('ignores the stored value %s', async (value) => {
-    localStorage.setItem('apm.v1.theme', value);
+    localStorage.setItem('opm.v1.theme', value);
 
     expect((await loadPrefs()).theme.value).toBe('system');
   });
@@ -123,7 +123,7 @@ describe('gridSize', () => {
     ['an extra key', '{"source":160,"comparison":160,"third":1}'],
     ['a number', '160'],
   ])('falls back on %s', async (_label, value) => {
-    localStorage.setItem('apm.v1.gridSize', value);
+    localStorage.setItem('opm.v1.gridSize', value);
 
     expect((await loadPrefs()).gridSize.value).toEqual({ source: 160, comparison: 160 });
   });
@@ -139,7 +139,7 @@ describe('hideUnmatchedFolders', () => {
   });
 
   it('ignores a stored value that is not a boolean', async () => {
-    localStorage.setItem('apm.v1.hideUnmatchedFolders', '"yes"');
+    localStorage.setItem('opm.v1.hideUnmatchedFolders', '"yes"');
 
     expect((await loadPrefs()).hideUnmatchedFolders.value).toBe(false);
   });
@@ -170,7 +170,7 @@ describe('lastAction', () => {
   });
 
   it('ignores stored values that are not strings', async () => {
-    localStorage.setItem('apm.v1.lastAction', '{"move":3}');
+    localStorage.setItem('opm.v1.lastAction', '{"move":3}');
 
     expect((await loadPrefs()).lastAction.value).toEqual({});
   });
@@ -192,7 +192,7 @@ describe('sort', () => {
 
   it('restores a stored sort', async () => {
     localStorage.setItem(
-      'apm.v1.sort',
+      'opm.v1.sort',
       '{"source":{"key":"date","order":"desc"},"comparison":{"key":"size","order":"asc"}}',
     );
 
@@ -214,7 +214,7 @@ describe('sort', () => {
     ['a missing pane', '{"source":{"key":"name","order":"asc"}}'],
     ['a string', '"name"'],
   ])('falls back on %s', async (_label, value) => {
-    localStorage.setItem('apm.v1.sort', value);
+    localStorage.setItem('opm.v1.sort', value);
 
     expect((await loadPrefs()).sort.value.source).toEqual({ key: 'name', order: 'asc' });
   });
@@ -241,10 +241,10 @@ describe('cross-tab sync', () => {
   it('applies a change made in another tab', async () => {
     const prefs = await loadPrefs();
 
-    localStorage.setItem('apm.v1.theme', '"dark"');
+    localStorage.setItem('opm.v1.theme', '"dark"');
     window.dispatchEvent(
       new StorageEvent('storage', {
-        key: 'apm.v1.theme',
+        key: 'opm.v1.theme',
         newValue: '"dark"',
         storageArea: localStorage,
       }),

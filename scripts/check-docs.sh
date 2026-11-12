@@ -86,24 +86,24 @@ for path in docs:
                 fail(path, number, f"UI label absent from non-test sources: {label}")
 table = Path("docker/README.md")
 rows = {name: n for n, line in enumerate(table.read_text().splitlines(), 1)
-        for name in re.findall(r"^\|\s*`(APM_[A-Z0-9_]+)`\s*\|", line)}
+        for name in re.findall(r"^\|\s*`(OPM_[A-Z0-9_]+)`\s*\|", line)}
 # No ignored production names: test-only files/modules are excluded above.
 used = {}
 for path, text in sources.items():
     if path.suffix == ".rs":
         for number, line in enumerate(text.splitlines(), 1):
-            for name in re.findall(r"\bAPM_[A-Z0-9_]+\b", line):
+            for name in re.findall(r"\bOPM_[A-Z0-9_]+\b", line):
                 used.setdefault(name, (path, number))
 for name in used.keys() - rows.keys():
     fail(*used[name], f"undocumented environment variable: {name}")
 for name in rows.keys() - used.keys():
     fail(table, rows[name], f"documented variable absent from production Rust: {name}")
-client = Path("crates/apm-server/src/immich/client.rs")
+client = Path("crates/opm-server/src/immich/client.rs")
 key_match = re.search(r"pub const KEY_PERMISSIONS:.*?= &\[(.*?)\];", client.read_text(), re.S)
 if not key_match:
     fail(client, 1, "cannot find API-key permission registry")
 requested = re.findall(r'"([^"]+)"', key_match[1]) if key_match else []
-registry = Path("crates/apm-server/src/immich/spec-permissions.txt").read_text().splitlines()
+registry = Path("crates/opm-server/src/immich/spec-permissions.txt").read_text().splitlines()
 guide = Path("docs/immich.md")
 text = guide.read_text()
 start, end = "<!-- immich-permissions:start -->", "<!-- immich-permissions:end -->"

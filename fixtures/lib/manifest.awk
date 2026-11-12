@@ -65,7 +65,7 @@ function psplit(p) {
   }
 }
 
-# split_name NAME: S_STEM and S_EXT; a leading dot belongs to the stem (apm_core::names::split_name).
+# split_name NAME: S_STEM and S_EXT; a leading dot belongs to the stem (opm_core::names::split_name).
 function split_name(name,   rest) {
   rest = substr(name, 2)
   if (match(rest, /\.[^.]*$/)) {
@@ -79,10 +79,10 @@ function split_name(name,   rest) {
 
 function junk_name(n,   l) {
   l = tolower(n)
-  if (l == "@eadir" || l == "#recycle" || l == "#snapshot" || l == ".apm-trash") return 1
+  if (l == "@eadir" || l == "#recycle" || l == "#snapshot" || l == ".opm-trash") return 1
   if (l == ".ds_store" || l == "thumbs.db" || l == "desktop.ini") return 1
   if (substr(l, 1, 2) == "._") return 1
-  if (length(l) >= 9 && substr(l, length(l) - 8) == ".apm-part") return 1
+  if (length(l) >= 9 && substr(l, length(l) - 8) == ".opm-part") return 1
   return 0
 }
 

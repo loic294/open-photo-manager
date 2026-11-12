@@ -26,7 +26,7 @@ test('Immich validation and connected error controls remain readable in both the
   await expect(page.getByText('Enter a valid HTTP or HTTPS address for Immich.')).toBeVisible();
   for (const theme of ['light', 'dark'] as const) {
     await shell.theme(theme);
-    await expectNoSeriousA11yViolations(page, { include: ['apm-settings-immich'] });
+    await expectNoSeriousA11yViolations(page, { include: ['opm-settings-immich'] });
   }
   await settingsPage.fill('Server URL', mock.url);
   await page.getByRole('button', { name: 'Connect', exact: true }).click();
@@ -35,10 +35,10 @@ test('Immich validation and connected error controls remain readable in both the
   await expect(disconnect).toBeEnabled();
   for (const theme of ['light', 'dark'] as const) {
     await shell.theme(theme);
-    await expectNoSeriousA11yViolations(page, { include: ['apm-settings-immich'] });
+    await expectNoSeriousA11yViolations(page, { include: ['opm-settings-immich'] });
     await disconnect.hover();
-    await expectNoSeriousA11yViolations(page, { include: ['apm-settings-immich'] });
+    await expectNoSeriousA11yViolations(page, { include: ['opm-settings-immich'] });
     await disconnect.focus();
-    await expectNoSeriousA11yViolations(page, { include: ['apm-settings-immich'] });
+    await expectNoSeriousA11yViolations(page, { include: ['opm-settings-immich'] });
   }
 });

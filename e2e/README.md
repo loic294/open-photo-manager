@@ -1,6 +1,6 @@
 # Real-browser end-to-end tests
 
-This package drives the real `apm-server` binary and the production `web/dist` build in Chromium.
+This package drives the real `opm-server` binary and the production `web/dist` build in Chromium.
 It has its own dependencies; tests do not replace the product with a browser/API fake.
 
 ## Running and debugging
@@ -58,7 +58,7 @@ Paths, port, timezone and production web directory cannot be overridden through 
 | Readiness/indexing | `waitForIdle()`, `rescan(targets?: Scope[])` returns the generated `TaskDto`; `waitForTasksIdle`, `waitForFile`, `waitForIndexed` |
 | Recovery | `suspend()` / `resume()` retain private directories and port; `kill()` sends SIGKILL; `restart({ newPort? })`; `stop()` always tears down |
 | Mounted private fixtures | `CrossDevice.create(app, copyBytes)` (macOS, at most 4 GiB) stops the backend, mounts/discovers a new writable `.volume`, and proves distinct device IDs plus `EXDEV`; `.evidence`, `.mount`, `.image`, `close()` |
-| API/disk | `api` uses generated DTOs with matching Host/Origin and `x-apm-request: 1`; `sql(query)` is read-only SQLite; `applyFixtureMutations()` runs the shared script and parses TSV |
+| API/disk | `api` uses generated DTOs with matching Host/Origin and `x-opm-request: 1`; `sql(query)` is read-only SQLite; `applyFixtureMutations()` runs the shared script and parses TSV |
 | Fixture catalog | `Manifest.load(outDir)`, `filesOf(key)`, `file(volume,path)`, `scenario(key)`, `duplicateGroups(mode)`, `emptyDirs()` |
 | Disk helpers | `snapshotTree(dir,{hash?})`, `diffTrees`, `expectTree`, `trashEntries`, `writeFile`, `touch`, `removeFile`, `makeDir`, `makeSparseFile` (maximum 4 GiB) |
 | Read-only assertions | `captureReadOnly(app)`, `assertReadOnly(app,before)` compare hashed volume trees and complete files/dirs/cameras/tags/sidecar index tables |
@@ -89,7 +89,7 @@ preserves them; never force detach or remove a still-mounted tree.
 Calibration on this contended macOS host measured 1 GiB at 12 seconds (below acceptance), and
 3 GiB at 34 then 35 seconds for the actual file task. Copy tests must retain a measured
 **at least 15 seconds** gate, not a sleep or forced throttle. Use one worker for copy/mount
-validation. Compare pre-existing `.apm-part` paths because a deliberate junk fixture already has
+validation. Compare pre-existing `.opm-part` paths because a deliberate junk fixture already has
 that suffix: copy/cancel/recovery must introduce no leftover parts.
 
 The copy responsiveness check submits 200 logical browse/facet requests over at most 16 live
@@ -119,7 +119,7 @@ be run to verify SQL coherence before claiming database-backed acceptance.
 The host-verified Immich browser coverage is 10 specs / 18 cases: `immich-a11y`,
 `limited-mode`, `sync-nonblocking`, `connect`, `connect-errors`, `connection-boundaries`, `mapping`,
 `reconnect`, `safety` and `tls`. The `backedImmich` Playwright fixture in `src/immich-test.ts`
-owns PostgreSQL, the APM process and fixture-mounted mock. Its five browser cases are isolated in
+owns PostgreSQL, the OPM process and fixture-mounted mock. Its five browser cases are isolated in
 the `immich-postgres` project capped at one worker; they can run alongside ordinary browser tests
 with `E2E_WORKERS=2`. On 2026-11-09, all five were discovered once and passed with 6.30 GiB free:
 `backed-move-outside`, `backed-rename`, `backed-sync`, `mirror-delete` and `mirror-move` (5/5).
@@ -148,7 +148,7 @@ and distinguish skipped or unrun scenarios from passed runtime coverage.
 
 The Settings contract protects dirty drafts with native `beforeunload` and preserves them across
 Settings tabs; it does not veto in-app navigation. Enter in a text field does not submit.
-Host policy tests exercise the real binary with `APM_WATCH_MODE=poll|auto|watch`, invalid values,
+Host policy tests exercise the real binary with `OPM_WATCH_MODE=poll|auto|watch`, invalid values,
 health/index warnings, capability badges and supported WAL startup. They do not simulate an
 unsafe mount and are not evidence from an actual Windows machine or Docker container.
 

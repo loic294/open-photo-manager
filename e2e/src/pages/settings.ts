@@ -33,13 +33,13 @@ export class SettingsPage {
     await this.general().getByRole('switch', { name, exact: true }).setChecked(checked);
   }
   async addChip(label: string, value: string) {
-    const field = this.general().locator(`apm-chip-input[label="${label}"]`);
+    const field = this.general().locator(`opm-chip-input[label="${label}"]`);
     await field.getByRole('textbox').fill(value);
     await field.getByRole('textbox').press('Enter');
   }
   async removeChip(label: string, value: string) {
     await this.general()
-      .locator(`apm-chip-input[label="${label}"]`)
+      .locator(`opm-chip-input[label="${label}"]`)
       .getByRole('button', { name: `Remove ${value}`, exact: true })
       .click();
   }

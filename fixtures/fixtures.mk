@@ -1,5 +1,5 @@
 # Fixture library targets; the root Makefile includes this file (see fixtures/README.md).
-#   make fixtures          small catalogue in fixtures/out (APM_VOLUMES_DIR defaults to fixtures/out/volumes)
+#   make fixtures          small catalogue in fixtures/out (OPM_VOLUMES_DIR defaults to fixtures/out/volumes)
 #   make fixtures-large    FIXTURES_FILES tiny files in fixtures/out-large (default 200000)
 #   make fixtures-verify   re-check fixtures/out against its manifest
 #   make fixtures-clean    remove both output directories

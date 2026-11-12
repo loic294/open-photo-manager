@@ -7,14 +7,14 @@
 #
 # It runs the server as the default user, as an arbitrary uid with a chowned data volume, and with a wrong data
 # volume owner, always with a read-only root filesystem and no capabilities (like docker/compose.yml). Everything it
-# creates is named apm-smoke-* and is removed on exit. Compatible with the bash 3.2 that ships with macOS.
+# creates is named opm-smoke-* and is removed on exit. Compatible with the bash 3.2 that ships with macOS.
 set -euo pipefail
 
 ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 cd "$ROOT"
 
-IMAGE="${SMOKE_IMAGE:-apm-smoke:local}"
-PREFIX="apm-smoke-$$"
+IMAGE="${SMOKE_IMAGE:-opm-smoke:local}"
+PREFIX="opm-smoke-$$"
 WORK="$ROOT/target/docker-smoke/$$"
 HOST_UID="$(id -u)"
 HOST_GID="$(id -g)"
@@ -244,7 +244,7 @@ wait_healthy "$PREFIX-a" 120
 port_a="$(published_port "$PREFIX-a" 8080)"
 http_checks "http://127.0.0.1:$port_a"
 exec_checks "$PREFIX-a" 1000
-if docker exec -e APM_LISTEN=127.0.0.1:9 "$PREFIX-a" /app/healthcheck.sh >/dev/null 2>&1; then
+if docker exec -e OPM_LISTEN=127.0.0.1:9 "$PREFIX-a" /app/healthcheck.sh >/dev/null 2>&1; then
   fail "the health check succeeds although nothing listens on the configured port"
 fi
 pass "the health check fails when nothing listens on the configured port"
@@ -260,7 +260,7 @@ docker run --rm --pull never --user 0:0 --entrypoint sh -v "$PREFIX-data-b:/data
   "chown $ARBITRARY_UID:$ARBITRARY_UID /data && touch /data/.seed && chown $ARBITRARY_UID:$ARBITRARY_UID /data/.seed" \
   || fail "could not hand the data volume to uid $ARBITRARY_UID"
 docker run -d --pull never --name "$PREFIX-b" --user "$ARBITRARY_UID:$ARBITRARY_UID" "${HARDEN[@]}" \
-  -e APM_LISTEN=0.0.0.0:9090 -p 127.0.0.1::9090 \
+  -e OPM_LISTEN=0.0.0.0:9090 -p 127.0.0.1::9090 \
   --health-interval 2s --health-start-period 0s \
   -v "$PREFIX-data-b:/data" \
   -v "$WORK/volumes/photo:/volumes/photo" -v "$WORK/volumes/archive:/volumes/archive:ro" \

@@ -7,7 +7,7 @@
 *.db
 *.db-shm
 *.db-wal
-*.apm-part
+*.opm-part
 .env
 /test-results
 /playwright-report

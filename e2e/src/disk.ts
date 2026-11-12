@@ -84,7 +84,7 @@ export async function expectTree(dir: string, expected: TreeEntry[]) {
 export async function trashEntries(app: AppInstance) {
   return (await snapshotTree(app.volumesDir)).filter(
     (entry) =>
-      entry.path.split('/')[1] === '.apm-trash' &&
+      entry.path.split('/')[1] === '.opm-trash' &&
       entry.path.split('/').length >= 4 &&
       entry.type !== 'directory',
   );

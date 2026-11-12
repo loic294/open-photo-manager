@@ -122,7 +122,7 @@ test('junk, trash and product moves do not schedule redundant watcher scans @slo
   expect((await indexedFile(app, 'archive', `watcher-move/${basename(fixture.path)}`)).hash).toBe(
     fixture.sha1,
   );
-  await writeFile(app, 'photos', '.apm-trash/watch-junk/test.jpg', 'ignored trash');
+  await writeFile(app, 'photos', '.opm-trash/watch-junk/test.jpg', 'ignored trash');
   await writeFile(app, 'photos', '@eaDir/watch-junk/test.jpg', 'ignored thumbnails');
   const after = Math.max(...(await app.api.tasks()).map((task) => task.id));
   // Neither ignored writes nor a self-write emits an accepted watcher job; cover its 5 s quiet window.

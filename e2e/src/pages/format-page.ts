@@ -20,12 +20,12 @@ export class FormatPage {
   }
 
   livePreview() {
-    return this.page.locator('apm-pattern-editor details').filter({ hasText: 'Live preview' });
+    return this.page.locator('opm-pattern-editor details').filter({ hasText: 'Live preview' });
   }
 
   variables() {
     return this.page
-      .locator('apm-pattern-editor summary')
+      .locator('opm-pattern-editor summary')
       .filter({ hasText: 'Variables and examples' });
   }
 
@@ -34,7 +34,7 @@ export class FormatPage {
   }
 
   planNotices() {
-    return this.page.locator('apm-tool-view [role="status"], apm-tool-view [role="alert"]');
+    return this.page.locator('opm-tool-view [role="status"], opm-tool-view [role="alert"]');
   }
 
   destinationBase() {
@@ -53,7 +53,7 @@ export class FormatPage {
 
   destinationFolder(name: string) {
     return this.destinationPane()
-      .locator('apm-folder-list a[data-name]')
+      .locator('opm-folder-list a[data-name]')
       .filter({ has: this.page.getByText(name, { exact: true }) });
   }
 

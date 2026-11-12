@@ -1,6 +1,6 @@
 /**
  * The limits the server enforces on the settings (the `SettingsDto` constants in
- * `crates/apm-core/src/dto/settings.rs`). They are mirrored here only to tell the user about a bad
+ * `crates/opm-core/src/dto/settings.rs`). They are mirrored here only to tell the user about a bad
  * value before Save. The server is authoritative: never be stricter than it, and show its answer
  * (a 422 `validation_failed`) whenever the two disagree.
  */

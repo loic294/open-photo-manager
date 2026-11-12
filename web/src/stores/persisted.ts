@@ -1,7 +1,7 @@
 import { type Signal, signal } from '@preact/signals-core';
 
 /** Every persisted key is stored under this prefix. Bump the version if a stored shape breaks. */
-export const STORAGE_PREFIX = 'apm.v1.';
+export const STORAGE_PREFIX = 'opm.v1.';
 
 /** A type guard over parsed JSON: stored data is untrusted (older version, hand edits). */
 export type Validator<T> = (value: unknown) => value is T;
@@ -58,7 +58,7 @@ function storage(): Storage | null {
 }
 
 /**
- * A signal backed by `localStorage['apm.v1.' + key]` as JSON.
+ * A signal backed by `localStorage['opm.v1.' + key]` as JSON.
  *
  * - Starts from the stored value if it passes `validate`, otherwise from `fallback`.
  * - Every assignment is written back; other tabs' changes arrive through the `storage` event.

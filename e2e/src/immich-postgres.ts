@@ -20,8 +20,8 @@ import { cache, root } from './paths.ts';
 import { reservePort } from './ports.ts';
 
 const exec = promisify(execFile);
-const DATABASE = 'apm_immich_test_v333';
-const MARKER = 'apm-immich-v3.3.3-disposable';
+const DATABASE = 'opm_immich_test_v333';
+const MARKER = 'opm-immich-v3.3.3-disposable';
 const LAST_MIGRATION = '1790693088454-AddPersonUserTableSharedBySharedWithConstraint';
 
 function sqlJson(value: unknown): string {
@@ -96,8 +96,8 @@ export class ImmichPostgres {
     this.composeFile = join(directory, 'compose.yml');
     this.env = {
       ...process.env,
-      APM_IMMICH_TEST_DIR: directory,
-      APM_IMMICH_TEST_PASSWORD: password,
+      OPM_IMMICH_TEST_DIR: directory,
+      OPM_IMMICH_TEST_PASSWORD: password,
     };
   }
 
@@ -107,7 +107,7 @@ export class ImmichPostgres {
     const directory = await mkdtemp(join(cache, 'immich-postgres-'));
     const database = new ImmichPostgres(
       directory,
-      `apm-e2e-${randomBytes(12).toString('hex')}`,
+      `opm-e2e-${randomBytes(12).toString('hex')}`,
       randomBytes(24).toString('hex'),
     );
     try {
@@ -155,7 +155,7 @@ export class ImmichPostgres {
         '-out',
         ca,
         '-subj',
-        '/CN=APM disposable test CA',
+        '/CN=OPM disposable test CA',
         '-addext',
         'basicConstraints=critical,CA:TRUE',
       ],
@@ -246,7 +246,7 @@ export class ImmichPostgres {
       await delay(500);
     }
     const contract = await readFile(
-      join(root, 'crates/apm-server/src/immich/direct_db/contract.rs'),
+      join(root, 'crates/opm-server/src/immich/direct_db/contract.rs'),
       'utf8',
     );
     const expected = /const MIGRATIONS: &str = "\\\n([\s\S]*?)";/.exec(contract)?.[1];
@@ -259,7 +259,7 @@ export class ImmichPostgres {
     const port = /^127\.0\.0\.1:(\d+)$/.exec(portText)?.[1];
     if (!port) throw new Error(`Unexpected disposable PostgreSQL binding: ${portText}`);
     const url = new URL(`postgresql://postgres@localhost:${port}/${DATABASE}`);
-    url.password = this.env.APM_IMMICH_TEST_PASSWORD ?? '';
+    url.password = this.env.OPM_IMMICH_TEST_PASSWORD ?? '';
     url.searchParams.set('sslmode', 'verify-full');
     url.searchParams.set('sslrootcert', ca);
     await writeFile(this.secretFile, `${url.toString()}\n`, { mode: 0o600 });

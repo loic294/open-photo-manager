@@ -1,9 +1,9 @@
-// Contract smoke: the real apm-server, built from this checkout, driven against this mock Immich.
+// Contract smoke: the real opm-server, built from this checkout, driven against this mock Immich.
 //
 //   make mock-immich-smoke
 //   node tools/mock-immich/smoke.mjs
 //
-// Both run `cargo build -p apm-server` first (a no-op when the backend is current) and use the
+// Both run `cargo build -p opm-server` first (a no-op when the backend is current) and use the
 // debug binary it produces.
 //
 // It copies the fixture library (`make fixtures` -> fixtures/out/volumes, volumes `photos` and
@@ -13,7 +13,7 @@
 // picked by the operating system. The scratch directory and both processes are removed even when a
 // step fails; a failure prints the mock's request log and the output of the processes.
 //
-// Environment: APM_SERVER_BIN (use that backend binary as it is, without building),
+// Environment: OPM_SERVER_BIN (use that backend binary as it is, without building),
 // MOCK_IMMICH_SCRATCH_DIR (where the scratch directory goes, default tools/mock-immich/.scratch).
 
 import assert from 'node:assert/strict';
@@ -160,21 +160,21 @@ function startMock(name, extraArgs, env) {
   );
 }
 
-/** APM_SERVER_BIN as it is, or the debug binary of this checkout after `cargo build -p apm-server`
+/** OPM_SERVER_BIN as it is, or the debug binary of this checkout after `cargo build -p opm-server`
  * (a no-op when it is current: a stale binary would be checked against the wrong code). */
 function backendBinary(env) {
-  if (process.env.APM_SERVER_BIN !== undefined) {
-    const binary = resolve(process.env.APM_SERVER_BIN);
-    assert.ok(existsSync(binary), `APM_SERVER_BIN does not exist: ${binary}`);
+  if (process.env.OPM_SERVER_BIN !== undefined) {
+    const binary = resolve(process.env.OPM_SERVER_BIN);
+    assert.ok(existsSync(binary), `OPM_SERVER_BIN does not exist: ${binary}`);
     return binary;
   }
-  console.log('building the backend: cargo build -p apm-server');
-  const build = spawnSync('cargo', ['build', '-p', 'apm-server'], {
+  console.log('building the backend: cargo build -p opm-server');
+  const build = spawnSync('cargo', ['build', '-p', 'opm-server'], {
     cwd: REPO_ROOT,
     env,
     stdio: 'inherit',
   });
-  assert.equal(build.status, 0, 'cargo build -p apm-server failed');
+  assert.equal(build.status, 0, 'cargo build -p opm-server failed');
   const metadata = spawnSync('cargo', ['metadata', '--no-deps', '--format-version', '1'], {
     cwd: REPO_ROOT,
     env,
@@ -185,7 +185,7 @@ function backendBinary(env) {
     metadata.status === 0
       ? JSON.parse(metadata.stdout).target_directory
       : join(REPO_ROOT, 'target');
-  const binary = join(target, 'debug', 'apm-server');
+  const binary = join(target, 'debug', 'opm-server');
   assert.ok(existsSync(binary), `the build did not produce ${binary}`);
   return binary;
 }
@@ -212,7 +212,7 @@ async function call(base, method, path, body, headers = {}) {
 
 /** The backend; every request that is not a read carries the header its CSRF guard requires. */
 const backend = (method, path, body) =>
-  call(backendUrl, method, path, body, method === 'GET' ? {} : { 'x-apm-request': '1' });
+  call(backendUrl, method, path, body, method === 'GET' ? {} : { 'x-opm-request': '1' });
 
 const mock = (method, path, body) => call(mockUrl, method, path, body);
 
@@ -368,18 +368,18 @@ async function run() {
   const backendPort = await freePort();
   backendUrl = `http://127.0.0.1:${backendPort}`;
   const backendEnv = Object.fromEntries(
-    Object.entries(process.env).filter(([key]) => !key.startsWith('APM_')),
+    Object.entries(process.env).filter(([key]) => !key.startsWith('OPM_')),
   );
   const backendProcess = launch('backend', binary, [], {
     cwd: scratch,
     env: {
       ...backendEnv,
       TMPDIR: tmpDir,
-      APM_VOLUMES_DIR: volumesDir,
-      APM_DATA_DIR: dataDir,
-      APM_WEB_DIR: webDir,
-      APM_LISTEN: `127.0.0.1:${backendPort}`,
-      APM_LOG: 'info',
+      OPM_VOLUMES_DIR: volumesDir,
+      OPM_DATA_DIR: dataDir,
+      OPM_WEB_DIR: webDir,
+      OPM_LISTEN: `127.0.0.1:${backendPort}`,
+      OPM_LOG: 'info',
     },
   });
   console.log(`mock: ${mockUrl}   backend: ${backendUrl}`);

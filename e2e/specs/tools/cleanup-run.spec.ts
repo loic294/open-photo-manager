@@ -54,7 +54,7 @@ test('cleanup removes confirmed empty folders and trashes their junk', async ({
   expect(removedFolders).toEqual(expected.sort());
   const removedFiles = changes.removed.filter((entry) => entry.type === 'file');
   const trashedFiles = after.filter(
-    (entry) => entry.type === 'file' && entry.path.includes('/.apm-trash/'),
+    (entry) => entry.type === 'file' && entry.path.includes('/.opm-trash/'),
   );
   for (const removed of removedFiles) {
     expect(
@@ -70,7 +70,7 @@ test('cleanup removes confirmed empty folders and trashes their junk', async ({
   await page.goto(new URL('/trash', app.url).href);
   await trashPage.tab('Deletions');
   const batchRow = page
-    .locator('apm-trash-deletions tbody tr')
+    .locator('opm-trash-deletions tbody tr')
     .filter({ hasText: 'photos' })
     .first();
   await expect(batchRow).toBeVisible();

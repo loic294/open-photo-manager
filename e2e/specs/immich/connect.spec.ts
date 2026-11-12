@@ -43,7 +43,7 @@ test('@smoke Settings connects without persisting the password or API key in pla
   expect(secret).toBeDefined();
   if (!secret) throw new Error('Mock did not create an API key');
   await expect(page.getByText('admin@example.test', { exact: true })).toBeVisible();
-  await expect(page.locator('apm-immich-connection').getByText('Immich v3.3.3')).toBeVisible();
+  await expect(page.locator('opm-immich-connection').getByText('Immich v3.3.3')).toBeVisible();
   await expect(settingsPage.field('Password')).toHaveCount(0);
   const status = await app.api.request<ImmichStatusDto>('GET', '/api/immich/status');
   expect(status.connection).toMatchObject({

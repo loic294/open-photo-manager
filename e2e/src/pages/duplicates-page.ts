@@ -16,7 +16,7 @@ export class DuplicatesPage {
   }
 
   actionButton() {
-    return this.page.locator('apm-bottom-bar apm-split-button button.btn-lg').first();
+    return this.page.locator('opm-bottom-bar opm-split-button button.btn-lg').first();
   }
 
   async actionLabel() {
@@ -24,7 +24,7 @@ export class DuplicatesPage {
   }
 
   async chooseAction(label: string) {
-    const split = this.page.locator('apm-bottom-bar apm-split-button');
+    const split = this.page.locator('opm-bottom-bar opm-split-button');
     await split.locator('summary[aria-label="Choose action"]').click();
     await split.getByRole('menuitemradio', { name: label, exact: true }).click();
   }
@@ -36,6 +36,6 @@ export class DuplicatesPage {
   }
 
   actionMenu() {
-    return this.page.locator('apm-bottom-bar apm-split-button');
+    return this.page.locator('opm-bottom-bar opm-split-button');
   }
 }

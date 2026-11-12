@@ -4,7 +4,7 @@ import type { Side } from './pane';
 export class BottomBarPage {
   readonly element;
   constructor(readonly page: Page) {
-    this.element = page.locator('apm-bottom-bar');
+    this.element = page.locator('opm-bottom-bar');
   }
   side(side: Side) {
     return this.element.getByRole('group', {
@@ -27,7 +27,7 @@ export class BottomBarPage {
     return this.side(side).textContent();
   }
   splitButton() {
-    return this.element.locator('apm-split-button');
+    return this.element.locator('opm-split-button');
   }
   actionButton() {
     return this.splitButton().getByRole('button');

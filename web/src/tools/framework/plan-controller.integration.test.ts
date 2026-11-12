@@ -3,7 +3,7 @@ import { afterEach, expect, it, vi } from 'vitest';
 import { api } from '@/api/client';
 import type { PlanDto } from '@/api/generated/PlanDto';
 import { events } from '@/api/sse';
-import '@/components/apm-task-indicator';
+import '@/components/opm-task-indicator';
 import { resetFilters } from '@/stores/filters';
 import { setLocation, syncFromLocation } from '@/stores/nav';
 import { resetPlanRunsForTests } from '@/stores/plan-runs';
@@ -15,14 +15,14 @@ import { stubBrowseServer } from '@/test/browse-server';
 import { mount } from '@/test/helpers';
 import { makeTask, taskEvent } from '@/test/task-fixtures';
 import { plainPane, toolConfig } from '@/test/tool-config';
-import '@/tools/framework/apm-tool-view';
+import '@/tools/framework/opm-tool-view';
 import { executePlanAction } from '@/tools/framework/plan-actions';
 import type { PlanParamsResult } from '@/tools/framework/tool-config';
 import type { ToolContext } from '@/tools/framework/tool-context';
 
 const stops: (() => void)[] = [];
 afterEach(() => {
-  for (const view of document.querySelectorAll('apm-tool-view')) view.remove();
+  for (const view of document.querySelectorAll('opm-tool-view')) view.remove();
   for (const stop of stops.splice(0)) stop();
   events.stop();
   resetPlanRunsForTests();
@@ -128,11 +128,11 @@ it('wires the real view from parameters through panes, queued execution, nonbloc
       ],
     }),
   });
-  const view = await mount('apm-tool-view', { config });
-  const indicator = await mount('apm-task-indicator');
+  const view = await mount('opm-tool-view', { config });
+  const indicator = await mount('opm-task-indicator');
   await settle(view);
   vi.useFakeTimers();
-  const action = () => view.querySelector<HTMLButtonElement>('apm-bottom-bar .btn-lg');
+  const action = () => view.querySelector<HTMLButtonElement>('opm-bottom-bar .btn-lg');
   expect(action()?.disabled).toBe(true);
   expect(action()?.closest('[data-tip]')?.getAttribute('data-tip')).toBe('Choose both bases');
   input.value = { ready: true, params: { source: { volume_id: 1, dir: 'trip', recursive: true } } };
@@ -142,7 +142,7 @@ it('wires the real view from parameters through panes, queued execution, nonbloc
   await vi.advanceTimersByTimeAsync(300);
   await settle(view);
   expect(action()?.disabled).toBe(false);
-  const refs = [...view.querySelectorAll('apm-pane')].map((pane) => pane.plan);
+  const refs = [...view.querySelectorAll('opm-pane')].map((pane) => pane.plan);
   expect(refs).toEqual([
     { plan_id: 1, side: 'source' },
     { plan_id: 1, side: 'comparison' },
@@ -155,14 +155,14 @@ it('wires the real view from parameters through panes, queued execution, nonbloc
   expect(action()?.disabled).toBe(true);
   expect(view.textContent).toContain('Working...');
   expect(selection.comparison.toArray()).toEqual([]);
-  expect([...view.querySelectorAll('apm-pane')].map((pane) => pane.plan)).toEqual([null, null]);
+  expect([...view.querySelectorAll('opm-pane')].map((pane) => pane.plan)).toEqual([null, null]);
   events.emit(taskEvent({ id: 8, kind: 'plan_execute', items_total: 2, items_done: 1 }));
   await settle(indicator);
   expect(indicator.querySelector('progress')).not.toBeNull();
   // Browsing continues while the filesystem task is working.
   setLocation('source', { volume: 'photos', dir: 'another' });
   await settle(view);
-  expect(view.querySelector('apm-pane')?.browseRequest?.dir).toBe('another');
+  expect(view.querySelector('opm-pane')?.browseRequest?.dir).toBe('another');
   const old = plans.get(1);
   if (!old) throw new Error('Missing built plan');
   old.result = {

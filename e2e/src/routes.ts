@@ -11,7 +11,7 @@ export interface ApiRoute {
 
 /** The server's independently maintained contract inventory is authoritative, not plan 5.12. */
 export function apiRoutes(): ApiRoute[] {
-  const source = readFileSync(join(root, 'crates/apm-server/tests/api_routes.rs'), 'utf8');
+  const source = readFileSync(join(root, 'crates/opm-server/tests/api_routes.rs'), 'utf8');
   const table = /const ROUTES:[\s\S]*?=\s*&\[([\s\S]*?)\];/.exec(source)?.[1];
   if (!table) throw new Error('Rust API contract ROUTES table was not found');
   const reads = new Set([
@@ -34,7 +34,7 @@ export function apiRoutes(): ApiRoute[] {
 
 /** Parse actual router declarations as a separate oracle; adding a route must update ROUTES. */
 export function implementedRoutes(): string[] {
-  const directory = join(root, 'crates/apm-server/src/api');
+  const directory = join(root, 'crates/opm-server/src/api');
   const module = readFileSync(join(directory, 'mod.rs'), 'utf8');
   const routes: string[] = [];
   for (const [, name] of module.matchAll(/\.merge\((\w+)::routes\(\)\)/g)) {

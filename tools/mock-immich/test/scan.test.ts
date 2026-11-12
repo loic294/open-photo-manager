@@ -37,7 +37,7 @@ test('a scan imports the media files, and only those, with the dates of the file
     '2024/raw.dng': 'd',
     'notes.txt': 'not media',
     '.hidden.jpg': 'hidden file',
-    '.apm-trash/old.jpg': 'hidden directory',
+    '.opm-trash/old.jpg': 'hidden directory',
     '2024/.cache/thumb.jpg': 'nested hidden directory',
   });
   touch(join(dir, '2024/IMG_0001.jpg'), T0);
@@ -226,7 +226,7 @@ test('the exclusion patterns keep files and directories out of the scan', async 
     '/mnt/photo/skip/this/b.jpg',
   ]);
 
-  const patterns = ['**/@eaDir/**', '**/skip/**', '**/*_thumb.jpg', '**/.apm-trash/**'];
+  const patterns = ['**/@eaDir/**', '**/skip/**', '**/*_thumb.jpg', '**/.opm-trash/**'];
   const update = await call(mock, 'PUT', `/api/libraries/${library?.id}`, {
     key,
     body: { exclusionPatterns: patterns },
