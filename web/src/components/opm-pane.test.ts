@@ -522,6 +522,39 @@ describe('the breadcrumbs and the up button', () => {
     ]);
     expect(part(pane, '[data-crumbs]').getAttribute('aria-label')).toBe('Source folder path');
     expect(part(pane, '[data-crumbs]').getAttribute('title')).toBe('photos/trip/2024');
+    expect(
+      [...pane.querySelectorAll('[data-crumbs] .tooltip')].map((tip) =>
+        tip.getAttribute('data-tip'),
+      ),
+    ).toEqual(Array(4).fill('photos/trip/2024'));
+  });
+
+  it('collapses the middle only when the path overflows and expands again when space returns', async () => {
+    goTo('source', { volume: 'photos', dir: 'trip/2024' });
+    const pane = await mountPane();
+    const nav = part<HTMLElement>(pane, '[data-crumbs]');
+    const list = part<HTMLElement>(nav, 'ul');
+    let available = 160;
+    Object.defineProperty(nav, 'clientWidth', { get: () => available });
+    Object.defineProperty(list, 'scrollWidth', { get: () => 400 });
+    pane.requestUpdate();
+    await settle(pane);
+
+    expect(text(part(nav, 'summary'))).toBe('...');
+    expect(part(nav, 'summary').getAttribute('data-tip')).toBe('photos/trip/2024');
+    expect([...nav.querySelectorAll(':scope > ul > li > span > a')].map(text)).toEqual([
+      'Volumes',
+      '2024',
+    ]);
+    const parents = [...nav.querySelectorAll<HTMLAnchorElement>('.dropdown-content a')];
+    expect(parents.map(text)).toEqual(['photos', 'trip']);
+    expect(parents[1]?.getAttribute('href')).toBe('/?src=photos/trip');
+
+    available = 500;
+    pane.requestUpdate();
+    await settle(pane);
+    expect(nav.querySelector('summary')).toBeNull();
+    expect(crumbLabels(pane)).toEqual(['Volumes', 'photos', 'trip', '2024']);
   });
 
   it('go to the crumb that is clicked, in this pane only', async () => {

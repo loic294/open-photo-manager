@@ -145,7 +145,8 @@ export function renameControls(ctx: ToolContext) {
       <opm-pattern-editor label="Name pattern" .value=${pattern.value} .source=${params?.source ?? null}
         .rules=${params?.rules ?? null} .requestKey=${key} .adapter=${renamePreviewAdapter} .limit=${5}
         @pattern-change=${(event: PatternChangeEvent) => {
-          pattern.value = event.detail.value;
+          if (event.detail.edited) pattern.value = event.detail.value;
+          if (event.detail.value !== pattern.peek()) return;
           if (event.detail.requestKey === previewKey(renameParams(ctx))) {
             validation.value = {
               key: event.detail.requestKey,

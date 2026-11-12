@@ -29,6 +29,7 @@ test('invalid format patterns show API issues and disable execution', async ({
   await page.goto(url.href);
   await initialPreview;
   await initialPlan;
+  await formatPage.edit();
 
   for (const pattern of ['{UNKNOWN}', '../outside', '/absolute', '{YYYY']) {
     const previewResponse = page.waitForResponse(isPreviewFor(pattern));

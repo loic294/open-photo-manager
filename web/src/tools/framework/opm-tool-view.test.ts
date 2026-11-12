@@ -20,6 +20,7 @@ import { PANES, type PaneId, syncFromLocation } from '@/stores/nav';
 import { GRID_SIZE, gridSize, hideUnmatchedFolders, setGridSize, setSort } from '@/stores/prefs';
 import { activePane, resetSelectionForTests, selection } from '@/stores/selection';
 import { clearToasts } from '@/stores/toasts';
+import { filtersOpen, toolHelpOpen } from '@/stores/tool-chrome';
 import {
   handoffFor,
   pinnedBase,
@@ -211,6 +212,7 @@ describe('layout', () => {
       'div',
       'div',
       'opm-bottom-bar',
+      'opm-modal',
     ]);
     const [header, filters, panes, bottom] = [...view.children];
     for (const fixed of [header, filters, bottom]) {
@@ -245,10 +247,70 @@ describe('layout', () => {
     }
   });
 
-  it('shows the title as a heading and the summary under it', async () => {
-    const view = await mountView(toolConfig({ title: 'Look around', summary: 'Two panes.' }));
-    expect(text(part(toolBar(view), 'h2'))).toBe('Look around');
-    expect(text(toolBar(view))).toContain('Two panes.');
+  it('keeps the repeated title and description out of the toolbar and shows help on demand', async () => {
+    const view = await mountView(
+      toolConfig({
+        title: 'Look around',
+        summary: 'Two panes.',
+        help: ['Open a folder.', 'Review the files.'],
+      }),
+    );
+    expect(toolBar(view).querySelector('h2')).toBeNull();
+    expect(text(toolBar(view))).not.toContain('Two panes.');
+    const modal = part<HTMLElementTagNameMap['opm-modal']>(view, 'opm-modal');
+    expect(modal.open).toBe(false);
+    toolHelpOpen.value = true;
+    await settle(view);
+    expect(modal.querySelector('dialog')?.open).toBe(true);
+    expect(text(modal)).toContain('Look around');
+    expect(text(modal)).toContain('Two panes.');
+    expect([...modal.querySelectorAll('li')].map(text)).toEqual([
+      'Open a folder.',
+      'Review the files.',
+    ]);
+    await modal.close();
+    expect(toolHelpOpen.value).toBe(false);
+  });
+
+  it('starts filters collapsed, preserves their values when toggled, and resets on tool entry', async () => {
+    setFilter('browse', CAMERA);
+    const view = await mountView();
+    expect(part<HTMLElement>(view, '#tool-filters').hidden).toBe(true);
+    filtersOpen.value = true;
+    await settle(view);
+    expect(part<HTMLElement>(view, '#tool-filters').hidden).toBe(false);
+    filtersOpen.value = false;
+    await settle(view);
+    expect(filterBar(view).filter).toEqual(CAMERA);
+    expect(paneOf(view, 'source').filter).toEqual(CAMERA);
+    view.config = toolConfig({ id: 'move' });
+    await settle(view);
+    expect(part<HTMLElement>(view, '#tool-filters').hidden).toBe(true);
+  });
+
+  it('opens controls in a dialog without replacing the pane listings', async () => {
+    const view = await mountView(
+      toolConfig({
+        controls: () => html`<code>{YYYY}/{mm}</code>`,
+        controlsDialog: {
+          label: 'Edit formatting',
+          render: () => html`<input aria-label="Pattern" />`,
+        },
+      }),
+    );
+    const pane = paneOf(view, 'source');
+    const modal = [...view.querySelectorAll('opm-modal')].find(
+      (item) => item.heading === 'Edit formatting',
+    );
+    expect(modal?.open).toBe(false);
+    [...toolBar(view).querySelectorAll('button')]
+      .find((item) => text(item) === 'Edit formatting')
+      ?.click();
+    await settle(view);
+    expect(modal?.querySelector('dialog')?.open).toBe(true);
+    expect(modal?.querySelector('input[aria-label="Pattern"]')).not.toBeNull();
+    await modal?.close();
+    expect(paneOf(view, 'source')).toBe(pane);
   });
 
   it('renders one pane per side with what its spec says', async () => {
@@ -778,25 +840,18 @@ describe('a tool with a plan', () => {
     expect(text(part(toolBar(view), '[role="status"]'))).toBe('');
   });
 
-  it('keeps the status in the summary row, so that no status moves the panes', async () => {
-    const plain = await mountView(toolConfig({ summary: 'Plain.' }));
-    const plainRow = part(toolBar(plain), 'p').parentElement;
-    expect(plainRow?.classList.contains('min-h-6')).toBe(false);
-    plain.remove();
-
+  it('keeps the plan status in the controls row through status changes', async () => {
     const plan = withPlan();
     const view = await mountView(planConfig({ summary: 'Match things.' }));
-    const summary = part(toolBar(view), 'p');
-    const row = summary.parentElement;
-    expect(row?.classList.contains('min-h-6')).toBe(true);
-    expect(row?.contains(part(toolBar(view), '[role="status"]'))).toBe(true);
-    expect(row?.contains(part(toolBar(view), 'h2'))).toBe(false);
+    const row = toolBar(view);
+    expect(row.classList.contains('min-h-10')).toBe(true);
+    expect(row.querySelector('h2')).toBeNull();
 
     for (const status of ['building', 'executing', 'error', 'ready', 'idle'] as const) {
       plan.statusSignal.value = status;
       await view.updateComplete;
-      expect(part(toolBar(view), 'p').parentElement, status).toBe(row);
-      expect(row?.contains(part(toolBar(view), '[role="status"]')), status).toBe(true);
+      expect(toolBar(view), status).toBe(row);
+      expect(row.contains(part(toolBar(view), '[role="status"]')), status).toBe(true);
     }
   });
 
@@ -982,7 +1037,7 @@ describe('its life', () => {
     view.config = toolConfig({ title: 'Second' });
     document.body.append(view);
     await view.updateComplete;
-    expect(text(part(toolBar(view), 'h2'))).toBe('Second');
+    expect(view.querySelector('opm-modal')?.heading).toBe('Second');
   });
 
   describe('given another config while connected', () => {
@@ -1015,7 +1070,7 @@ describe('its life', () => {
       expect(setupNew).toHaveBeenCalledTimes(1);
       expect(setupNew.mock.calls[0]?.[0].tool).toBe('move');
       expect(selection.source.count.value).toBe(0);
-      expect(text(part(toolBar(view), 'h2'))).toBe('New');
+      expect(view.querySelector('opm-modal')?.heading).toBe('New');
       expect(PANES.map((id) => paneOf(view, id).heading)).toEqual(['Left', 'Right']);
     });
 

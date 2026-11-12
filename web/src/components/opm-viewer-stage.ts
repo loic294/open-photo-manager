@@ -109,8 +109,8 @@ export class OpmViewerStage extends OpmElement {
       'min-h-0',
       'min-w-0',
       'flex-1',
-      'bg-neutral',
-      'text-neutral-content',
+      'bg-base-100',
+      'text-base-content',
     );
   }
 

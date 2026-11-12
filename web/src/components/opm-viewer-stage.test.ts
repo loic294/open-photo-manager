@@ -91,9 +91,9 @@ function tellSize(
 }
 
 describe('the host', () => {
-  it('fills a flex parent on a dark ground', async () => {
+  it('fills a flex parent using the app background rather than black letterboxing', async () => {
     const { stage } = await open(photo());
-    for (const name of ['relative', 'min-h-0', 'min-w-0', 'flex-1', 'bg-neutral']) {
+    for (const name of ['relative', 'min-h-0', 'min-w-0', 'flex-1', 'bg-base-100']) {
       expect(stage.classList.contains(name)).toBe(true);
     }
   });

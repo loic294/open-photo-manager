@@ -122,12 +122,12 @@ describe('opm-split-button structure', () => {
     const host = await mount('opm-split-button', { options: OPTIONS });
 
     expect(host.classList.contains('inline-flex')).toBe(true);
-    const main = host.querySelector('.join > button.btn.btn-lg.join-item');
+    const main = host.querySelector('.join > button.btn.btn-sm.join-item');
     expect(main).not.toBeNull();
     const dropdown = host.querySelector('.join > details.dropdown.dropdown-top.dropdown-end');
     expect(dropdown).not.toBeNull();
     expect(
-      dropdown?.querySelector(':scope > summary.btn.btn-lg.btn-square.join-item'),
+      dropdown?.querySelector(':scope > summary.btn.btn-sm.btn-square.join-item'),
     ).not.toBeNull();
     expect(dropdown?.querySelector(':scope > ul.menu.dropdown-content')).not.toBeNull();
   });

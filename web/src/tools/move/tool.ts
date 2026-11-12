@@ -8,6 +8,12 @@ export const moveTool = defineTool({
   id: 'move',
   title: 'Asset move',
   summary: 'Move files from the source into the destination and preview where they will land.',
+  help: [
+    'Choose a source base folder on the left and a destination base folder on the right using Use this folder.',
+    'Choose the move type and what to do when a destination name is taken. Custom moves use a folder pattern.',
+    'Review the destination preview. Filters and Include subfolders change which source files participate.',
+    'Select files to limit the move, or leave the selection empty for every planned file. Choose Move files and confirm.',
+  ],
   recursive: 'toggle',
   filter: { applies: 'source' },
   panes: {

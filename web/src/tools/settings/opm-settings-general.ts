@@ -479,9 +479,7 @@ export class OpmSettingsGeneral extends OpmElement {
         @submit=${(event: Event) => event.preventDefault()}
       >
         ${this.renderAlert()} ${this.renderFiles(doc)} ${this.renderMoving(doc)}
-        <div class="grid gap-4 lg:grid-cols-2">
-          ${this.renderIndexing(doc)} ${this.renderVolumes()}
-        </div>
+        ${this.renderIndexing(doc)} ${this.renderVolumes()}
         ${this.dirty ? this.renderActionBar() : nothing}
       </form>
     `;

@@ -12,8 +12,9 @@ import { startTheme } from '@/app/theme';
 import { OpmElement } from '@/base/opm-element';
 import { startImmich } from '@/stores/immich';
 import { startIndexStatus } from '@/stores/index-status';
-import { currentPath, linkTo, startNavSync } from '@/stores/nav';
+import { currentPath, currentTool, linkTo, startNavSync } from '@/stores/nav';
 import { startTasks } from '@/stores/tasks';
+import { filtersOpen, toolHelpOpen } from '@/stores/tool-chrome';
 import { startVolumes } from '@/stores/volumes';
 // Components the shell renders. Add one import line here for a shell-level component that another
 // feature provides (for example `import '@/components/opm-task-indicator';`).
@@ -235,6 +236,28 @@ export class OpmApp extends OpmElement {
               <h1 class="truncate text-lg font-semibold">
                 ${this.pageFor(currentPath.value).label}
               </h1>
+              ${
+                currentTool.value
+                  ? html`
+                    <div class="tooltip tooltip-bottom" data-tip="About this tool">
+                      <button type="button" class="btn btn-ghost btn-sm btn-square"
+                        aria-label="About this tool" aria-haspopup="dialog"
+                        @click=${() => (toolHelpOpen.value = true)}>
+                        <opm-icon name="info" size="sm"></opm-icon>
+                      </button>
+                    </div>
+                    <div class="tooltip tooltip-bottom" data-tip="Toggle filters">
+                      <button type="button"
+                        class=${filtersOpen.value ? 'btn btn-soft btn-primary btn-sm btn-square' : 'btn btn-ghost btn-sm btn-square'}
+                        aria-label="Toggle filters" aria-expanded=${String(filtersOpen.value)}
+                        aria-controls="tool-filters"
+                        @click=${() => (filtersOpen.value = !filtersOpen.value)}>
+                        <opm-icon name="funnel" size="sm"></opm-icon>
+                      </button>
+                    </div>
+                  `
+                  : nothing
+              }
             </div>
             <div class="flex flex-none items-center gap-2">
               <opm-task-indicator></opm-task-indicator>

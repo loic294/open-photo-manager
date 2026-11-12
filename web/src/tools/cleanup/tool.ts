@@ -2,7 +2,7 @@ import { html, nothing } from 'lit';
 import type { CleanupExecuteOptions } from '@/api/generated/CleanupExecuteOptions';
 import type { CleanupParams } from '@/api/generated/CleanupParams';
 import type { ConfirmOptions } from '@/components/confirm-dialog';
-import { recursiveFor, setRecursive } from '@/stores/tool-state';
+import { recursiveFor } from '@/stores/tool-state';
 import { followSource } from '@/tools/framework/follow-source';
 import { executePlanAction } from '@/tools/framework/plan-actions';
 import { defineTool } from '@/tools/framework/tool-config';
@@ -25,6 +25,12 @@ export const cleanupTool = defineTool({
   id: 'cleanup',
   title: 'Empty folder cleanup',
   summary: 'Use the source folder as the base. Only empty folders below it are removed.',
+  help: [
+    'Open a source folder. The comparison pane previews the empty folders below it.',
+    'Turn off Include subfolders to limit cleanup to the current folder. Filters do not affect whether a folder is empty.',
+    'Review the preview, choose Delete empty folders and confirm. The base folder is kept; leftover junk files go to the trash.',
+  ],
+  recursive: 'toggle',
   panes: {
     source: { heading: 'Source', baseMode: 'current', showMatches: false, planSide: null },
     comparison: {
@@ -39,13 +45,6 @@ export const cleanupTool = defineTool({
     reason: 'Empty means no indexed files of any kind, regardless of filters.',
   },
   controls: (ctx) => html`
-    <label class="label gap-2 text-sm">
-      <input type="checkbox" class="toggle toggle-sm"
-        .checked=${!recursiveFor(ctx.tool)}
-        @change=${(event: Event) =>
-          setRecursive(ctx.tool, !(event.currentTarget as HTMLInputElement).checked)} />
-      <span>This folder only (no subfolders)</span>
-    </label>
     ${
       ctx.plan.status === 'ready' && countOf(ctx) === 0
         ? html`<span role="status" class="text-sm text-base-content/70">No empty folders</span>`

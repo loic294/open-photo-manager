@@ -16,7 +16,7 @@ export class DuplicatesPage {
   }
 
   actionButton() {
-    return this.page.locator('opm-bottom-bar opm-split-button button.btn-lg').first();
+    return this.page.locator('[data-floating-actions] opm-split-button .join > button').first();
   }
 
   async actionLabel() {
@@ -24,7 +24,7 @@ export class DuplicatesPage {
   }
 
   async chooseAction(label: string) {
-    const split = this.page.locator('opm-bottom-bar opm-split-button');
+    const split = this.actionMenu();
     await split.locator('summary[aria-label="Choose action"]').click();
     await split.getByRole('menuitemradio', { name: label, exact: true }).click();
   }
@@ -36,6 +36,6 @@ export class DuplicatesPage {
   }
 
   actionMenu() {
-    return this.page.locator('opm-bottom-bar opm-split-button');
+    return this.page.locator('[data-floating-actions] opm-split-button');
   }
 }

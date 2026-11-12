@@ -102,8 +102,9 @@ export interface ToolActions {
  * The whole tool.
  *
  * - `id`: the tool's id in `@/stores/nav`; the key of its filter, scope, state and last action.
- * - `title`: the tool bar's heading (an `h2`: the shell owns the `h1`).
- * - `summary`: one sentence under the heading saying what the tool is for.
+ * - `title`: the tool's name in its help dialog (the shell owns the visible heading).
+ * - `summary`: one sentence in the help dialog saying what the tool is for.
+ * - `help`: steps explaining how to use the tool, shown below its summary.
  * - `panes`: how each of the two panes behaves.
  * - `filter`: what the filter bar's filter applies to.
  * - `recursive`: `'always'` (default) looks at subfolders too; `'toggle'` adds the "Include
@@ -120,10 +121,13 @@ export interface ToolConfig {
   id: ToolId;
   title: string;
   summary: string;
+  help?: readonly string[];
   panes: Record<PaneId, PaneSpec>;
   filter: FilterSpec;
   recursive?: 'toggle' | 'always';
   controls?: (ctx: ToolContext) => TemplateResult;
+  controlsDialog?: { label: string; render: (ctx: ToolContext) => TemplateResult };
+  floatingActions?: boolean;
   plan?: PlanSpec;
   actions?: (ctx: ToolContext) => ToolActions | null;
   setup?: (ctx: ToolContext) => (() => void) | undefined;

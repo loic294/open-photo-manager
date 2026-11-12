@@ -3,9 +3,9 @@ import type { Page } from '@playwright/test';
 export class CleanupPage {
   constructor(readonly page: Page) {}
 
-  thisFolderOnly() {
-    return this.page.getByRole('checkbox', {
-      name: 'This folder only (no subfolders)',
+  includeSubfolders() {
+    return this.page.getByRole('switch', {
+      name: 'Include subfolders',
       exact: true,
     });
   }

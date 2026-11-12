@@ -13,6 +13,14 @@
   --color-warning-content: #422006;
 }
 
+/* Warm brand accents share a hue; all other DaisyUI theme colours stay unchanged. */
+:root {
+  --color-primary: #ffc700;
+  --color-primary-content: #211a00;
+  --color-secondary: #ffe799;
+  --color-secondary-content: #211a00;
+}
+
 /* Interpolating both foreground and background briefly makes outlined errors unreadable. */
 :where(.btn-error:is(.btn-outline, .btn-dash, .btn-soft)) {
   transition-property: box-shadow, transform;

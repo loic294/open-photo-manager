@@ -78,6 +78,16 @@ function serve(...replies: Reply[]): Sent[] {
 
 type Form = Awaited<ReturnType<typeof open>>['element'];
 
+it('gives Indexing and Volumes their own full-width rows in the settings form', async () => {
+  const { element } = await open();
+  for (const label of ['Indexing', 'Volumes']) {
+    const section = [...element.querySelectorAll('fieldset')].find(
+      (item) => item.querySelector('legend')?.textContent?.trim() === label,
+    );
+    expect(section?.parentElement).toBe(element.querySelector('form'));
+  }
+});
+
 /** Mounts the form on a server that has `doc`, and waits until the document has loaded. */
 async function open(doc: SettingsDto = sampleSettings(), ...next: Reply[]) {
   const requests = serve(ok(doc), ...next);

@@ -29,7 +29,7 @@ export type SplitSelectEvent = CustomEvent<SplitDetail>;
 let instanceCounter = 0;
 
 /**
- * A big split button for the action area of a tool: the main button runs the SELECTED entry, the
+ * A compact split button for the action area of a tool: the main button runs the SELECTED entry, the
  * chevron next to it opens a menu (upwards) to select another one.
  *
  *   html`<opm-split-button
@@ -292,7 +292,7 @@ export class OpmSplitButton extends OpmElement {
       <div class="join min-w-0 max-w-full">
         <button
           type="button"
-          class="btn btn-lg join-item min-w-0 flex-1 ${colour}"
+          class="btn btn-sm join-item min-w-0 flex-1 ${colour}"
           title=${option.label}
           ?disabled=${locked}
           aria-busy=${this.busy ? 'true' : nothing}
@@ -302,7 +302,7 @@ export class OpmSplitButton extends OpmElement {
             this.busy
               ? html`<span class="loading loading-spinner" aria-hidden="true"></span>`
               : option.icon
-                ? html`<opm-icon name=${option.icon} size="lg"></opm-icon>`
+                ? html`<opm-icon name=${option.icon} size="sm"></opm-icon>`
                 : nothing
           }
           <span class="truncate">${option.label}</span>
@@ -317,7 +317,7 @@ export class OpmSplitButton extends OpmElement {
         >
           <summary
             ${ref(this.summaryRef)}
-            class="btn btn-lg btn-square join-item ${colour} ${locked ? 'btn-disabled' : ''}"
+            class="btn btn-sm btn-square join-item ${colour} ${locked ? 'btn-disabled' : ''}"
             aria-label="Choose action"
             aria-haspopup="menu"
             aria-expanded=${this.menuOpen ? 'true' : 'false'}

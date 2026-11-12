@@ -292,6 +292,7 @@ for (const policy of ['skip', 'rename', 'replace'] as const) {
       }),
     ).toHaveCount(1);
     await shell.navigate('Folder formatting');
+    await formatPage.edit();
     await expect(
       formatPage.policy().getByRole('option', {
         name: `Default (${policy[0].toUpperCase()}${policy.slice(1)})`,

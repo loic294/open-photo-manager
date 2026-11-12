@@ -4,6 +4,23 @@ import { FileCard } from './pane';
 export class FormatPage {
   constructor(readonly page: Page) {}
 
+  async edit() {
+    await this.page.getByRole('button', { name: 'Edit formatting', exact: true }).click();
+    await expect(
+      this.page.getByRole('dialog', { name: 'Edit formatting', exact: true }),
+    ).toBeVisible();
+  }
+
+  async done() {
+    await this.page
+      .getByRole('dialog', { name: 'Edit formatting', exact: true })
+      .getByRole('button', { name: 'Done', exact: true })
+      .click();
+    await expect(
+      this.page.getByRole('dialog', { name: 'Edit formatting', exact: true }),
+    ).not.toBeVisible();
+  }
+
   pattern() {
     return this.page.getByRole('textbox', { name: 'Folder pattern', exact: true });
   }

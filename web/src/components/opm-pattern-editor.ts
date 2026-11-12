@@ -16,6 +16,8 @@ import {
 
 export interface PatternChangeDetail {
   value: string;
+  /** Only user edits may replace the controlled value; validation can arrive from an older render. */
+  edited: boolean;
   status: 'checking' | 'valid' | 'invalid' | 'idle';
   requestKey?: string;
   issues?: RenameIssue[];
@@ -46,6 +48,7 @@ export class OpmPatternEditor extends OpmElement {
     source: { attribute: false },
     basePrefix: { attribute: false },
     disabled: { type: Boolean },
+    inlineDetails: { type: Boolean, attribute: 'inline-details' },
     label: { type: String },
     limit: { type: Number },
     catalogue: { state: true },
@@ -61,6 +64,8 @@ export class OpmPatternEditor extends OpmElement {
   source: SideParams | null = null;
   basePrefix: string | null = null;
   disabled = false;
+  /** Dialogs need disclosures in normal flow so their content never covers the modal actions. */
+  inlineDetails = false;
   label = 'Folder pattern';
   limit = 5;
   adapter: PatternPreviewAdapter = formatPreviewAdapter;
@@ -123,10 +128,16 @@ export class OpmPatternEditor extends OpmElement {
     }
   }
 
-  private emit(value: string, status: PatternChangeDetail['status']): void {
+  private emit(value: string, status: PatternChangeDetail['status'], edited = false): void {
     this.dispatchEvent(
       new CustomEvent<PatternChangeDetail>('pattern-change', {
-        detail: { value, status, requestKey: this.requestKey, issues: this.preview?.issues ?? [] },
+        detail: {
+          value,
+          status,
+          edited,
+          requestKey: this.requestKey,
+          issues: this.preview?.issues ?? [],
+        },
         bubbles: true,
       }),
     );
@@ -203,7 +214,7 @@ export class OpmPatternEditor extends OpmElement {
     this.cancelPreview();
     this.checking = this.source !== null;
     this.caret = caret ?? [value.length, value.length];
-    this.emit(value, this.source ? 'checking' : 'idle');
+    this.emit(value, this.source ? 'checking' : 'idle', true);
     this.requestUpdate();
     // The controlled property wins, even if the host rejects an edit.
     queueMicrotask(() => {
@@ -283,10 +294,10 @@ export class OpmPatternEditor extends OpmElement {
         ${!this.checking && this.preview?.appends_filename ? 'No file name in the pattern: the original name is added at the end' : nothing}
         ${!this.checking ? this.preview?.issues.filter((entry) => entry.field === 'pattern' && entry !== issue).map((entry) => html`<p role="alert">${entry.message}</p>`) : nothing}
       </div>
-      <details class="dropdown block min-w-0">
+      <details class="${this.inlineDetails ? '' : 'dropdown'} block min-w-0">
         <summary class="btn btn-ghost btn-xs w-full justify-between">Variables and examples
           <opm-icon name="chevron-down" size="xs"></opm-icon></summary>
-        <div class="dropdown-content left-0 z-30 w-full rounded-box bg-base-100 p-2 shadow-lg">
+        <div class="${this.inlineDetails ? '' : 'dropdown-content left-0 z-30 shadow-lg'} w-full rounded-box bg-base-100 p-2">
           ${
             this.catalogueError
               ? html`<div class="alert alert-warning py-1" role="alert">
@@ -312,9 +323,9 @@ export class OpmPatternEditor extends OpmElement {
             )}
           </div>`,
           )}
-          <details class="dropdown">
+          <details class=${this.inlineDetails ? '' : 'dropdown'}>
             <summary class="btn btn-ghost btn-xs">Examples</summary>
-            <ul class="dropdown-content menu bg-base-100 rounded-box z-20 w-72 p-2 shadow-lg">
+            <ul class="${this.inlineDetails ? '' : 'dropdown-content z-20 shadow-lg'} menu bg-base-100 rounded-box w-72 max-w-full p-2">
               ${this.catalogue?.examples.map(
                 (example) => html`<li><button type="button" ?disabled=${this.disabled}
                 @click=${(event: Event) => {
@@ -337,10 +348,10 @@ export class OpmPatternEditor extends OpmElement {
       <div class="min-h-4" role="status" aria-live="polite">${this.checking ? html`<span class="loading loading-dots loading-xs"></span> Checking pattern...` : nothing}</div>
       ${
         this.preview && !this.preview.error && this.preview.issues.length === 0
-          ? html`<details class="dropdown block min-w-0">
+          ? html`<details class="${this.inlineDetails ? '' : 'dropdown'} block min-w-0">
         <summary class="btn btn-ghost btn-xs w-full justify-between">Live preview (${this.preview.samples.length} ${this.preview.samples.length === 1 ? 'sample' : 'samples'})
           <opm-icon name="chevron-down" size="xs"></opm-icon></summary>
-        <div class="dropdown-content left-0 z-30 w-full rounded-box bg-base-100 p-2 shadow-lg">
+        <div class="${this.inlineDetails ? '' : 'dropdown-content left-0 z-30 shadow-lg'} w-full rounded-box bg-base-100 p-2">
           ${this.preview.note ? html`<p class="mb-2">${this.preview.note}</p>` : nothing}
           ${
             this.preview.samples.length === 0

@@ -44,7 +44,7 @@ test('duplicate action choice survives reload and browser context restart', asyn
     const restartedPage = await restartedContext.newPage();
     await restartedPage.goto(url.href);
     await expect(
-      restartedPage.locator('opm-bottom-bar opm-split-button button.btn-lg').first(),
+      restartedPage.locator('[data-floating-actions] opm-split-button .join > button').first(),
     ).toContainText('Delete source items');
   } finally {
     await restartedContext.close();

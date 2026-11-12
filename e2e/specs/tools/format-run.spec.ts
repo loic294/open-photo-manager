@@ -56,6 +56,7 @@ test('folder formatting moves to the pattern path shown in its preview', async (
     .getByRole('button', { name: 'Use this folder', exact: true })
     .click();
   await basePlan;
+  await formatPage.edit();
 
   const previewResponse = page.waitForResponse(isResponse(/^\/api\/format\/preview$/));
   const patternPlan = page.waitForResponse(isResponse(/^\/api\/plans$/));
@@ -65,6 +66,7 @@ test('folder formatting moves to the pattern path shown in its preview', async (
   await patternPlan;
   await formatPage.livePreview().locator('summary').click();
   await expect(formatPage.livePreview()).toContainText(expectedDestination(file, pattern));
+  await formatPage.done();
   const fileName = file.path.split('/').at(-1) ?? file.path;
   await source.card(fileName).select();
   const expectedPath = `archive/${expectedDestination(file, pattern)}`;
@@ -119,11 +121,13 @@ test('folder formatting moves to the pattern path shown in its preview', async (
   await page.goto(secondUrl.href);
   await secondInitialPlan;
   await secondInitialPreview;
+  await formatPage.edit();
   const secondPreviewResponse = page.waitForResponse(isResponse(/^\/api\/format\/preview$/));
   const secondPlanResponse = page.waitForResponse(isResponse(/^\/api\/plans$/));
   await formatPage.pattern().fill('{filename}');
   await secondPreviewResponse;
   await secondPlanResponse;
+  await formatPage.done();
   await expect(formatPage.actionButton()).toBeDisabled();
   await expect(page.getByText('Nothing to move', { exact: true }).first()).toBeVisible();
 });

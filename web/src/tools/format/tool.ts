@@ -29,6 +29,12 @@ export const formatTool = defineTool({
   title: 'Folder formatting',
   summary:
     "Reorganise source files into folders built from a pattern, using each file's capture date.",
+  help: [
+    'Open the source folder. The destination follows it until you choose another base folder on the right.',
+    'Choose Edit formatting to set the folder pattern and name-conflict policy. Preview examples before closing the dialog.',
+    'Review the planned folders and files in the destination pane. Use filters or Include subfolders to change the scope.',
+    'Select files to limit the move, or leave the selection empty to move every planned file. Choose Move and format files and confirm.',
+  ],
   recursive: 'toggle',
   filter: { applies: 'source' },
   panes: {
@@ -57,9 +63,18 @@ export const formatTool = defineTool({
         FORMAT_REASONS,
       ),
   },
-  controls: (ctx) => html`${renderConflictPolicy(formatRules)}${renderMoveSummary(ctx)}
-    ${renderPendingNotices(ctx, { hash: false })}
-    ${renderPatternSection(ctx, formatRules, { collapsible: false, limit: 5 })}`,
+  controls: (ctx) => html`
+    <span class="min-w-0 max-w-full tooltip tooltip-bottom" data-tip=${formatRules.pattern.value}>
+      <code class="block truncate text-sm">${formatRules.pattern.value || 'No folder pattern set'}</code>
+    </span>
+    ${renderMoveSummary(ctx)}${renderPendingNotices(ctx, { hash: false })}`,
+  controlsDialog: {
+    label: 'Edit formatting',
+    render: (ctx) => html`<div class="flex flex-col gap-4">
+      ${renderConflictPolicy(formatRules)}
+      ${renderPatternSection(ctx, formatRules, { collapsible: false, limit: 5, inlineDetails: true })}
+    </div>`,
+  },
   actions: (ctx) =>
     moveActions(ctx, {
       label: 'Move and format files',

@@ -18,6 +18,7 @@ import type {
   ScopeChangeEvent,
 } from '@/components/opm-filter-bar';
 import '@/components/opm-filter-bar';
+import '@/components/opm-modal';
 import type {
   BaseChangeEvent,
   BaseDefault,
@@ -33,6 +34,7 @@ import { setFilter, setScope } from '@/stores/filters';
 import { PANES, type PaneId } from '@/stores/nav';
 import { GRID_SIZE, gridSize, hideUnmatchedFolders, setGridSize } from '@/stores/prefs';
 import { activePane, clearAllSelections, selection } from '@/stores/selection';
+import { filtersOpen, toolHelpOpen } from '@/stores/tool-chrome';
 import { handoffFor, setHandoff, setRecursive } from '@/stores/tool-state';
 import { renderPlanStatus } from '@/tools/framework/plan-status';
 import { renderActions } from '@/tools/framework/tool-actions';
@@ -46,10 +48,8 @@ import { DEFAULT_SCOPE_LABELS } from '@/util/filter';
  *
  *   html`<opm-tool-view .config=${browseTool}></opm-tool-view>`
  *
- * Top to bottom: the tool bar (a row with the title, the "Include subfolders" switch and the
- * tool's own `controls`; under it the summary and, for a tool with a plan, the plan status at the
- * right end of that row, which keeps its height so a status change never moves the panes), the
- * filter bar, the two panes side by side (stacked below the
+ * Top to bottom: tool controls with "Include subfolders" at the right, collapsible filters,
+ * the two panes side by side (stacked below the
  * `md` breakpoint) and the bottom bar with the tool's actions. The host fills its parent
  * (`flex h-full min-h-0 min-w-0 flex-col`) and nothing but a pane's own body scrolls, so the
  * parent of the view needs a definite height (a page element is `block h-full min-h-0`). Every
@@ -74,9 +74,11 @@ import { DEFAULT_SCOPE_LABELS } from '@/util/filter';
 export class OpmToolView extends OpmElement {
   static override properties = {
     config: { attribute: false },
+    controlsOpen: { state: true },
   };
 
   declare config: ToolConfig | undefined;
+  private controlsOpen = false;
 
   private ctx: ToolContext | null = null;
   private startedFor: ToolConfig | undefined;
@@ -120,6 +122,9 @@ export class OpmToolView extends OpmElement {
   private start(config: ToolConfig): void {
     if (this.startedFor === config) return;
     this.startedFor = config;
+    filtersOpen.value = false;
+    toolHelpOpen.value = false;
+    this.controlsOpen = false;
     clearAllSelections();
     const ctx = createToolContext(config, this);
     this.ctx = ctx;
@@ -227,7 +232,7 @@ export class OpmToolView extends OpmElement {
   private renderRecursiveSwitch(ctx: ToolContext) {
     if (ctx.config.recursive !== 'toggle') return nothing;
     return html`
-      <label class="flex cursor-pointer items-center gap-2 text-sm">
+      <label class="ml-auto flex shrink-0 cursor-pointer items-center gap-2 text-sm">
         <input
           type="checkbox"
           class="toggle toggle-sm"
@@ -246,25 +251,23 @@ export class OpmToolView extends OpmElement {
     const controls = config.controls?.(ctx);
     return html`
       <header
-        class="flex min-h-12 flex-none flex-col justify-center border-b border-base-300 bg-base-100 px-2 py-1"
+        class="${controls || config.plan || config.recursive === 'toggle' ? 'flex' : 'hidden'} min-h-10 flex-none flex-wrap items-center gap-x-3 gap-y-2 border-b border-base-300 bg-base-100 px-3 py-2"
       >
-        <div class="flex flex-wrap items-center gap-x-4 gap-y-1">
-          <h2 class="min-w-0 max-w-full truncate text-base leading-tight font-semibold">
-            ${config.title}
-          </h2>
-          ${this.renderRecursiveSwitch(ctx)}
-          ${
-            controls
-              ? html`<div class="flex min-w-0 flex-wrap items-center gap-x-3 gap-y-1">${controls}</div>`
-              : nothing
-          }
-        </div>
-        <div class=${config.plan ? 'flex min-h-6 items-center gap-x-3' : 'flex items-center'}>
-          <p class="min-w-0 flex-1 truncate text-xs text-base-content/70" title=${config.summary}>
-            ${config.summary}
-          </p>
-          ${config.plan ? renderPlanStatus(ctx) : nothing}
-        </div>
+        ${
+          controls
+            ? html`<div class="flex min-w-56 flex-1 flex-wrap items-center gap-x-3 gap-y-2">${controls}</div>`
+            : nothing
+        }
+        ${
+          config.controlsDialog
+            ? html`<button type="button" class="btn btn-sm" aria-haspopup="dialog"
+                @click=${() => (this.controlsOpen = true)}>
+                <opm-icon name="pencil" size="sm"></opm-icon>${config.controlsDialog.label}
+              </button>`
+            : nothing
+        }
+        ${config.plan ? renderPlanStatus(ctx) : nothing}
+        ${this.renderRecursiveSwitch(ctx)}
       </header>
     `;
   }
@@ -276,7 +279,8 @@ export class OpmToolView extends OpmElement {
       .map((pane) => ctx.request(pane))
       .filter((request): request is BrowseRequest => request !== null);
     return html`
-      <div class="flex-none border-b border-base-300 bg-base-100 px-2 py-2">
+      <div id="tool-filters" ?hidden=${!filtersOpen.value}
+        class="flex-none border-b border-base-300 bg-base-100 px-2 py-2">
         <opm-filter-bar
           .filter=${ctx.toolFilter}
           .contexts=${contexts}
@@ -318,13 +322,21 @@ export class OpmToolView extends OpmElement {
   private renderPanes(ctx: ToolContext): TemplateResult {
     return html`
       <div
-        class="grid min-h-0 flex-1 grid-cols-1 grid-rows-2 divide-y divide-base-300 md:grid-cols-2 md:grid-rows-1 md:divide-x md:divide-y-0"
+        class="relative grid min-h-0 flex-1 grid-cols-1 grid-rows-2 divide-y divide-base-300 md:grid-cols-2 md:grid-rows-1 md:divide-x md:divide-y-0"
         @pane-counts=${this.onPaneCounts}
         @plan-stale=${this.onPlanStale}
         @base-change=${this.onBaseChange}
         @item-open=${this.onItemOpen}
       >
         ${PANES.map((pane) => this.renderPane(ctx, pane))}
+        ${
+          ctx.config.floatingActions
+            ? html`<div data-floating-actions
+                class="pointer-events-none absolute right-3 bottom-3 z-10 max-w-[calc(100%-1.5rem)] rounded-field border-0 bg-base-100 shadow-lg [&>*]:pointer-events-auto">
+                ${renderActions(ctx)}
+              </div>`
+            : nothing
+        }
       </div>
     `;
   }
@@ -349,7 +361,7 @@ export class OpmToolView extends OpmElement {
         class="flex-none"
         .source=${this.footerOf(ctx, 'source')}
         .comparison=${this.footerOf(ctx, 'comparison')}
-        .actions=${renderActions(ctx)}
+        .actions=${ctx.config.floatingActions ? undefined : renderActions(ctx)}
         @size-change=${this.onSizeChange}
         @select-all=${this.onSelectAll}
         @clear-selection=${this.onClearSelection}
@@ -366,6 +378,23 @@ export class OpmToolView extends OpmElement {
       html`
         ${this.renderToolBar(ctx)} ${this.renderFilterBar(ctx)} ${this.renderPanes(ctx)}
         ${this.renderBottomBar(ctx)}
+        <opm-modal .open=${toolHelpOpen.value} .heading=${ctx.config.title}
+          .body=${html`<p class="text-sm text-base-content/80">${ctx.config.summary}</p>
+            <h4 class="mt-5 mb-2 font-semibold">How to use it</h4>
+            <ol class="list-decimal space-y-3 pl-5 text-sm">
+              ${(ctx.config.help ?? ['Open a folder in either pane to get started.']).map((step) => html`<li>${step}</li>`)}
+            </ol>`}
+          @close=${() => (toolHelpOpen.value = false)}></opm-modal>
+        ${
+          ctx.config.controlsDialog
+            ? html`<opm-modal .open=${this.controlsOpen}
+                .heading=${ctx.config.controlsDialog.label} size="lg"
+                .body=${ctx.config.controlsDialog.render(ctx)}
+                .actions=${html`<button type="button" class="btn btn-primary btn-sm"
+                  @click=${() => (this.controlsOpen = false)}>Done</button>`}
+                @close=${() => (this.controlsOpen = false)}></opm-modal>`
+            : nothing
+        }
       `,
     );
   }

@@ -36,7 +36,7 @@ test('@smoke cleanup preview marks exactly the empty subtree', async ({
   await expect.poll(() => comparison.folderState('c')).toMatchObject({ red: true });
 
   const directPlanResponse = page.waitForResponse(isPlan);
-  await cleanupPage.thisFolderOnly().setChecked(true);
+  await cleanupPage.includeSubfolders().setChecked(false);
   const directPlan = (await (await directPlanResponse).json()) as PlanDto;
   expect(directPlan.stats.empty_folders).toBe(
     expectedEmptyDirs(manifest, { volume: 'photos', dir: 'empty', recursive: false }).length,

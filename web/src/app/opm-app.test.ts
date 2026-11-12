@@ -13,6 +13,7 @@ import { currentPath, navigate } from '@/stores/nav';
 import { theme } from '@/stores/prefs';
 import { resetTasksForTests, tasks } from '@/stores/tasks';
 import { clearToasts, toasts } from '@/stores/toasts';
+import { filtersOpen, toolHelpOpen } from '@/stores/tool-chrome';
 import { volumeIdByName } from '@/stores/volumes';
 import { stubBrowseServer } from '@/test/browse-server';
 import { pressConfirm, shownConfirm } from '@/test/confirm';
@@ -122,7 +123,12 @@ beforeEach(() => {
   const nothing = { folders: [], counts: { in_folder: 0, in_subfolders: 0 } };
   vi.stubGlobal(
     'fetch',
-    vi.fn(async () => new Response(JSON.stringify(nothing))),
+    vi.fn(
+      async (url: string) =>
+        new Response(
+          JSON.stringify(url === '/api/facets' ? { cameras: [], tags: [], ratings: [] } : nothing),
+        ),
+    ),
   );
   clearToasts();
 });
@@ -141,6 +147,24 @@ afterEach(() => {
 });
 
 describe('layout', () => {
+  it('places working info and filter toggles next to the tool title', async () => {
+    const app = await mountApp('/browse');
+    await until(() => expect(app.querySelector('opm-tool-view')).not.toBeNull());
+    const info = app.querySelector<HTMLButtonElement>('button[aria-label="About this tool"]');
+    const filters = app.querySelector<HTMLButtonElement>('button[aria-label="Toggle filters"]');
+    expect(info?.closest('div.flex')?.querySelector('h1')).not.toBeNull();
+    expect(filters?.getAttribute('aria-expanded')).toBe('false');
+    info?.click();
+    expect(toolHelpOpen.value).toBe(true);
+    filters?.click();
+    await app.updateComplete;
+    expect(filtersOpen.value).toBe(true);
+    expect(filters?.getAttribute('aria-expanded')).toBe('true');
+    filters?.click();
+    await app.updateComplete;
+    expect(filtersOpen.value).toBe(false);
+  });
+
   it('fills the viewport and never scrolls the page itself', async () => {
     const app = await mountApp('/browse');
 
@@ -836,6 +860,8 @@ describe('app services', () => {
     expect(FakeEventSource.instances).toHaveLength(2);
     expect(FakeEventSource.last().closed).toBe(false);
     expect(heading(second)).toBe('Duplicate finder');
-    await until(() => expect(text(second.querySelector('main h2'))).toBe('Duplicate finder'));
+    await until(() =>
+      expect(second.querySelector('opm-tool-view')?.config?.title).toBe('Duplicate finder'),
+    );
   });
 });

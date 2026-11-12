@@ -53,7 +53,16 @@ it('uses shared selectors, conditional match controls, and the same pattern comp
   let editor = container.querySelector<OpmPatternEditor>('opm-pattern-editor');
   expect(editor?.limit).toBe(3);
   editor?.dispatchEvent(
-    new CustomEvent('pattern-change', { detail: { value: '{camera}', status: 'invalid' } }),
+    new CustomEvent('pattern-change', {
+      detail: { value: '{camera}', status: 'invalid', edited: true },
+    }),
+  );
+  expect(moveRules.pattern.value).toBe('{camera}');
+  expect(moveRules.patternStatus.value).toBe('invalid');
+  editor?.dispatchEvent(
+    new CustomEvent('pattern-change', {
+      detail: { value: '{YYYY}/{mm}', status: 'checking', edited: false },
+    }),
   );
   expect(moveRules.pattern.value).toBe('{camera}');
   expect(moveRules.patternStatus.value).toBe('invalid');

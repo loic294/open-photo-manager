@@ -110,7 +110,7 @@ function renderSingle(
   const button = html`
     <button
       type="button"
-      class="btn btn-lg ${action.danger ? 'btn-error' : 'btn-primary'}"
+      class="btn btn-sm ${action.danger ? 'btn-error' : 'btn-primary'}"
       ?disabled=${busy || reason !== null}
       aria-busy=${busy ? 'true' : nothing}
       aria-describedby=${tip ? hintId : nothing}
@@ -120,7 +120,7 @@ function renderSingle(
         busy
           ? html`<span class="loading loading-spinner" aria-hidden="true"></span>`
           : action.icon
-            ? html`<opm-icon name=${action.icon} size="lg"></opm-icon>`
+            ? html`<opm-icon name=${action.icon} size="sm"></opm-icon>`
             : nothing
       }
       <span>${action.label}</span>

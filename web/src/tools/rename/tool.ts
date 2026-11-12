@@ -9,6 +9,12 @@ export const renameTool = defineTool({
   title: 'Batch rename',
   summary:
     'Rename files in their current folders; extensions stay unchanged. The comparison shows current files plus non-selectable new-name ghosts; folder counts remain real.',
+  help: [
+    'Open the source folder and choose which filenames to match.',
+    'Set the cleaning, rewrite and name-pattern rules. Extensions are preserved and counters restart in each folder.',
+    'Review the new-name ghosts in the comparison pane. Filters and Include subfolders control the scope.',
+    'Select files to limit the operation, then use the rename action and confirm. Files stay in their current folders.',
+  ],
   recursive: 'toggle',
   filter: { applies: 'source' },
   panes: {

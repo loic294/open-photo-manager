@@ -11,7 +11,9 @@ The five tools operate on the index and show a plan before a confirmed file oper
 
    You should see: each tool keeps its own source and comparison pane locations.
 
-2. The filter bar offers **Cameras**, **Rating**, **Flags** and **Tags** where filtering applies.
+2. The info icon beside the tool name opens an explanation and usage steps. The filter button
+   beside it reveals the filter bar, which starts collapsed. Hiding it does not clear active filters.
+   The filter bar offers **Cameras**, **Rating**, **Flags** and **Tags** where filtering applies.
    **Clear filters** resets them. **Hide folders without matches** switches between hiding
    unmatched folders and leaving them visible but greyed out; a planned folder is not hidden.
    The duplicate finder also has **Apply to** choices **Both**, **Source** and **Comparison**.
@@ -24,6 +26,8 @@ The five tools operate on the index and show a plan before a confirmed file oper
 
    You should see: folder navigation, selection and thumbnail size are independent per pane;
    tasks continue while you use other tools.
+   Long folder paths collapse their middle into **...**; open it to navigate to a hidden parent.
+   Hover or focus a path segment to see the full path in a tooltip.
 
 ## Check the library
 
@@ -51,7 +55,7 @@ The five tools operate on the index and show a plan before a confirmed file oper
    You should see: matching files have a green border, and the summary reports matching files in
    both panes. Matches update as background hashing finishes.
 
-2. The bottom split action offers **Delete source items**, **Delete comparison items** and
+2. The compact split action floating above the grid offers **Delete source items**, **Delete comparison items** and
    **Move files**. Its last-used choice is remembered. Delete actions ask for confirmation and
    send only matched files to Trash when a matching survivor remains outside the effective
    deletion set. **Move files** hands the chosen files to **Asset move**; no files move until its
@@ -94,7 +98,8 @@ The five tools operate on the index and show a plan before a confirmed file oper
 ## Folder formatting
 
 1. Open a source folder. The destination initially follows the source; change it with
-   **Use this folder** in the **Destination** pane if needed. Edit **Folder pattern** or insert tokens
+   **Use this folder** in the **Destination** pane if needed. Choose **Edit formatting** to open
+   the pattern and conflict-policy dialog. Edit **Folder pattern** or insert tokens
    from **Variables and examples**. The live preview checks the pattern against sample files.
    Dates use the best available capture time: preferred embedded original date, then linked XMP,
    other embedded or video dates, then file birth time or modification time.
@@ -102,7 +107,8 @@ The five tools operate on the index and show a plan before a confirmed file oper
    You should see: generated folders and filenames in the preview. If the last pattern component
    has no `{name}` or `{filename}`, the original filename is appended.
 
-2. Set **If a file with the same name exists** and confirm with **Move and format files**.
+2. Set **If a file with the same name exists**, close the dialog with **Done**, review the
+   planned formatting in the toolbar and destination pane, and confirm with **Move and format files**.
    The same conflict policies apply as in **Asset move**; the operation changes files only after
    confirmation. It does not remove folders that become empty.
 
@@ -176,7 +182,7 @@ not accepted by **Folder formatting**. The examples use the generated sample fil
 ## Empty folder cleanup
 
 1. Open the source folder that is the cleanup base. By default the scan includes subfolders;
-   **This folder only (no subfolders)** restricts it to the current folder's children.
+   turning off **Include subfolders** at the right of the toolbar restricts it to the current folder's children.
    Empty means no indexed files of any kind, regardless of filters. The base folder itself is
    never removed. Planned deletions have a red border.
 

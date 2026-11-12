@@ -128,7 +128,7 @@ describe('one action', () => {
     const go = button(area);
     expect(go.type).toBe('button');
     expect(go.classList.contains('btn-primary')).toBe(true);
-    expect(go.classList.contains('btn-lg')).toBe(true);
+    expect(go.classList.contains('btn-sm')).toBe(true);
     expect(go.classList.contains('btn-error')).toBe(false);
     expect(part(go, 'opm-icon').getAttribute('name')).toBe('search');
     expect(text(go)).toBe(`Find matches ${formatCount(1234)}`);

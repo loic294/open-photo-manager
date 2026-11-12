@@ -38,6 +38,7 @@ for (const { scenario, date } of dateFixtures) {
     await page.goto(url.href);
     await initialPreview;
     await initialPlan;
+    await formatPage.edit();
 
     const previewResponse = page.waitForResponse(isResponse(/^\/api\/format\/preview$/));
     await formatPage.pattern().fill(pattern);
@@ -106,6 +107,7 @@ test('format pattern keeps the embedded date when sidecar metadata overrides cam
   await page.goto(url.href);
   await previewResponse;
   await planResponse;
+  await formatPage.edit();
   const expected = '2022/07/IMG_0010.JPG';
   const updatedPreview = page.waitForResponse(isResponse(/^\/api\/format\/preview$/));
   await formatPage.pattern().fill(pattern);
@@ -129,6 +131,7 @@ test('format pattern renders month names, time and the original uppercase extens
   await planResponse;
   await previewResponse;
 
+  await formatPage.edit();
   const updatedPreview = page.waitForResponse(isResponse(/^\/api\/format\/preview$/));
   await formatPage.pattern().fill(pattern);
   await updatedPreview;

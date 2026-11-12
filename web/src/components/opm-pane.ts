@@ -179,6 +179,7 @@ export class OpmPane extends OpmElement {
     baseDefault: { attribute: false },
     disabled: { type: Boolean },
     disabledReason: { type: String, attribute: 'disabled-reason' },
+    crumbsCollapsed: { state: true },
   };
 
   declare pane: PaneId;
@@ -209,6 +210,10 @@ export class OpmPane extends OpmElement {
   private walkedUp = false;
   private scrollKey: string | null = null;
   private crumbsKey: string | null = null;
+  private crumbsCollapsed = false;
+  private crumbsWidth = 0;
+  private crumbsObserver: ResizeObserver | null = null;
+  private crumbsElement: HTMLElement | null = null;
   private refocus = false;
 
   constructor() {
@@ -265,6 +270,9 @@ export class OpmPane extends OpmElement {
     this.unbindIdsProvider();
     this.stopFsWatch?.();
     this.stopFsWatch = null;
+    this.crumbsObserver?.disconnect();
+    this.crumbsObserver = null;
+    this.crumbsElement = null;
     super.disconnectedCallback();
   }
 
@@ -395,13 +403,27 @@ export class OpmPane extends OpmElement {
     if (body) body.scrollTop = 0;
   }
 
-  /** A long path scrolls inside the crumbs: show its end, where the current folder is. */
+  /** Measure the complete path once, then react to the space left by the pane's controls. */
   private followCrumbs(): void {
     const key = formatLocation(locations[this.pane].peek()) ?? '';
-    if (key === this.crumbsKey) return;
-    this.crumbsKey = key;
     const crumbs = this.querySelector<HTMLElement>('[data-crumbs]');
-    if (crumbs) crumbs.scrollLeft = crumbs.scrollWidth;
+    if (!crumbs) return;
+    if (crumbs !== this.crumbsElement) {
+      this.crumbsObserver?.disconnect();
+      this.crumbsElement = crumbs;
+      this.crumbsObserver = new ResizeObserver(() => this.fitCrumbs());
+      this.crumbsObserver.observe(crumbs);
+    }
+    if (key !== this.crumbsKey || !this.crumbsCollapsed) {
+      this.crumbsKey = key;
+      this.crumbsWidth = crumbs.querySelector('ul')?.scrollWidth ?? 0;
+    }
+    this.fitCrumbs();
+  }
+
+  private fitCrumbs(): void {
+    const available = this.crumbsElement?.clientWidth ?? 0;
+    if (available > 0) this.crumbsCollapsed = this.crumbsWidth > available;
   }
 
   /**
@@ -521,8 +543,10 @@ export class OpmPane extends OpmElement {
   }
 
   private renderCrumb(crumb: Crumb, last: boolean): TemplateResult {
+    const path = formatLocation(locations[this.pane].value) ?? ROOT_CRUMB_LABEL;
     return html`
-      <li class=${last ? 'shrink-0' : 'min-w-10 shrink before:shrink-0'}>
+      <li class=${last ? 'min-w-0 flex-1 before:shrink-0' : 'shrink-0 before:shrink-0'}>
+        <span class="tooltip tooltip-bottom ${crumb.location.volume === null ? 'tooltip-start' : ''} block min-w-0 max-w-full before:break-all" data-tip=${path}>
         <a
           href=${linkToLocation(this.pane, crumb.location)}
           class="block min-w-0 truncate"
@@ -531,6 +555,7 @@ export class OpmPane extends OpmElement {
           @click=${(event: MouseEvent) => this.follow(event, crumb.location)}
           >${crumb.label}</a
         >
+        </span>
       </li>
     `;
   }
@@ -566,6 +591,10 @@ export class OpmPane extends OpmElement {
 
   private renderHeader(location: PaneLocation): TemplateResult {
     const crumbs = crumbsFor(location);
+    const path = formatLocation(location) ?? ROOT_CRUMB_LABEL;
+    const first = crumbs[0];
+    const last = crumbs[crumbs.length - 1];
+    const collapsed = this.crumbsCollapsed && this.crumbsKey === (formatLocation(location) ?? '');
     const { heading } = this;
     return html`
       <header class="flex flex-none flex-wrap items-center gap-x-2 gap-y-1 px-2 py-1">
@@ -583,11 +612,44 @@ export class OpmPane extends OpmElement {
         <nav
           data-crumbs
           aria-label="${this.paneName} folder path"
-          class="breadcrumbs min-w-24 flex-1 py-0 text-sm"
-          title=${formatLocation(location) ?? ROOT_CRUMB_LABEL}
+          class="breadcrumbs min-w-56 flex-1 overflow-visible py-0 text-sm"
+          title=${path}
         >
-          <ul>
-            ${crumbs.map((crumb, index) => this.renderCrumb(crumb, index === crumbs.length - 1))}
+          <ul class=${collapsed ? 'w-full min-w-0' : 'w-max'}>
+            ${
+              collapsed && crumbs.length > 2 && first && last
+                ? html`
+                    ${this.renderCrumb(first, false)}
+                    <li class="shrink-0 before:shrink-0">
+                      <details class="dropdown" @keydown=${(event: KeyboardEvent) => {
+                        if (event.key !== 'Escape') return;
+                        event.preventDefault();
+                        event.stopPropagation();
+                        const details = event.currentTarget as HTMLDetailsElement;
+                        details.open = false;
+                        details.querySelector('summary')?.focus();
+                      }}>
+                        <summary class="tooltip tooltip-bottom cursor-pointer list-none rounded px-1 before:break-all focus-visible:outline"
+                          data-tip=${path} aria-label="Show parent folders">...</summary>
+                        <ul class="menu dropdown-content z-20 mt-2 max-h-64 w-64 max-w-[80vw] flex-col overflow-y-auto rounded-box border border-base-300 bg-base-100 p-2 shadow-lg">
+                          ${crumbs.slice(1, -1).map(
+                            (crumb) => html`
+                            <li>
+                              <a class="tooltip tooltip-bottom before:break-all" data-tip=${path}
+                                href=${linkToLocation(this.pane, crumb.location)}
+                                title=${formatLocation(crumb.location) ?? ROOT_CRUMB_LABEL}
+                                @click=${(event: MouseEvent) => this.follow(event, crumb.location)}>
+                                <span class="truncate">${crumb.label}</span>
+                              </a>
+                            </li>`,
+                          )}
+                        </ul>
+                      </details>
+                    </li>
+                    ${this.renderCrumb(last, true)}
+                  `
+                : crumbs.map((crumb, index) => this.renderCrumb(crumb, index === crumbs.length - 1))
+            }
           </ul>
         </nav>
         ${heading ? html`<span class="badge badge-neutral badge-sm">${heading}</span>` : nothing}

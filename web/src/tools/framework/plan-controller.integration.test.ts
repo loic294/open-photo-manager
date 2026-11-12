@@ -132,7 +132,7 @@ it('wires the real view from parameters through panes, queued execution, nonbloc
   const indicator = await mount('opm-task-indicator');
   await settle(view);
   vi.useFakeTimers();
-  const action = () => view.querySelector<HTMLButtonElement>('opm-bottom-bar .btn-lg');
+  const action = () => view.querySelector<HTMLButtonElement>('opm-bottom-bar .btn-primary');
   expect(action()?.disabled).toBe(true);
   expect(action()?.closest('[data-tip]')?.getAttribute('data-tip')).toBe('Choose both bases');
   input.value = { ready: true, params: { source: { volume_id: 1, dir: 'trip', recursive: true } } };

@@ -56,18 +56,20 @@ export function renderConflictPolicy(rules: RuleState) {
 export function renderPatternSection(
   ctx: ToolContext,
   rules: RuleState,
-  options: { collapsible: boolean; limit: number },
+  options: { collapsible: boolean; limit: number; inlineDetails?: boolean },
 ) {
   const scope = ctx.scope('source');
   const destination = formatLocation(ctx.base('comparison'));
   const editor = html`<opm-pattern-editor .value=${rules.pattern.value}
+    .inlineDetails=${options.inlineDetails ?? false}
     .source=${scope ? { scope, filter: ctx.filter('source') } : null}
     .basePrefix=${destination ? `${destination}/` : null} .limit=${options.limit}
     @pattern-change=${(event: PatternChangeEvent) => {
-      rules.pattern.value = event.detail.value;
+      if (event.detail.edited) rules.pattern.value = event.detail.value;
+      if (event.detail.value !== rules.pattern.peek()) return;
       rules.patternStatus.value = event.detail.status;
     }}></opm-pattern-editor>`;
-  if (!options.collapsible) return html`<div class="basis-full min-w-0">${editor}</div>`;
+  if (!options.collapsible) return html`<div class="min-w-0">${editor}</div>`;
   return html`<details class="collapse collapse-arrow overflow-visible basis-full min-w-0 bg-base-200 rounded-box"
     .open=${patternDisclosure.get(rules) ?? (rules.pattern.value === '' || rules.patternStatus.value === 'invalid')}>
     <summary class="collapse-title min-h-0 py-1 text-sm truncate"

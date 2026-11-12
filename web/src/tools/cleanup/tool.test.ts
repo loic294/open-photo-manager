@@ -134,9 +134,9 @@ describe('cleanup config', () => {
     await settle(page);
     expect(page.querySelectorAll('opm-pane')).toHaveLength(2);
     const toggle = page.querySelector<HTMLInputElement>('input.toggle');
-    expect(toggle?.checked).toBe(false);
+    expect(toggle?.checked).toBe(true);
     if (!toggle) throw new Error('missing cleanup toggle');
-    toggle.checked = true;
+    toggle.checked = false;
     toggle.dispatchEvent(new Event('change', { bubbles: true }));
     await settle(page);
     expect(cleanupTool.plan?.params(ctx)).toEqual({

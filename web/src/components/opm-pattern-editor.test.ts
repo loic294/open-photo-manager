@@ -102,6 +102,20 @@ it('keeps catalogue and live samples in dropdown panels outside fixed-chrome flo
   expect(catalogue.open).toBe(false);
 });
 
+it('keeps expanded disclosures in normal flow when embedded in a modal', async () => {
+  const { el } = await setup({ inlineDetails: true });
+  await settle();
+  await el.updateComplete;
+  const disclosures = [...el.querySelectorAll('details')];
+  expect(disclosures).toHaveLength(3);
+  for (const details of disclosures) {
+    details.open = true;
+    expect(details.classList.contains('dropdown')).toBe(false);
+    expect(details.querySelector(':scope > .dropdown-content')).toBeNull();
+  }
+  expect(el.textContent).toContain('2026/a.jpg');
+});
+
 it.each([
   ['', 0, '{YYYY}'],
   ['abc', 1, 'a{YYYY}bc'],

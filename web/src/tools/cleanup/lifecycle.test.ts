@@ -84,7 +84,7 @@ it('builds the real binding, executes without selected IDs, refreshes both panes
   vi.useFakeTimers();
   const page = await mount('opm-cleanup-page');
   await settle(page);
-  const action = () => page.querySelector<HTMLButtonElement>('opm-bottom-bar .btn-lg');
+  const action = () => page.querySelector<HTMLButtonElement>('opm-bottom-bar .btn-error');
   expect(action()?.disabled).toBe(true);
   await vi.advanceTimersByTimeAsync(300);
   await settle(page);

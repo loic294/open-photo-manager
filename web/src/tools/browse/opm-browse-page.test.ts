@@ -108,8 +108,9 @@ describe('the Browse page', () => {
   it('is headed Browse and says what the page is for', async () => {
     const page = await mountPage();
 
-    expect(text(page.querySelector('h2'))).toBe('Browse');
-    expect(text(page.querySelector('header'))).toContain(browseTool.summary);
+    expect(page.querySelector('h2')).toBeNull();
+    expect(page.querySelector('opm-modal')?.heading).toBe('Browse');
+    expect(text(page.querySelector('opm-modal'))).toContain(browseTool.summary);
   });
 
   it('shows the source pane and the comparison pane', async () => {
