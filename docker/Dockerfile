@@ -94,6 +94,7 @@ RUN groupadd --gid 1000 apm \
 COPY --from=builder /out/apm-server /app/apm-server
 COPY --from=web /src/web/dist /app/web
 COPY --chmod=0755 docker/entrypoint.sh docker/healthcheck.sh /app/
+COPY LICENSE /app/LICENSE
 
 # The image documents its own configuration contract; see docker/README.md for each variable.
 # Empty values mean "unset" to the server. TMPDIR/HOME live on the /data volume so any uid can write them and
@@ -111,7 +112,8 @@ ENV APM_LISTEN=0.0.0.0:8080 \
     HOME=/data/tmp
 
 LABEL org.opencontainers.image.title="Advanced Photo Manager" \
-      org.opencontainers.image.description="Browse, de-duplicate and organise a photo library on a NAS."
+      org.opencontainers.image.description="Browse, de-duplicate and organise a photo library on a NAS." \
+      org.opencontainers.image.licenses="MIT"
 
 USER 1000:1000
 WORKDIR /app

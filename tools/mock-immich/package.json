@@ -1,5 +1,6 @@
 {
   "name": "apm-mock-immich",
+  "license": "MIT",
   "private": true,
   "type": "module",
   "description": "A mock Immich server for development, browser checks and end-to-end tests. Zero dependencies.",

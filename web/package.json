@@ -1,5 +1,6 @@
 {
   "name": "apm-web",
+  "license": "MIT",
   "private": true,
   "type": "module",
   "engines": {

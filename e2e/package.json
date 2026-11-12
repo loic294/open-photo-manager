@@ -1,5 +1,6 @@
 {
   "name": "apm-e2e",
+  "license": "MIT",
   "private": true,
   "type": "module",
   "engines": {

@@ -15,6 +15,7 @@
 !web
 
 # Files the runtime image copies in.
+!LICENSE
 !docker/entrypoint.sh
 !docker/healthcheck.sh
 
