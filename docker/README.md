@@ -110,9 +110,9 @@ successful PostgreSQL gate.
 The normal installation path is [the root README](../README.md), using the public image
 `ghcr.io/loic294/open-photo-manager:edge`. Pulling needs no registry login or token.
 
-[`.github/workflows/publish-image.yml`](../.github/workflows/publish-image.yml) publishes `edge` on `main`
+[`.github/workflows/publish-image.yml`](../.github/workflows/publish-image.yml) publishes `edge` and `latest` on `main`
 pushes affecting image inputs (not docs-only changes), or on manual dispatch from `main`. Approved exact
-`vX.Y.Z` tags publish `X.Y.Z`, `X.Y` and `latest`; no tag or release is created by CI. GitHub ignores path
+`vX.Y.Z` tags publish `X.Y.Z` and `X.Y`; no tag or release is created by CI. GitHub ignores path
 filters for tag pushes. Manual dispatch from other branches is rejected.
 
 The workflow runs only in `loic294/open-photo-manager`, uses only `GITHUB_TOKEN` with job-scoped package

@@ -199,7 +199,7 @@ versions; all DSM UI procedures below are not verified on a DSM device.
 2. Follow [Update and tags](../README.md#update-and-tags) after taking that backup.
    Pin an exact published version or `@sha256:MANIFEST_DIGEST` for repeatable deployment;
    replace `MANIFEST_DIGEST` with the image's multiarch manifest digest.
-   Version tags and `latest` exist only after the owner approves a release.
+   Version tags exist only after the owner approves a release; `latest` follows `main`.
    Startup applies migrations; an older binary refuses a database containing newer migrations.
    Do not downgrade against upgraded `/data`; restore the matching app-state backup instead.
 

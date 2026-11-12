@@ -70,10 +70,10 @@ From `/volume1/docker/opm`, run `docker compose pull && docker compose up -d`. E
 and `/data` remain in place. Back up `/data` before an update; check `docker compose logs --tail=100 opm`
 if the image's built-in health check does not become healthy.
 
-- `edge`: development image from eligible pushes to `main`; can include unfinished features.
+- `latest` and `edge`: rebuilt automatically from every eligible push to `main`; can include unfinished
+  features.
 - `X.Y.Z`: versioned image from an explicitly approved `vX.Y.Z` Git tag.
-- `X.Y` and `latest`: move with approved version tags, not development pushes. They do not exist until
-  the first approved version is published.
+- `X.Y`: moves with approved version tags, not development pushes.
 - For a repeatable deployment, replace `:edge` with an exact version or `@sha256:<manifest-digest>`.
   Docker selects the NAS architecture from the multiarch manifest.
 
