@@ -117,9 +117,10 @@ filters for tag pushes. Manual dispatch from other branches is rejected.
 
 The workflow runs only in `loic294/open-photo-manager`, uses only `GITHUB_TOKEN` with job-scoped package
 permissions, and labels images with the repository source URL. Provenance and SBOM attestations are disabled.
-GHCR creates the first package private; the owner makes it public once, in the package settings (Danger Zone >
-Change visibility), because GitHub offers no workflow or token route for that. The last job step pulls the
-first published tag without credentials and warns, without failing the run, while the package is still private.
+The source label links the package to this public repository, and the first run published it public. The last job
+step pulls the first published tag without credentials and warns, without failing the run, when GHCR does not
+answer 200. Fix such a warning in the package settings (Danger Zone > Change visibility): GitHub offers no
+workflow or token route for package visibility.
 
 Each architecture builds natively on `ubuntu-24.04` (amd64) or `ubuntu-24.04-arm` (arm64), pushes an untagged
 digest, pulls it and runs `docker/smoke.sh`. Only after both pass are tags assembled and inspected for exactly

@@ -22,7 +22,7 @@ not verified on a DSM device.
 | SQLite refuses app data | `/data` is on NFS/SMB, corrupted, or contains newer migrations | Use local storage. An old binary cannot open a newer schema; restore a matching backup for downgrade, never delete the database casually. |
 | `host_not_allowed` (403) | Browser hostname is not accepted | Set `APM_ALLOWED_HOSTS` and recreate the container; behind a proxy forward the original `Host`. |
 | `csrf_rejected` (403) | Request header missing, cross-site request, or proxy changes `Host` | The web client sends `x-apm-request: 1`; check same-origin routing. API scripts must send that header for non-GET requests. Do not weaken the guard. |
-| Image pull denied or not found | The package is still private, or the image name or tag is wrong | Use `ghcr.io/loic294/open-photo-manager` with an existing tag such as `edge`. The owner makes the package public in its GitHub package settings; see [GHCR publishing](../docker/README.md#public-ghcr-publishing). |
+| Image pull denied or not found | The image name or tag is wrong, or the package was made private | Use `ghcr.io/loic294/open-photo-manager` with an existing tag such as `edge`. If both are right, the owner checks the package visibility in its GitHub package settings; see [GHCR publishing](../docker/README.md#public-ghcr-publishing). |
 | Wrong architecture / executable will not start | Unsupported 32-bit NAS or offline image for another platform | Compare `uname -m` with [image architectures](../docker/README.md#build). |
 | Running but `unhealthy` | Server is not answering the configured health-check port | Read logs and verify `APM_LISTEN` and published port; see [health checks](../docker/README.md#health-check). |
 
