@@ -1,6 +1,8 @@
 use std::collections::HashSet;
 
-use opm_core::dto::{DuplicateAction, DuplicateParams, MatchMode, PlanResult, PlanSide};
+use opm_core::dto::{
+    DuplicateAction, DuplicateFileExecuteOptions, DuplicateParams, MatchMode, PlanResult, PlanSide,
+};
 use opm_core::hash::{Sha1Digest, from_slice};
 use opm_core::matching::{MatchFacts, MatchOptions, is_match, participates};
 use opm_core::paths::{FileId, RelPath};
@@ -74,36 +76,55 @@ async fn live(db: &Db, id: FileId) -> Result<Option<Live>, PlanError> {
 async fn original_member(
     db: &Db,
     plan: i64,
-    side: PlanSide,
+    side: Option<PlanSide>,
     id: FileId,
 ) -> Result<bool, PlanError> {
     let mut conn = db.read().acquire().await?;
     if !crate::plans::file_identity::is_live(&mut conn, plan, id).await? {
         return Ok(false);
     }
-    Ok(sqlx::query_scalar("SELECT EXISTS(SELECT 1 FROM duplicate_matches WHERE plan_id = ? AND side = ? AND file_id = ? AND live = 1)")
-        .bind(plan).bind(side_name(side)).bind(id).fetch_one(&mut *conn).await?)
+    Ok(sqlx::query_scalar("SELECT EXISTS(SELECT 1 FROM duplicate_matches WHERE plan_id = ? AND (? IS NULL OR side = ?) AND file_id = ? AND live = 1)")
+        .bind(plan).bind(side.map(side_name)).bind(side.map(side_name)).bind(id).fetch_one(&mut *conn).await?)
 }
 
 async fn counterparts(
     db: &Db,
     plan: i64,
-    side: PlanSide,
+    side: Option<PlanSide>,
     id: FileId,
-) -> Result<Vec<FileId>, PlanError> {
+) -> Result<Vec<(FileId, bool)>, PlanError> {
     let sql = match side {
-        PlanSide::Source => {
-            "SELECT comparison_id FROM duplicate_pairs WHERE plan_id = ? AND source_id = ? ORDER BY comparison_id"
+        Some(PlanSide::Source) => {
+            "SELECT comparison_id, 1 FROM duplicate_pairs WHERE plan_id = ? AND source_id = ? ORDER BY comparison_id"
         }
-        PlanSide::Comparison => {
-            "SELECT source_id FROM duplicate_pairs WHERE plan_id = ? AND comparison_id = ? ORDER BY source_id"
+        Some(PlanSide::Comparison) => {
+            "SELECT source_id, 0 FROM duplicate_pairs WHERE plan_id = ? AND comparison_id = ? ORDER BY source_id"
+        }
+        None => {
+            "SELECT comparison_id, 1 FROM duplicate_pairs WHERE plan_id = ?1 AND source_id = ?2 \
+                 UNION SELECT source_id, 0 FROM duplicate_pairs WHERE plan_id = ?1 AND comparison_id = ?2"
         }
     };
-    Ok(sqlx::query_scalar(sql)
+    Ok(sqlx::query_as(sql)
         .bind(plan)
         .bind(id)
         .fetch_all(db.read())
         .await?)
+}
+
+pub(super) fn keepers(value: &Value) -> Result<HashSet<FileId>, PlanError> {
+    let options: DuplicateFileExecuteOptions = serde_json::from_value(value.clone())
+        .map_err(|err| PlanError::invalid_field("keep", err.to_string()))?;
+    if options.keep.is_empty()
+        || options.keep.len() > super::MAX_FILE_VIEW_MATCHES * 2
+        || options.keep.iter().any(|id| *id <= 0)
+    {
+        return Err(PlanError::invalid_field(
+            "keep",
+            "select at least one valid keeper (at most 40,000)",
+        ));
+    }
+    Ok(options.keep.into_iter().collect())
 }
 
 /// Sidecars are collected before FsOps drops the owner's links, but trashed only AFTER it
@@ -158,23 +179,38 @@ pub(super) async fn execute(
     plan: &Plan,
     value: Value,
 ) -> Result<PlanResult, PlanError> {
-    let side = if options(&value)?.action == DuplicateAction::DeleteSource {
-        PlanSide::Source
+    let (params, file_view) = super::parameters(plan.params()?)?;
+    let keep = if file_view.is_some() {
+        keepers(&value)?
     } else {
-        PlanSide::Comparison
+        HashSet::new()
     };
-    let params: DuplicateParams = plan.params()?;
+    let side = if file_view.is_some() {
+        None
+    } else if options(&value)?.action == DuplicateAction::DeleteSource {
+        Some(PlanSide::Source)
+    } else {
+        Some(PlanSide::Comparison)
+    };
     let only = ctx.only_ids().await?;
     // Keep vanished ids as work items so they get an explicit file_gone result.
     let selected: Vec<FileId> =
-        sqlx::query_scalar("SELECT file_id FROM duplicate_matches WHERE plan_id = ? AND side = ?")
+        sqlx::query_scalar("SELECT DISTINCT file_id FROM duplicate_matches WHERE plan_id = ? AND (? IS NULL OR side = ?)")
             .bind(plan.id)
-            .bind(side_name(side))
+            .bind(side.map(side_name))
+            .bind(side.map(side_name))
             .fetch_all(ctx.db.read())
             .await?;
+    let members: HashSet<_> = selected.iter().copied().collect();
+    if keep.iter().any(|id| !members.contains(id)) {
+        return Err(PlanError::invalid_field(
+            "keep",
+            "a keeper is not a member of this plan; refresh the search",
+        ));
+    }
     let deletion: HashSet<FileId> = selected
         .into_iter()
-        .filter(|id| only.as_ref().is_none_or(|only| only.contains(id)))
+        .filter(|id| !keep.contains(id) && only.as_ref().is_none_or(|only| only.contains(id)))
         .collect();
     let mut ordered = Vec::with_capacity(deletion.len());
     let mut bytes = 0;
@@ -207,7 +243,7 @@ async fn process(
     ctx: &ExecContext,
     plan: &Plan,
     params: &DuplicateParams,
-    side: PlanSide,
+    side: Option<PlanSide>,
     id: FileId,
     deletion: &HashSet<FileId>,
     result: &mut ResultBuilder,
@@ -235,7 +271,7 @@ async fn process(
     let candidates: Vec<_> = counterparts(&ctx.db, plan.id, side, id)
         .await?
         .into_iter()
-        .filter(|id| !deletion.contains(id))
+        .filter(|(id, _)| !deletion.contains(id))
         .collect();
     if candidates.is_empty() {
         result.skip_with_detail(
@@ -267,12 +303,12 @@ async fn process(
         }
     }
     let mut survivor = false;
-    for candidate in candidates {
+    for (candidate, target_is_source) in candidates {
         if ctx.cancelled() {
             result.mark_cancelled();
             return Ok(());
         }
-        if !original_member(&ctx.db, plan.id, side.opposite(), candidate).await? {
+        if !original_member(&ctx.db, plan.id, side.map(PlanSide::opposite), candidate).await? {
             continue;
         }
         let Some(other) = live(&ctx.db, candidate).await? else {
@@ -281,7 +317,7 @@ async fn process(
         if !row.media()? || !other.media()? {
             continue;
         }
-        let (source, comparison) = if side == PlanSide::Source {
+        let (source, comparison) = if target_is_source {
             (&row, &other)
         } else {
             (&other, &row)

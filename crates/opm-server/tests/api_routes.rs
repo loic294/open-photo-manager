@@ -35,6 +35,7 @@ const ROUTES: &[(&str, &str)] = &[
     ("GET", "/api/selections/1"),
     ("POST", "/api/plans"),
     ("GET", "/api/plans/1"),
+    ("GET", "/api/plans/1/duplicate-files"),
     ("DELETE", "/api/plans/1"),
     ("POST", "/api/plans/1/execute"),
     ("POST", "/api/plans/1/selection"),

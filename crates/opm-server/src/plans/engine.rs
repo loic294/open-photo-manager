@@ -601,6 +601,15 @@ impl PlanService {
         Ok(dto)
     }
 
+    pub async fn duplicate_files(
+        &self,
+        id: PlanId,
+    ) -> AppResult<opm_core::dto::DuplicateFileGroups> {
+        let plan = self.load_fresh(id).await?;
+        self.touch_plan(plan.id, plan.state, plan.expires_at, self.now());
+        Ok(super::duplicates::groups(&self.0.deps.db, &plan).await?)
+    }
+
     /// Removes a plan (`DELETE /api/plans/{id}`): invisible at once, its rows go in the
     /// background. Idempotent; a plan that is executing is a 409 `plan_executing`.
     pub async fn delete(&self, id: PlanId) -> AppResult<()> {

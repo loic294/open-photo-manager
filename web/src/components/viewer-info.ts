@@ -79,7 +79,7 @@ function capture(item: FileItem): InfoValue {
   return html`${date} <span class="badge badge-ghost badge-xs">${CAPTURE_SOURCE_LABEL[item.capture_src]}</span>`;
 }
 
-function rating(item: FileItem): InfoValue {
+export function renderRating(item: FileItem): InfoValue {
   const stars = Math.min(RATING_MAX, Math.max(0, Math.round(item.rating)));
   if (stars === 0) return 'Not rated';
   return html`<div class="rating rating-xs" role="img" aria-label=${`${stars} out of ${RATING_MAX} stars`}>
@@ -87,7 +87,7 @@ function rating(item: FileItem): InfoValue {
   </div>`;
 }
 
-function flag(item: FileItem): InfoValue {
+export function renderFlag(item: FileItem): InfoValue {
   if (item.flag > 0) return html`<span class="badge badge-success badge-sm">Selected</span>`;
   if (item.flag < 0) return html`<span class="badge badge-error badge-sm">Rejected</span>`;
   return 'None';
@@ -135,8 +135,8 @@ export const INFO_ROWS: readonly InfoRow[] = [
   },
   { id: 'captured', label: 'Captured', value: ({ item }) => capture(item) },
   { id: 'camera', label: 'Camera', value: ({ item }) => item.camera ?? EM_DASH },
-  { id: 'rating', label: 'Rating', value: ({ item }) => rating(item) },
-  { id: 'flag', label: 'Flag', value: ({ item }) => flag(item) },
+  { id: 'rating', label: 'Rating', value: ({ item }) => renderRating(item) },
+  { id: 'flag', label: 'Flag', value: ({ item }) => renderFlag(item) },
   {
     id: 'tags',
     label: 'Tags',

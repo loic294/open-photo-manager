@@ -75,12 +75,21 @@ async fn run(
     action: DuplicateAction,
     only: Option<i64>,
 ) -> (PlanResult, TaskDto) {
+    run_options(app, id, json!({"action": action}), only).await
+}
+
+async fn run_options(
+    app: &TestApp,
+    id: i64,
+    options: serde_json::Value,
+    only: Option<i64>,
+) -> (PlanResult, TaskDto) {
     let (status, task) = app
         .call(
             Method::POST,
             &format!("/api/plans/{id}/execute"),
             Some(json!({
-                "options": {"action": action}, "only": only,
+                "options": options, "only": only,
             })),
         )
         .await;
@@ -101,6 +110,264 @@ async fn run(
     })
     .await
     .unwrap()
+}
+
+async fn file_plan(
+    app: &TestApp,
+    mode: MatchMode,
+    source: SideParams,
+    excluded: Vec<Scope>,
+) -> PlanDto {
+    let (status, body) = app
+        .call(
+            Method::POST,
+            "/api/plans",
+            Some(json!({
+                "kind": "duplicates", "replaces": null, "params": DuplicateFileParams {
+                    matching: DuplicateParams {
+                        mode, strict_prefix: false, source,
+                        comparison: SideParams {
+                            scope: Scope { volume_id: None, dir: String::new(), recursive: true },
+                            filter: Filter::default(),
+                        },
+                    },
+                    excluded,
+                },
+            })),
+        )
+        .await;
+    assert_eq!(status, StatusCode::CREATED, "{body}");
+    serde_json::from_value(body).unwrap()
+}
+
+#[tokio::test]
+async fn file_view_groups_find_all_volumes_and_apply_boundary_safe_exclusions_for_every_mode() {
+    let app = TestApp::new().await;
+    let seed = Seed::new(&app.state.db);
+    let a = seed.volume("source").await;
+    let b = seed.volume("other").await;
+    let source = seed
+        .file(a, "selected", "one.jpg")
+        .capture(1)
+        .hash(sha1_bytes(b"same"))
+        .insert()
+        .await;
+    let outside = seed
+        .file(b, "elsewhere", "one.jpg")
+        .capture(1)
+        .hash(sha1_bytes(b"same"))
+        .tags(["trip"])
+        .rating(4)
+        .insert()
+        .await;
+    let sibling = seed
+        .file(b, "excluded.old", "one.jpg")
+        .capture(1)
+        .hash(sha1_bytes(b"same"))
+        .insert()
+        .await;
+    seed.file(b, "excluded/sub", "one.jpg")
+        .capture(1)
+        .hash(sha1_bytes(b"same"))
+        .insert()
+        .await;
+    seed.file(b, "elsewhere", "unrelated.jpg")
+        .hash(sha1_bytes(b"unique"))
+        .insert()
+        .await;
+    sqlx::query("UPDATE files SET has_description = 1, btime = 10 WHERE id = ?")
+        .bind(outside)
+        .execute(app.state.db.write())
+        .await
+        .unwrap();
+    for mode in MatchMode::ALL {
+        sqlx::query("UPDATE files SET capture_ts = ? WHERE volume_id = ?")
+            .bind(if mode == MatchMode::NameDifferentTime {
+                2
+            } else {
+                1
+            })
+            .bind(b)
+            .execute(app.state.db.write())
+            .await
+            .unwrap();
+        let plan = file_plan(
+            &app,
+            mode,
+            side(a, "selected"),
+            vec![Scope {
+                volume_id: Some(b),
+                dir: "excluded".to_owned(),
+                recursive: true,
+            }],
+        )
+        .await;
+        let (status, body) = app
+            .call(
+                Method::GET,
+                &format!("/api/plans/{}/duplicate-files", plan.id),
+                None,
+            )
+            .await;
+        assert_eq!(status, StatusCode::OK, "{body}");
+        let groups: DuplicateFileGroups = serde_json::from_value(body).unwrap();
+        assert_eq!(groups.groups.len(), 1);
+        assert_eq!(
+            groups.groups[0]
+                .files
+                .iter()
+                .map(|file| file.item.id)
+                .collect::<BTreeSet<_>>(),
+            BTreeSet::from([source, outside, sibling])
+        );
+        let metadata = groups.groups[0]
+            .files
+            .iter()
+            .find(|file| file.item.id == outside)
+            .unwrap();
+        assert_eq!(metadata.tags, ["trip"]);
+        assert_eq!(metadata.btime, Some(10));
+        assert!(metadata.has_description);
+        assert_eq!(plan.stats["comparison_candidates"], 4);
+    }
+    let plan = file_plan(
+        &app,
+        MatchMode::Hash,
+        side(a, "selected"),
+        vec![Scope {
+            volume_id: Some(a),
+            dir: "selected".to_owned(),
+            recursive: true,
+        }],
+    )
+    .await;
+    assert_eq!(plan.stats["pairs"], 0);
+    app.state.begin_shutdown();
+}
+
+#[tokio::test]
+async fn file_view_can_keep_an_outside_copy_and_trash_source_and_other_copies_in_one_batch() {
+    let app = TestApp::new().await;
+    let (a, tree) = app.add_volume("source").await;
+    let (b, backup) = app.add_volume("backup").await;
+    let seed = Seed::new(&app.state.db);
+    tree.write("selected/one.jpg", b"same");
+    backup.write("keep/one.jpg", b"same");
+    backup.write("remove/one.jpg", b"same");
+    for (volume, dir) in [(a, "selected"), (b, "keep"), (b, "remove")] {
+        seed.file(volume, dir, "one.jpg")
+            .size(4)
+            .hash(sha1_bytes(b"same"))
+            .insert()
+            .await;
+    }
+    let keep: i64 =
+        sqlx::query_scalar("SELECT id FROM files WHERE volume_id = ? AND dir_path = 'keep'")
+            .bind(b)
+            .fetch_one(app.state.db.read())
+            .await
+            .unwrap();
+    let plan = file_plan(&app, MatchMode::Hash, side(a, "selected"), vec![]).await;
+    let (result, task) = run_options(&app, plan.id, json!({"keep": [keep]}), None).await;
+    assert_eq!(task.state, TaskState::Done);
+    assert_eq!((result.done, result.skipped, result.failed), (2, 0, 0));
+    assert!(!tree.path("selected/one.jpg").exists());
+    assert!(!backup.path("remove/one.jpg").exists());
+    assert!(backup.path("keep/one.jpg").exists());
+    let batches: i64 = sqlx::query_scalar("SELECT COUNT(DISTINCT batch) FROM trash_items")
+        .fetch_one(app.state.db.read())
+        .await
+        .unwrap();
+    assert_eq!(batches, 1);
+    app.state.begin_shutdown();
+}
+
+#[tokio::test]
+async fn file_view_rechecks_direct_survivors_and_identity_instead_of_trusting_client_choices() {
+    for stale in [false, true] {
+        let app = TestApp::new().await;
+        let (volume, tree) = app.add_volume("photos").await;
+        let seed = Seed::new(&app.state.db);
+        let mut ids = Vec::new();
+        for (dir, capture) in [("a", 1), ("b", 2), ("c", 1)] {
+            tree.write(&format!("{dir}/one.jpg"), b"same");
+            ids.push(
+                seed.file(volume, dir, "one.jpg")
+                    .capture(capture)
+                    .size(4)
+                    .hash(sha1_bytes(b"same"))
+                    .insert()
+                    .await,
+            );
+        }
+        let mode = if stale {
+            MatchMode::Hash
+        } else {
+            MatchMode::NameDifferentTime
+        };
+        let plan = file_plan(&app, mode, side(volume, ""), vec![]).await;
+        if stale {
+            sqlx::query("DELETE FROM files WHERE id = ?")
+                .bind(ids[0])
+                .execute(app.state.db.write())
+                .await
+                .unwrap();
+            seed.file(volume, "replacement", "one.jpg")
+                .size(4)
+                .hash(sha1_bytes(b"same"))
+                .insert()
+                .await;
+            let (status, _) = app
+                .call(
+                    Method::GET,
+                    &format!("/api/plans/{}/duplicate-files", plan.id),
+                    None,
+                )
+                .await;
+            assert_eq!(status, StatusCode::BAD_REQUEST);
+        }
+        let (result, _) = run_options(&app, plan.id, json!({"keep": [ids[0]]}), None).await;
+        if stale {
+            assert_eq!(result.done, 0);
+            assert_eq!(result.skipped, 2);
+        } else {
+            assert_eq!(result.done, 1);
+            assert_eq!(result.skipped, 1);
+            assert_eq!(result.failures[0].code, "no_survivor");
+        }
+        assert!(tree.path("c/one.jpg").exists());
+        app.state.begin_shutdown();
+    }
+}
+
+#[tokio::test]
+async fn file_view_rejects_empty_keepers_and_folder_plans_do_not_expose_file_groups() {
+    let app = TestApp::new().await;
+    let (volume, _, _, _, folder) = disk_pair(&app, MatchMode::Hash).await;
+    let (status, _) = app
+        .call(
+            Method::GET,
+            &format!("/api/plans/{}/duplicate-files", folder.id),
+            None,
+        )
+        .await;
+    assert_eq!(status, StatusCode::BAD_REQUEST);
+    let plan = file_plan(&app, MatchMode::Hash, side(volume, ""), vec![]).await;
+    let (status, _) = app
+        .call(
+            Method::POST,
+            &format!("/api/plans/{}/execute", plan.id),
+            Some(json!({
+                "options": {"keep": []}, "only": null,
+            })),
+        )
+        .await;
+    assert_eq!(status, StatusCode::BAD_REQUEST);
+    assert_eq!(
+        app.state.plans.get(plan.id).await.unwrap().state,
+        PlanState::Ready
+    );
+    app.state.begin_shutdown();
 }
 
 #[tokio::test]

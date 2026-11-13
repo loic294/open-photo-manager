@@ -3,7 +3,8 @@
 use serde::{Deserialize, Serialize};
 use ts_rs::TS;
 
-use super::{Filter, MatchMode, Scope};
+use super::{FileItem, Filter, MatchMode, Scope};
+use crate::paths::FileId;
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, TS)]
 #[serde(deny_unknown_fields)]
@@ -42,6 +43,45 @@ pub struct DuplicateExecuteOptions {
     pub action: DuplicateAction,
 }
 
+/// File view searches all volumes; excluded scopes apply to both sides.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, TS)]
+#[serde(deny_unknown_fields)]
+#[ts(export)]
+pub struct DuplicateFileParams {
+    pub matching: DuplicateParams,
+    pub excluded: Vec<Scope>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, TS)]
+#[serde(deny_unknown_fields)]
+#[ts(export)]
+pub struct DuplicateFileExecuteOptions {
+    pub keep: Vec<FileId>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, TS)]
+#[ts(export)]
+pub struct DuplicateFile {
+    pub item: FileItem,
+    pub btime: Option<i64>,
+    pub has_description: bool,
+    pub tags: Vec<String>,
+}
+
+/// Connected matches are not necessarily a clique. Every removed file needs a direct keeper.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, TS)]
+#[ts(export)]
+pub struct DuplicateFileGroup {
+    pub files: Vec<DuplicateFile>,
+    pub pairs: Vec<[FileId; 2]>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, TS)]
+#[ts(export)]
+pub struct DuplicateFileGroups {
+    pub groups: Vec<DuplicateFileGroup>,
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -75,5 +115,26 @@ mod tests {
                 .action,
             DuplicateAction::DeleteComparison
         );
+        let file_params = DuplicateFileParams {
+            matching: params,
+            excluded: vec![Scope {
+                volume_id: Some(2),
+                dir: "excluded".to_owned(),
+                recursive: true,
+            }],
+        };
+        crate::dto::testing::roundtrip(&file_params);
+        crate::dto::testing::roundtrip(&DuplicateFileExecuteOptions { keep: vec![1, 2] });
+        crate::dto::testing::roundtrip(&DuplicateFileGroups {
+            groups: vec![DuplicateFileGroup {
+                files: vec![DuplicateFile {
+                    item: FileItem::default(),
+                    btime: Some(5),
+                    has_description: true,
+                    tags: vec!["trip".to_owned()],
+                }],
+                pairs: vec![[1, 2]],
+            }],
+        });
     }
 }

@@ -43,15 +43,43 @@ fn predicate(qb: &mut QueryBuilder<Sqlite>, query: &FileQuery, alias: &str) {
         .push(".kind IN ('image', 'video', 'audio')");
 }
 
+fn excluding(
+    qb: &mut QueryBuilder<Sqlite>,
+    query: &FileQuery,
+    excluded: &[FileQuery],
+    members: Option<&str>,
+) {
+    predicate(qb, query, "f");
+    for exclude in excluded {
+        qb.push(" AND NOT ");
+        exclude.push_where(qb, "f");
+    }
+    if let Some(members) = members {
+        qb.push(" AND f.id IN (SELECT value FROM json_each(")
+            .push_bind(members.to_owned())
+            .push("))");
+    }
+}
+
 pub(super) fn join_statement(
     mode: MatchMode,
     source: &FileQuery,
     comparison: &FileQuery,
 ) -> QueryBuilder<Sqlite> {
+    join_excluding(mode, source, comparison, &[], None)
+}
+
+fn join_excluding(
+    mode: MatchMode,
+    source: &FileQuery,
+    comparison: &FileQuery,
+    excluded: &[FileQuery],
+    members: Option<&str>,
+) -> QueryBuilder<Sqlite> {
     let mut qb = QueryBuilder::new(
         "SELECT s.id, c.id FROM (SELECT f.id, f.hash, f.name_norm, f.capture_ts FROM files f WHERE ",
     );
-    predicate(&mut qb, source, "f");
+    excluding(&mut qb, source, excluded, members);
     // CROSS JOIN fixes loop order so the comparison uses the match-key index, not a rescan.
     qb.push(
         ") s CROSS JOIN (SELECT f.id, f.hash, f.name_norm, f.capture_ts FROM files f INDEXED BY ",
@@ -62,7 +90,7 @@ pub(super) fn join_statement(
         "files_name_capture"
     })
     .push(" WHERE ");
-    predicate(&mut qb, comparison, "f");
+    excluding(&mut qb, comparison, excluded, members);
     if mode == MatchMode::Hash {
         qb.push(" AND f.hash IS NOT NULL");
     }
@@ -114,6 +142,18 @@ pub(crate) async fn candidate_pairs(
     cancel: &CancellationToken,
     visitor: &mut dyn Visitor,
 ) -> Result<u64, PlanError> {
+    pairs_excluding(conn, params, policy, cancel, visitor, &[], None).await
+}
+
+async fn pairs_excluding(
+    conn: &mut SqliteConnection,
+    params: &DuplicateParams,
+    policy: Policy,
+    cancel: &CancellationToken,
+    visitor: &mut dyn Visitor,
+    excluded: &[FileQuery],
+    members: Option<&str>,
+) -> Result<u64, PlanError> {
     let mode = params.mode;
     let strict_prefix = params.strict_prefix;
     let source = query(&params.source, "source")?;
@@ -135,7 +175,7 @@ pub(crate) async fn candidate_pairs(
     };
     if mode == MatchMode::NamePrefix {
         let mut qb = QueryBuilder::new("SELECT f.id, f.stem_norm FROM files f WHERE ");
-        predicate(&mut qb, &source, "f");
+        excluding(&mut qb, &source, excluded, members);
         let mut stems: HashMap<String, Vec<FileId>> = HashMap::new();
         {
             let mut rows = qb.build_query_as::<(FileId, String)>().fetch(&mut *conn);
@@ -147,7 +187,7 @@ pub(crate) async fn candidate_pairs(
             }
         }
         let mut qb = QueryBuilder::new("SELECT f.id, f.stem_norm FROM files f WHERE ");
-        predicate(&mut qb, &comparison, "f");
+        excluding(&mut qb, &comparison, excluded, members);
         let mut rows = qb.build_query_as::<(FileId, String)>().fetch(&mut *conn);
         while let Some((id, stem)) = rows.try_next().await? {
             cancelled(cancel)?;
@@ -172,7 +212,11 @@ pub(crate) async fn candidate_pairs(
             }
         }
     } else {
-        let mut qb = join_statement(mode, &source, &comparison);
+        let mut qb = if excluded.is_empty() && members.is_none() {
+            join_statement(mode, &source, &comparison)
+        } else {
+            join_excluding(mode, &source, &comparison, excluded, members)
+        };
         let mut rows = qb.build_query_as::<(FileId, FileId)>().fetch(conn);
         while let Some((source, comparison)) = rows.try_next().await? {
             cancelled(cancel)?;
@@ -192,6 +236,7 @@ struct Sink<W> {
     pairs: u64,
     max_pairs: u64,
     max_matched: usize,
+    seen: Option<HashSet<Pair>>,
 }
 
 impl<F> Visitor for Sink<BulkWriter<Pair, F>>
@@ -200,6 +245,11 @@ where
 {
     fn visit(&mut self, pair: Pair) -> BoxFuture<'_, Result<(), PlanError>> {
         Box::pin(async move {
+            if let Some(seen) = &mut self.seen
+                && !seen.insert(pair)
+            {
+                return Ok(());
+            }
             self.pairs += 1;
             if self.pairs > self.max_pairs {
                 return Err(PlanError::TooLarge {
@@ -226,6 +276,7 @@ async fn counts(
     side: &SideParams,
     mode: MatchMode,
     label: &str,
+    excluded: &[FileQuery],
 ) -> Result<(u64, u64), PlanError> {
     let query = query(side, label)?;
     let missing = match mode {
@@ -236,7 +287,7 @@ async fn counts(
     };
     let mut qb = QueryBuilder::new("SELECT COUNT(*), COALESCE(SUM(");
     qb.push(missing).push("), 0) FROM files f WHERE ");
-    predicate(&mut qb, &query, "f");
+    excluding(&mut qb, &query, excluded, None);
     let (count, missing): (i64, i64) = qb.build_query_as().fetch_one(conn).await?;
     Ok((count as u64, missing as u64))
 }
@@ -246,17 +297,41 @@ pub(super) async fn build(
     value: Value,
     max_matched: usize,
 ) -> Result<Built, PlanError> {
-    let params: DuplicateParams =
-        serde_json::from_value(value).map_err(|err| PlanError::invalid(err.to_string()))?;
+    let (params, file_view) = super::parameters(value)?;
+    let excluded = file_view
+        .as_ref()
+        .map(|options| {
+            options
+                .excluded
+                .iter()
+                .map(|scope| {
+                    query(
+                        &SideParams {
+                            scope: scope.clone(),
+                            filter: Default::default(),
+                        },
+                        "excluded",
+                    )
+                })
+                .collect::<Result<Vec<_>, _>>()
+        })
+        .transpose()?
+        .unwrap_or_default();
     ctx.check_cancelled()?;
     let mut registration = ctx.db.begin_write().await?;
     crate::plans::file_identity::begin(&mut registration, ctx.plan_id).await?;
     registration.commit().await?;
     let mut read = ctx.db.read().begin().await?;
     let (source_count, source_missing) =
-        counts(&mut read, &params.source, params.mode, "source").await?;
-    let (comparison_count, comparison_missing) =
-        counts(&mut read, &params.comparison, params.mode, "comparison").await?;
+        counts(&mut read, &params.source, params.mode, "source", &excluded).await?;
+    let (comparison_count, comparison_missing) = counts(
+        &mut read,
+        &params.comparison,
+        params.mode,
+        "comparison",
+        &excluded,
+    )
+    .await?;
     let id = ctx.plan_id;
     let writer = BulkWriter::new(
         &ctx.db,
@@ -275,11 +350,61 @@ pub(super) async fn build(
         comparison: HashSet::new(),
         pairs: 0,
         max_pairs: ctx.max_items.min(MAX_PAIRS),
-        max_matched,
+        max_matched: if file_view.is_some() {
+            max_matched.min(super::MAX_FILE_VIEW_MATCHES)
+        } else {
+            max_matched
+        },
+        seen: file_view.as_ref().map(|_| HashSet::new()),
     };
-    let overlap =
-        super::candidate_pairs(&mut read, &params, Policy::Oriented, &ctx.cancel, &mut sink)
-            .await?;
+    let policy = if file_view.is_some() {
+        Policy::Unoriented
+    } else {
+        Policy::Oriented
+    };
+    let overlap = pairs_excluding(
+        &mut read,
+        &params,
+        policy,
+        &ctx.cancel,
+        &mut sink,
+        &excluded,
+        None,
+    )
+    .await?;
+    if file_view.is_some() && params.mode == MatchMode::NamePrefix {
+        let mut reversed = params.clone();
+        std::mem::swap(&mut reversed.source, &mut reversed.comparison);
+        pairs_excluding(
+            &mut read,
+            &reversed,
+            Policy::Unoriented,
+            &ctx.cancel,
+            &mut sink,
+            &excluded,
+            None,
+        )
+        .await?;
+    }
+    if file_view.is_some() && sink.pairs > 0 {
+        // Discover from the source first, then compare the discovered copies with one another.
+        // Otherwise an outside keeper could not protect another outside copy of the same file.
+        let members: HashSet<_> = sink.source.union(&sink.comparison).copied().collect();
+        let members =
+            serde_json::to_string(&members).map_err(|err| PlanError::Internal(err.into()))?;
+        let mut all = params.clone();
+        all.source = all.comparison.clone();
+        pairs_excluding(
+            &mut read,
+            &all,
+            Policy::Unoriented,
+            &ctx.cancel,
+            &mut sink,
+            &excluded,
+            Some(&members),
+        )
+        .await?;
+    }
     sink.writer.finish().await?;
     let mut built = Built::new(sink.pairs)
         .stat("source_candidates", source_count)
@@ -530,6 +655,7 @@ mod tests {
                 pairs: 0,
                 max_pairs,
                 max_matched,
+                seen: None,
             };
             sink.visit(Pair::new(1, 10)).await.unwrap();
             assert!(matches!(

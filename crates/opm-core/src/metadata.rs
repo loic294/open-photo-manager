@@ -34,6 +34,7 @@ pub struct SourceMetadata {
     pub pick: Option<i64>,
     /// Flat keywords (see [`flatten_keywords`]); `Some(vec![])` is an explicit empty list.
     pub keywords: Option<Vec<String>>,
+    pub description: Option<String>,
     pub make: Option<String>,
     pub model: Option<String>,
     /// Raw `DateTimeOriginal` text (local wall clock).
@@ -194,6 +195,7 @@ pub fn merge(embedded: &SourceMetadata, sidecars: &[&SourceMetadata]) -> Merged 
         rating: first(sidecars, embedded, |s| &s.rating),
         pick: first(sidecars, embedded, |s| &s.pick),
         keywords: first(sidecars, embedded, |s| &s.keywords),
+        description: first(sidecars, embedded, |s| &s.description),
         make: camera.and_then(|source| source.make.clone()),
         model: camera.and_then(|source| source.model.clone()),
         date_time_original: embedded.date_time_original.clone(),

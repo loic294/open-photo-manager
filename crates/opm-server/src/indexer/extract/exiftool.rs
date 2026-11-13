@@ -72,6 +72,9 @@ pub const TAGS: &[&str] = &[
     "Subject",
     "Keywords",
     "HierarchicalSubject",
+    "Description",
+    "ImageDescription",
+    "Caption-Abstract",
     "Error",
     "Warning",
 ];
@@ -466,6 +469,9 @@ impl Fields {
             "MediaCreateDate" => first(&mut self.meta.media_create_date),
             "Make" => first(&mut self.meta.make),
             "Model" => first(&mut self.meta.model),
+            "Description" | "ImageDescription" | "Caption-Abstract" => {
+                first(&mut self.meta.description)
+            }
             "Rating" => {
                 let rating = number_of(value).map(|n| n.round() as i64);
                 if group.starts_with("XMP") {
@@ -680,6 +686,23 @@ mod tests {
                     .to_vec()
             )
         );
+    }
+
+    #[test]
+    fn descriptions_are_read_from_exif_iptc_and_xmp() {
+        for tag in [
+            "IFD0:ImageDescription",
+            "IPTC:Caption-Abstract",
+            "XMP-dc:Description",
+        ] {
+            let entry = json!({ tag: " A view " });
+            let embedded = embedded_from_entry(&entry).unwrap();
+            assert_eq!(
+                embedded.meta.description.as_deref(),
+                Some("A view"),
+                "{tag}"
+            );
+        }
     }
 
     #[test]

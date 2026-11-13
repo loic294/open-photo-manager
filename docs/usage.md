@@ -46,6 +46,49 @@ The five tools operate on the index and show a plan before a confirmed file oper
 
 ## Duplicate finder
 
+Use **Folder view** for the existing source/comparison workflow, or **File view** to review
+groups of matching copies together.
+
+### File view
+
+Choose a **Source** folder, optionally include its subfolders, then **Find duplicates**.
+The source determines which files start the search, not where their copies may be:
+matches are found across all volumes. **Exclude folder** omits that folder and its entire
+subtree from both sides; remove an exclusion to include it again.
+
+Each group has a separate card containing large thumbnails of all its copies. Green borders and **Keep** labels mean retain;
+red borders and **Remove** labels mean move to Trash after confirmation. Click a thumbnail to
+prefer that copy. Filename, size and capture date appear beneath each thumbnail; fields that
+differ between copies are bold. Differing sizes include exact byte counts, and capture dates
+include seconds (a missing date is shown explicitly).
+Star ratings and flag status also appear beneath every thumbnail, including explicit
+**Not rated** and **None** values when those metadata are absent.
+The bottom slider adjusts thumbnail size; paging does not limit selection
+rules or the final action. Name-based matches are not always transitive, so a group can require
+multiple keepers: every removal must directly match a retained file.
+
+**Automatic Selection** offers capture, modification and creation dates in either order,
+file size in either order, presence of ratings, descriptions, flags or tags, a specific tag
+among the matching copies, and multiple preferred folders (exact or including descendants).
+Enable rules individually and drag them into priority order; Up/Down buttons also reorder.
+The first enabled rule wins, later rules break ties, missing dates rank last, and exact ties
+use the lowest file ID. Applying rules replaces manual choices in every group.
+
+Right-click a thumbnail and choose **Keep files from this folder** (also available as a button
+under each copy). Choose its folder or any pre-populated ancestor, then exact-folder or
+subfolder matching. Applying makes that preference the first rule for all groups.
+
+**Trash duplicates** confirms the total and warns that copies outside the source can be removed.
+The existing plan executor rechecks identity, metadata and matching survivors before using
+journaled file operations. Nothing is permanently deleted; use Trash to recover files.
+Changes to indexed files or search settings require a refresh before another action.
+File view is bounded to 20,000 matched files per side and the existing two-million-pair limit;
+an oversized search is refused rather than truncated. Narrow the source folder if necessary.
+Descriptions are read from embedded EXIF/IPTC/XMP and linked XMP metadata; existing indexed
+images and videos are queued for metadata extraction after the database upgrade.
+
+### Folder view
+
 1. Set a source folder in the left pane and a comparison folder in the right pane. **Match by**
    offers **Hash exact match** (same content), **Filename and time exact match** (same filename
    and capture time to the second), **Filename exact match, different time**, and

@@ -234,13 +234,14 @@ pub struct FileRow {
     pub hash_state: PipelineState,
     pub thumb_state: PipelineState,
     pub seen_gen: i64,
+    pub has_description: bool,
 }
 
 /// Every column of `files`, in table order, unqualified: `SELECT {FILE_COLUMNS} FROM files`. Use
 /// [`file_columns`] when the table has an alias or is joined.
 pub const FILE_COLUMNS: &str = "id, volume_id, dir_path, name, name_norm, stem_norm, ext, kind, \
      size, mtime, btime, capture_ts, capture_offset_min, capture_src, camera_id, rating, flag, \
-     width, height, duration_ms, mime, hash, meta_state, hash_state, thumb_state, seen_gen";
+     width, height, duration_ms, mime, hash, meta_state, hash_state, thumb_state, seen_gen, has_description";
 
 /// [`FILE_COLUMNS`] with every column qualified by `alias` (`file_columns("f")` is
 /// `f.id, f.volume_id, ...`). `alias` must be a literal, never user input.
@@ -314,6 +315,7 @@ impl<'r> FromRow<'r, SqliteRow> for FileRow {
             hash_state: row.try_get("hash_state")?,
             thumb_state: row.try_get("thumb_state")?,
             seen_gen: row.try_get("seen_gen")?,
+            has_description: row.try_get("has_description")?,
         })
     }
 }
@@ -398,7 +400,7 @@ mod tests {
         let qualified = file_columns("f");
         let plain: Vec<&str> = FILE_COLUMNS.split(", ").collect();
         let aliased: Vec<&str> = qualified.split(", ").collect();
-        assert_eq!(plain.len(), 26);
+        assert_eq!(plain.len(), 27);
         assert_eq!(aliased.len(), plain.len());
         for (plain, aliased) in plain.iter().zip(&aliased) {
             assert_eq!(*aliased, format!("f.{plain}"));
@@ -440,7 +442,7 @@ mod tests {
             "UPDATE files SET kind = 'image', size = 25000000, mtime = 1700000000, btime = 1600000000, \
              capture_ts = 1560000000, capture_offset_min = -420, capture_src = 'exif', rating = 4, \
              flag = -1, width = 6000, height = 4000, duration_ms = 1500, mime = 'image/x-canon-cr3', \
-             hash = ?, meta_state = 1, hash_state = 2, thumb_state = 3, seen_gen = 5 WHERE id = ?",
+             hash = ?, meta_state = 1, hash_state = 2, thumb_state = 3, seen_gen = 5, has_description = 1 WHERE id = ?",
         )
         .bind(&hash)
         .bind(id)
@@ -483,6 +485,7 @@ mod tests {
                 hash_state: PipelineState::Failed,
                 thumb_state: PipelineState::NotApplicable,
                 seen_gen: 5,
+                has_description: true,
             }
         );
     }

@@ -27,6 +27,12 @@ describe('formatCaptureDate', () => {
     expect(plain(formatCaptureDate(0, 'en-US'))).toBe('Jan 1, 1970, 12:00 AM');
   });
 
+  it('can expose second-level differences without changing the existing minute display', () => {
+    expect(plain(formatCaptureDate(ts, 'en-US', true))).toBe('Nov 14, 2023, 10:13:20 PM');
+    expect(plain(formatCaptureDate(ts + 1, 'en-US', true))).toBe('Nov 14, 2023, 10:13:21 PM');
+    expect(formatCaptureDate(ts, 'en-US')).toBe(formatCaptureDate(ts + 1, 'en-US'));
+  });
+
   it('does not depend on the browser time zone', async () => {
     const expected = plain(formatCaptureDate(ts, 'en-US'));
     for (const zone of ['Pacific/Kiritimati', 'America/Los_Angeles', 'Asia/Kolkata']) {
