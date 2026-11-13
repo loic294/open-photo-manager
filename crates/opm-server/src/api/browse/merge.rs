@@ -14,7 +14,8 @@ use crate::query::FolderRow;
 /// sorted together by normalised name and then name. The footer is the real counts plus the ghosts.
 ///
 /// A real folder takes `matches` and `overlay` from `per_child` and adds `ghost_count` and
-/// `ghost_total` to its `count` and `total`; a folder without an entry is left alone.
+/// `ghost_total` to its `count` and `total`, less `removed_count` and `removed_total` for a
+/// formatting preview; a folder without an entry is left alone.
 pub(super) fn folders(
     rows: Vec<FolderRow>,
     real: FooterCounts,
@@ -32,8 +33,8 @@ pub(super) fn folders(
             let info = per_child.get(&row.name).copied();
             let mut entry = FolderEntry::from(row);
             if let Some(info) = info {
-                entry.count += info.ghost_count;
-                entry.total += info.ghost_total;
+                entry.count += info.ghost_count - info.removed_count;
+                entry.total += info.ghost_total - info.removed_total;
                 entry.matches = info.matches;
                 entry.overlay = info.overlay;
             }
@@ -165,6 +166,7 @@ mod tests {
                         },
                         ghost_count: 4,
                         ghost_total: 5,
+                        ..FolderPlanInfo::default()
                     },
                 ),
                 (

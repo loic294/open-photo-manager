@@ -229,5 +229,6 @@ pub fn child(
         overlay,
         ghost_count,
         ghost_total,
+        ..FolderPlanInfo::default()
     }
 }

@@ -221,6 +221,7 @@ pub(super) async fn folders(
     side: PlanSide,
     view: &GhostView,
     children: &[String],
+    projected: bool,
 ) -> Result<FolderOverlay, PlanError> {
     if side == PlanSide::Source {
         return Ok(FolderOverlay::default());
@@ -291,7 +292,46 @@ pub(super) async fn folders(
     result
         .ghost_folders
         .sort_by_key(|f| normalize_name(&f.name));
+    if projected {
+        subtract_departures(db, plan, view, children, &filter, &mut result).await?;
+    }
     Ok(result)
+}
+
+async fn subtract_departures(
+    db: &Db,
+    plan: PlanId,
+    view: &GhostView,
+    children: &[String],
+    filter: &FileQuery,
+    result: &mut FolderOverlay,
+) -> Result<(), PlanError> {
+    let mut qb = QueryBuilder::<Sqlite>::new(
+        "WITH live_moves AS (SELECT m.file_id, m.replaced_id FROM move_items m JOIN plan_file_tracking t ON t.plan_id = m.plan_id JOIN plan_file_identities i ON i.plan_id = t.plan_id AND i.file_id = m.file_id AND i.live = 1 LEFT JOIN plan_file_identities ci ON ci.plan_id = m.plan_id AND ci.file_id = m.counterpart_id LEFT JOIN plan_file_identities ri ON ri.plan_id = m.plan_id AND ri.file_id = m.replaced_id WHERE m.plan_id = ",
+    );
+    qb.push_bind(plan).push(
+        " AND m.status = 'move' AND (m.counterpart_id IS NULL OR ci.live = 1) AND (m.replaced_id IS NULL OR ri.live = 1)), removed AS (SELECT file_id FROM live_moves UNION SELECT replaced_id FROM live_moves WHERE replaced_id IS NOT NULL), per_dir AS (SELECT f.dir_path, COUNT(*) AS total, SUM(CASE WHEN ",
+    );
+    filter.push_where(&mut qb, "f");
+    qb.push(" THEN 1 ELSE 0 END) AS cnt FROM removed r JOIN files f ON f.id = r.file_id WHERE f.kind <> 'sidecar' AND f.volume_id = ")
+        .push_bind(view.volume_id)
+        .push(" AND ");
+    Subtree::new(&view.dir).push_predicate(&mut qb, "f.dir_path");
+    qb.push(" GROUP BY f.dir_path) SELECT ");
+    push_child_segment(&mut qb, "dir_path", view.dir.as_str());
+    qb.push(" AS child, SUM(cnt), SUM(total) FROM per_dir GROUP BY child");
+    let rows: Vec<(String, i64, i64)> = qb.build_query_as().fetch_all(db.read()).await?;
+    for (child, count, total) in rows {
+        if let Some(real) = children
+            .iter()
+            .find(|name| normalize_name(name) == normalize_name(&child))
+        {
+            let info = result.per_child.entry(real.clone()).or_default();
+            info.removed_count = count;
+            info.removed_total = total;
+        }
+    }
+    Ok(())
 }
 
 #[cfg(test)]
