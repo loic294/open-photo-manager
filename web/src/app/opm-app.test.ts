@@ -241,12 +241,21 @@ describe('main menu', () => {
       'Batch rename',
     ]);
     expect(entriesOf(footer).map(text)).toEqual([
+      'Scan current folders for changes',
+      'Scan all assets for changes',
       'Re-index current folders',
       'Re-index all assets',
       'Trash',
       'Settings',
     ]);
-    expect(entriesOf(footer).map((item) => item.localName)).toEqual(['button', 'button', 'a', 'a']);
+    expect(entriesOf(footer).map((item) => item.localName)).toEqual([
+      'button',
+      'button',
+      'button',
+      'button',
+      'a',
+      'a',
+    ]);
     expect(tools?.nextElementSibling?.classList.contains('divider')).toBe(true);
     expect(classesOf(tools ?? null)).toEqual(
       expect.arrayContaining(['flex-1', 'flex-nowrap', 'overflow-y-auto']),
@@ -333,6 +342,8 @@ describe('main menu', () => {
     const [tools, footer] = menuLists(app);
     expect(entriesOf(tools).map(text)).toEqual(['Alpha', 'Beta']);
     expect(entriesOf(footer).map(text)).toEqual([
+      'Scan current folders for changes',
+      'Scan all assets for changes',
       'Re-index current folders',
       'Re-index all assets',
       'Gamma',
@@ -389,6 +400,8 @@ describe('re-index actions', () => {
   const queued = makeTask({ id: 7, kind: 'index', state: 'queued' });
   const messages = () => toasts.value.map((t) => [t.kind, t.message]);
   const reindexEntries = (app: App) => [
+    entry(app, 'Scan current folders for changes') as HTMLButtonElement,
+    entry(app, 'Scan all assets for changes') as HTMLButtonElement,
     entry(app, 'Re-index current folders') as HTMLButtonElement,
     entry(app, 'Re-index all assets') as HTMLButtonElement,
   ];
@@ -448,6 +461,41 @@ describe('re-index actions', () => {
     expect(rescans()).toEqual([]);
   });
 
+  it('scans current folders for changes without forcing reprocessing or removals', async () => {
+    const app = await mountConnected('/browse?src=photos/trips&cmp=photos/trips/2024');
+
+    entry(app, 'Scan current folders for changes').click();
+
+    await until(() => expect(rescans()).toHaveLength(1));
+    expect(rescans()[0]?.[1]).toMatchObject({
+      body: {
+        targets: [
+          { volume_id: 1, dir: 'trips', recursive: true },
+          { volume_id: 1, dir: 'trips/2024', recursive: true },
+        ],
+        force: false,
+        confirm_removals: false,
+      },
+    });
+    await until(() => expect(messages()).toEqual([['success', 'Scanning 2 folders for changes']]));
+  });
+
+  it('scans all assets for changes only after confirmation', async () => {
+    const app = await mountConnected('/browse?src=photos/trips');
+
+    entry(app, 'Scan all assets for changes').click();
+    const dialog = await shownConfirm();
+    expect(dialog.title).toBe('Scan all assets for changes?');
+    expect(rescans()).toEqual([]);
+    await pressConfirm('Scan for changes');
+
+    await until(() => expect(rescans()).toHaveLength(1));
+    expect(rescans()[0]?.[1]).toMatchObject({
+      body: { targets: [], force: false, confirm_removals: false },
+    });
+    await until(() => expect(messages()).toEqual([['success', 'Scanning all assets for changes']]));
+  });
+
   it('asks before re-indexing all assets, and sends nothing when the user declines', async () => {
     const app = await mountConnected('/browse');
 
@@ -482,34 +530,37 @@ describe('re-index actions', () => {
     await until(() => expect(messages()).toEqual([['error', 'Volume photos is offline']]));
   });
 
-  it('turns both entries off, with a spinner on the one pressed, while the request is sent', async () => {
-    const app = await mountConnected('/browse?src=photos/trips');
-    const reply = deferred<TaskDto>();
-    answer = () => reply.promise;
+  it.each(['Re-index current folders', 'Scan current folders for changes'])(
+    'disables every scan entry and shows a spinner only on %s while sending',
+    async (label) => {
+      const app = await mountConnected('/browse?src=photos/trips');
+      const reply = deferred<TaskDto>();
+      answer = () => reply.promise;
 
-    entry(app, 'Re-index current folders').click();
-    await app.updateComplete;
+      entry(app, label).click();
+      await app.updateComplete;
 
-    for (const item of reindexEntries(app)) {
-      expect(item.disabled).toBe(true);
-      expect(item.closest('li')?.classList.contains('menu-disabled')).toBe(true);
-    }
-    expect(entry(app, 'Re-index current folders').querySelector('.loading')).not.toBeNull();
-    expect(entry(app, 'Re-index current folders').querySelector('opm-icon')).toBeNull();
-    expect(entry(app, 'Re-index all assets').querySelector('.loading')).toBeNull();
-    expect(entry(app, 'Re-index all assets').querySelector('opm-icon')).not.toBeNull();
+      for (const item of reindexEntries(app)) {
+        expect(item.disabled).toBe(true);
+        expect(item.closest('li')?.classList.contains('menu-disabled')).toBe(true);
+      }
+      for (const item of reindexEntries(app)) {
+        expect(item.querySelector('.loading') !== null).toBe(item === entry(app, label));
+        expect(item.querySelector('opm-icon') === null).toBe(item === entry(app, label));
+      }
 
-    reply.resolve(queued);
-    await until(() => expect(reindexEntries(app).some((item) => item.disabled)).toBe(false));
+      reply.resolve(queued);
+      await until(() => expect(reindexEntries(app).some((item) => item.disabled)).toBe(false));
 
-    for (const item of reindexEntries(app)) {
-      expect(item.closest('li')?.classList.contains('menu-disabled')).toBe(false);
-      expect(item.querySelector('.loading')).toBeNull();
-    }
-    expect(rescans()).toHaveLength(1);
-  });
+      for (const item of reindexEntries(app)) {
+        expect(item.closest('li')?.classList.contains('menu-disabled')).toBe(false);
+        expect(item.querySelector('.loading')).toBeNull();
+      }
+      expect(rescans()).toHaveLength(1);
+    },
+  );
 
-  it('turns both entries off while the event stream is down, and back on when it is back', async () => {
+  it('turns all scan entries off while the event stream is down, and back on when it is back', async () => {
     const app = await mountConnected('/browse?src=photos/trips');
 
     FakeEventSource.last().error();

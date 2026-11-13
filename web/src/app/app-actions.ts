@@ -12,8 +12,11 @@ import { toast } from '@/components/toast';
  */
 export const REINDEX_EVENT = 'opm-reindex';
 
-/** `current`: the folders currently shown in the panes. `all`: every asset of every volume. */
-export type ReindexScope = 'current' | 'all';
+/**
+ * `current`: the folders shown in the panes. `all`: every volume.
+ * The `-changed` variants only re-process new files and files whose size or modification time changed.
+ */
+export type ReindexScope = 'current' | 'all' | 'current-changed' | 'all-changed';
 
 export type ReindexEvent = CustomEvent<{ scope: ReindexScope }>;
 

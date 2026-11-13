@@ -281,7 +281,13 @@ not accepted by **Folder formatting**. The examples use the generated sample fil
    You should see: progress as indexing fills the library, with held-removal warnings if a mount
    unexpectedly loses files.
 
-4. **Re-index current folders** forces metadata, checksums and thumbnails to be reread for the
+4. **Scan current folders for changes** checks the folders shown by both panes, including
+   subfolders, for new files, removed files and files whose size or modification time changed.
+   **Scan all assets for changes** does the same across every volume, after confirmation.
+   Unchanged files are not re-processed. Large unexpected disappearances still require confirmation
+   in the held-removal notice; scanning never deletes files from disk.
+
+   **Re-index current folders** forces metadata, checksums and thumbnails to be reread for the
    folders shown by both panes, including subfolders; identical pane locations are sent once.
    With both panes at the virtual volumes root, open a real folder first.
    **Re-index all assets** asks for confirmation, then forces rereading across every volume.
@@ -407,7 +413,12 @@ minutes use `{min}`. Month names are English. The sample is `IMG_0042.CR3`, capt
 
 ## Re-index and settings
 
-1. Use **Re-index current folders** to force metadata, checksums and thumbnails to be reread in
+1. Use **Scan current folders for changes** or **Scan all assets for changes** for an incremental
+   refresh: new files are indexed, removed files leave the index, and files whose size or
+   modification time changed are re-processed. Unchanged files are left alone, and the existing
+   held-removal safety check still applies.
+
+   Use **Re-index current folders** to force metadata, checksums and thumbnails to be reread in
    the folders shown by both panes, including subfolders. Use **Re-index all assets** for a
    confirmed library-wide refresh. Ordinary scans are incremental; do not force all assets for
    every external edit.

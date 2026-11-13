@@ -34,6 +34,8 @@ const MENU_ID = 'opm-menu';
 const FOCUS_DELAY_MS = 150;
 
 const REINDEX_ITEMS: readonly { scope: ReindexScope; label: string }[] = [
+  { scope: 'current-changed', label: 'Scan current folders for changes' },
+  { scope: 'all-changed', label: 'Scan all assets for changes' },
   { scope: 'current', label: 'Re-index current folders' },
   { scope: 'all', label: 'Re-index all assets' },
 ];
