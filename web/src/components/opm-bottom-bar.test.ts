@@ -544,7 +544,7 @@ describe('opm-bottom-bar actions', () => {
     expect(host.querySelector('.flex-none')).toBeNull();
   });
 
-  it('renders the passed template at the far right, after the segments', async () => {
+  it('keeps actions inside the comparison half without shifting the pane divider', async () => {
     const host = await mount('opm-bottom-bar', {
       source: footer(),
       comparison: footer(),
@@ -555,10 +555,9 @@ describe('opm-bottom-bar actions', () => {
     expect(area?.classList.contains('items-center')).toBe(true);
     expect(area?.querySelector('#go')?.textContent).toBe('Go');
     const bar = host.querySelector('.navbar');
-    expect(bar?.lastElementChild).toBe(area);
-    expect(
-      segments(host).every((element) => element.compareDocumentPosition(area as Node) & 4),
-    ).toBe(true);
+    expect(bar?.lastElementChild).toBe(segment(host, 'comparison'));
+    expect(segment(host, 'comparison').lastElementChild).toBe(area);
+    expect(bar?.classList.contains('md:grid-cols-2')).toBe(true);
   });
 
   it('updates and removes the actions with the property', async () => {

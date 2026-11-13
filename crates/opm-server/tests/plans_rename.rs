@@ -186,20 +186,25 @@ async fn plan_overlay_selection_and_only_execution_keep_rename_in_place() {
     )
     .await;
     assert_eq!(status, StatusCode::OK, "{comparison}");
-    assert_eq!(comparison["total"], 5);
+    assert_eq!(comparison["total"], 2);
     assert_eq!(
         browse::names(&comparison, "items"),
-        [
-            "one.jpg",
-            "other.jpg",
-            "z-notes.txt",
-            "Renamed_one.jpg",
-            "Renamed_other.jpg"
-        ]
+        ["Renamed_one.jpg", "Renamed_other.jpg"]
     );
-    assert_eq!(comparison["items"][3]["id"], one);
-    assert_eq!(comparison["items"][3]["overlay"]["planned"], true);
-    assert_eq!(comparison["items"][4]["id"], other);
+    assert_eq!(comparison["items"][0]["id"], one);
+    assert_eq!(comparison["items"][0]["overlay"]["planned"], true);
+    assert_eq!(comparison["items"][1]["id"], other);
+    let (status, page) = browse::items(
+        &app,
+        json!({
+            "volume_id": volume, "dir": "album/child", "offset": 1, "limit": 1,
+            "plan": {"plan_id": plan_id, "side": "comparison"}
+        }),
+    )
+    .await;
+    assert_eq!(status, StatusCode::OK, "{page}");
+    assert_eq!(page["total"], 2);
+    assert_eq!(browse::names(&page, "items"), ["Renamed_other.jpg"]);
 
     let (status, ids) = browse::ids(
         &app,

@@ -474,14 +474,14 @@ export class OpmFileCard extends OpmElement {
     const date = cardDate(item);
     return html`
       <div
-        class="truncate text-xs leading-4 font-medium"
+        class="tooltip tooltip-top tooltip-start block min-w-0 text-left text-xs leading-4 font-medium before:max-w-full before:whitespace-normal before:break-all"
         data-name
-        title=${`${item.name} (${formatFileSize(item.size)})`}
-      >${item.name}</div>
+        data-tip=${item.name}
+      ><span class="block truncate">${item.name}</span></div>
       <div
-        class="flex min-w-0 items-center gap-1 text-xs leading-4 text-base-content/60"
+        class="tooltip tooltip-top tooltip-start flex min-w-0 items-center gap-1 text-left text-xs leading-4 text-base-content/60 before:max-w-full before:whitespace-normal before:break-all"
         data-date
-        title=${date.hint}
+        data-tip=${`${date.text} · ${formatFileSize(item.size)} · ${date.hint}`}
       >
         ${date.icon ? html`<opm-icon name=${date.icon} size="xs"></opm-icon>` : nothing}
         <span class="truncate">${date.text}</span>
@@ -506,7 +506,7 @@ export class OpmFileCard extends OpmElement {
     return html`
       <div
         role="option"
-        class="card group h-full w-full overflow-hidden rounded-lg border-2 ${frame} ${interactive ? 'cursor-pointer' : 'cursor-default'}"
+        class="card group h-full w-full rounded-lg border-2 hover:z-10 focus-within:z-10 ${frame} ${interactive ? 'cursor-pointer' : 'cursor-default'}"
         tabindex=${this.focused ? '0' : '-1'}
         aria-selected=${selected ? 'true' : 'false'}
         aria-label=${item ? cardLabel(item) : 'Loading'}
@@ -517,7 +517,7 @@ export class OpmFileCard extends OpmElement {
         @click=${this.onClick}
         @keydown=${this.onKeydown}
       >
-        <figure class="relative min-h-0 flex-1 ${item ? 'bg-base-200' : 'skeleton rounded-none'}">
+        <figure class="relative min-h-0 flex-1 overflow-hidden rounded-t-md ${item ? 'bg-base-200' : 'skeleton rounded-none'}">
           ${item ? this.renderFigure(item, selected) : nothing}
         </figure>
         <div class="flex h-10 shrink-0 flex-col justify-center px-2">

@@ -23,17 +23,19 @@ export const theme = persistedSignal<ThemePref>('theme', 'system', oneOf(THEMES)
 /** Thumbnail edge length in px. `step` is for the slider; `setGridSize` clamps. */
 export const GRID_SIZE = { min: 96, max: 320, step: 16, default: 160 } as const;
 
-/** Thumbnail size of each pane. Change it with `setGridSize`. */
+/** Both panes share a thumbnail scale. Change it with either pane's `setGridSize`. */
 export const gridSize = persistedSignal<Record<PaneId, number>>(
   'gridSize',
   { source: GRID_SIZE.default, comparison: GRID_SIZE.default },
-  recordOf(PANES, numberBetween(GRID_SIZE.min, GRID_SIZE.max)),
+  (value): value is Record<PaneId, number> =>
+    recordOf(PANES, numberBetween(GRID_SIZE.min, GRID_SIZE.max))(value) &&
+    value.source === value.comparison,
 );
 
 export function setGridSize(pane: PaneId, px: number): void {
   if (!Number.isFinite(px)) return;
   const size = Math.min(GRID_SIZE.max, Math.max(GRID_SIZE.min, Math.round(px)));
-  if (gridSize.peek()[pane] !== size) gridSize.value = { ...gridSize.peek(), [pane]: size };
+  if (gridSize.peek()[pane] !== size) gridSize.value = { source: size, comparison: size };
 }
 
 /** Folders that do not match the filters: hidden when true, greyed out when false (default). */

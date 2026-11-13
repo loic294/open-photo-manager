@@ -13,6 +13,8 @@ export interface PaneFooter {
   selectedCount: number;
   /** A select-all request is in flight. */
   selecting: boolean;
+  /** False when the pane is a non-selectable proposed-name preview. */
+  selectable?: boolean;
   /** The pane that Cmd/Ctrl+A and Esc act on: its segment gets a primary top border. */
   active: boolean;
   /** Thumbnail edge length, in the unit of the slider bounds. */
@@ -63,9 +65,9 @@ const PANE_LABELS: Record<PaneId, string> = {
  * - `size-change` `{ pane, size }`: on EVERY `input` of the slider, so the grid resizes live.
  * - `select-all` `{ pane }`, `clear-selection` `{ pane }`.
  *
- * The bar never wraps. A segment adapts to its own width (container queries): the counts are
- * truncated first (the full text is in their tooltip) and the slider shrinks, the slider is hidden
- * below 14rem, the Select all label shows from 32rem and "selected" in the badge from 24rem.
+ * The segments line up with the panes; narrow segments place actions below their controls.
+ * Container queries hide the slider below 14rem, show the Select all label from 32rem and
+ * "selected" in the badge from 24rem. Truncated counts retain their full text in a tooltip.
  */
 export class OpmBottomBar extends OpmElement {
   static override properties = {
@@ -145,7 +147,8 @@ export class OpmBottomBar extends OpmElement {
 
   private renderSelectAll(pane: PaneId, footer: PaneFooter) {
     const { counts, selecting } = footer;
-    const unavailable = !counts || counts.in_folder === 0 || selecting;
+    const unavailable =
+      footer.selectable === false || !counts || counts.in_folder === 0 || selecting;
     return html`
       <div class="tooltip" data-tip="Select all">
         <button
@@ -184,17 +187,23 @@ export class OpmBottomBar extends OpmElement {
     `;
   }
 
-  private renderSegment(pane: PaneId, footer: PaneFooter, divided: boolean) {
+  private renderSegment(
+    pane: PaneId,
+    footer: PaneFooter,
+    divided: boolean,
+    actions?: TemplateResult,
+  ) {
     const top = footer.active ? 'border-t-primary' : 'border-t-transparent';
     const start = divided ? 'border-s border-s-base-300' : '';
     return html`
       <div
         role="group"
         aria-label=${PANE_LABELS[pane]}
-        class="@container flex min-w-0 flex-1 items-center gap-2 self-stretch border-t-2 px-2 ${top} ${start}"
+        class="@container flex min-h-14 min-w-0 flex-1 flex-wrap items-center gap-x-2 gap-y-1 self-stretch border-t-2 px-2 ${top} ${start}"
       >
         ${this.renderCounts(footer.counts)} ${this.renderSelection(pane, footer)}
         ${this.renderSelectAll(pane, footer)} ${this.renderSlider(pane, footer)}
+        ${actions ? html`<div class="flex min-w-0 flex-none basis-full items-center justify-end py-1 @lg:basis-auto">${actions}</div>` : nothing}
       </div>
     `;
   }
@@ -202,10 +211,9 @@ export class OpmBottomBar extends OpmElement {
   protected override render() {
     const { source, comparison, actions } = this;
     return html`
-      <div class="navbar min-h-14 border-t border-base-300 bg-base-100 p-0">
-        ${this.renderSegment('source', source, false)}
-        ${comparison ? this.renderSegment('comparison', comparison, true) : nothing}
-        ${actions ? html`<div class="flex flex-none items-center px-2 py-1">${actions}</div>` : nothing}
+      <div class="navbar grid ${comparison ? 'grid-cols-1 md:grid-cols-2' : 'grid-cols-1'} min-h-14 border-t border-base-300 bg-base-100 p-0">
+        ${this.renderSegment('source', source, false, comparison ? undefined : actions)}
+        ${comparison ? this.renderSegment('comparison', comparison, true, actions) : nothing}
       </div>
     `;
   }

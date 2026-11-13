@@ -69,6 +69,8 @@
 //!   `ghost_items` is always called, even with `take = 0`, because `total` needs it. Real items get
 //!   their `matched`/`will_delete` flags from `item_flags` (called only when the page has real
 //!   items); a file the provider does not mention keeps the default overlay.
+//!   Rename comparison is the exception: `ghosts_only` lists and pages proposed names directly,
+//!   with no real items preceding them. Folder and footer counts still describe real files.
 //! * **Ids.** Real files only, in the order of `items`. Ghosts are never listed; `plan` is ignored.
 //! * **Folders.** Real rows plus the provider's `ghost_folders`, sorted together by normalised name
 //!   and then name. For a real folder, `count` and `total` add `ghost_count` and `ghost_total`, and

@@ -34,7 +34,8 @@
 //! it, and holds at most 20,000 matching rows for exact counters. When truncated, later samples
 //! are omitted and the preview's counter values may differ from a full plan.
 //!
-//! Known v1 limits follow plan section 14.6: the comparison pane shows real files plus ghosts;
+//! The comparison item listing shows only proposed-name ghosts; the source keeps real files.
+//! Other v1 limits follow plan section 14.6:
 //! `{ext}` can split RAW/JPEG counter sets; preview covers only the first matching folder; pending
 //! metadata is not renamed; without `{count}` conflicts use the policy; regex uses Rust syntax;
 //! rewrites affect stems only; the simple `-N` clean may remove a date-like tail; and `_N` is not

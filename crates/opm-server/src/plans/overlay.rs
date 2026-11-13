@@ -10,9 +10,11 @@
 //! # What the browse API asks
 //!
 //! A browse request that carries a `plan` ([`PlanRef`]: the plan and the side of it the pane
-//! shows) lists real files from the index and asks this trait for the rest. Without a `plan` the
-//! trait is never called, and the volumes root never calls it either. The three questions:
+//! shows) normally lists real files from the index and asks this trait for the rest. Without a
+//! `plan` the trait is never called, and the volumes root never calls it either. The questions:
 //!
+//! * [`PlanOverlay::ghosts_only`]: whether the listing replaces real files with proposed names
+//!   (rename comparison), rather than appending ghosts.
 //! * [`PlanOverlay::item_flags`]: for the real files of one page, which ones have a match on the
 //!   other side of the plan (`matched`) or are removed by it (`will_delete`).
 //! * [`PlanOverlay::ghost_items`]: the files that will exist DIRECTLY in the listed directory once
@@ -43,7 +45,7 @@
 //!   of the items endpoint.
 //!   A planner that never changes what a folder holds (batch rename) deliberately returns the
 //!   default folder overlay instead: folder rows and footer counts remain real-only, while the
-//!   items endpoint still appends the rename ghost cards to the real files.
+//!   comparison items endpoint shows only the rename ghost cards.
 //! * **Ghosts are not real.** A ghost never appears in an id list, a selection or a count of real
 //!   files. Its `id` is the id of the real source file (thumbnails work) while `volume_id`, `dir`
 //!   and `name` are the planned location, and `overlay.planned` is `true`.
@@ -54,7 +56,8 @@ use std::collections::HashMap;
 
 use futures_util::future::BoxFuture;
 use opm_core::dto::{
-    FileItem, Filter, FolderEntry, FooterCounts, Overlay, PlanRef, SortKey, SortOrder,
+    FileItem, Filter, FolderEntry, FooterCounts, Overlay, PlanKind, PlanRef, PlanSide, SortKey,
+    SortOrder,
 };
 use opm_core::paths::{FileId, PlanId, RelPath, VolumeId};
 
@@ -128,6 +131,11 @@ pub struct FolderOverlay {
 /// Methods return boxed futures so the trait stays dyn-compatible: the browse functions take a
 /// `&dyn PlanOverlay`, which lets tests drive them with a fake.
 pub trait PlanOverlay: Send + Sync {
+    /// Rename comparison previews list proposed names instead of appending them to real files.
+    fn ghosts_only(&self, _plan: PlanRef) -> BoxFuture<'_, AppResult<bool>> {
+        Box::pin(async { Ok(false) })
+    }
+
     /// Flags of the REAL files `ids` (one page of a listing): `matched` and `will_delete`.
     /// Files without flags are simply absent from the map (`Overlay::default()`); `planned` is
     /// never set on a real file.
@@ -171,6 +179,18 @@ pub fn plan_not_found(plan_id: PlanId) -> AppError {
 /// executed has nothing left to show: its overlays are empty, and the planners are only asked
 /// about plans that are `ready` or `executing`.
 impl PlanOverlay for PlanService {
+    fn ghosts_only(&self, plan: PlanRef) -> BoxFuture<'_, AppResult<bool>> {
+        Box::pin(async move {
+            if plan.side != PlanSide::Comparison {
+                return Ok(false);
+            }
+            Ok(self
+                .overlay_target(plan.plan_id)
+                .await?
+                .is_some_and(|target| target.plan.kind == PlanKind::Rename))
+        })
+    }
+
     fn item_flags<'a>(
         &'a self,
         plan: PlanRef,

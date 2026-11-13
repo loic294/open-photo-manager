@@ -16,7 +16,7 @@ import {
   setFilter,
   setScope,
 } from '@/stores/filters';
-import { PANES, type PaneId, syncFromLocation } from '@/stores/nav';
+import { locations, PANES, type PaneId, syncFromLocation } from '@/stores/nav';
 import { GRID_SIZE, gridSize, hideUnmatchedFolders, setGridSize, setSort } from '@/stores/prefs';
 import { activePane, resetSelectionForTests, selection } from '@/stores/selection';
 import { clearToasts } from '@/stores/toasts';
@@ -27,6 +27,7 @@ import {
   recursiveFor,
   resetToolStateForTests,
   setHandoff,
+  setNavigationSynced,
 } from '@/stores/tool-state';
 import { loadVolumes } from '@/stores/volumes';
 import {
@@ -202,6 +203,62 @@ function withPlan(): FakePlan {
 }
 
 describe('layout', () => {
+  it('keeps restored and revisited locations linked while enabled, and stops when disconnected', async () => {
+    setNavigationSynced('browse', true);
+    browseAt('photos/one', 'backup/two');
+    const view = await mountView();
+    expect(locations.comparison.value).toEqual(locations.source.value);
+
+    activePane.value = 'comparison';
+    browseAt('photos/one', 'backup/old');
+    await settle(view);
+    expect(locations.source.value).toEqual({ volume: 'backup', dir: 'old' });
+    expect(locations.comparison.value).toEqual(locations.source.value);
+    expect(new URLSearchParams(window.location.search).get('src')).toBe('backup/old');
+
+    view.remove();
+    browseAt('photos/one', 'backup/two');
+    expect(locations.source.value).not.toEqual(locations.comparison.value);
+  });
+
+  it('syncs exact folder navigation and scrolling in either direction only while enabled', async () => {
+    browseAt('photos/one', 'backup/two');
+    const view = await mountView(toolConfig({ recursive: 'toggle' }));
+    const toggle = [...view.querySelectorAll<HTMLInputElement>('input[role="switch"]')].find(
+      (input) => input.closest('label')?.textContent?.includes('Sync navigation'),
+    );
+    expect(toggle).toBeDefined();
+    if (!toggle) return;
+    toggle.checked = true;
+    toggle.dispatchEvent(new Event('change'));
+    await settle(view);
+    expect(locations.comparison.value).toEqual(locations.source.value);
+    const comparison = paneOf(view, 'comparison');
+    part<HTMLButtonElement>(comparison, 'button[aria-label="Up one folder"]').click();
+    await settle(view);
+    expect(locations.source.value).toEqual({ volume: 'photos', dir: '' });
+    expect(locations.comparison.value).toEqual(locations.source.value);
+    const left = part(paneOf(view, 'source'), '[data-pane-body]');
+    const right = part(comparison, '[data-pane-body]');
+    left.scrollTop = 120;
+    left.dispatchEvent(new Event('scroll'));
+    expect(right.scrollTop).toBe(120);
+    right.dispatchEvent(new Event('scroll'));
+    right.scrollTop = 240;
+    right.dispatchEvent(new Event('scroll'));
+    expect(left.scrollTop).toBe(240);
+    toggle.checked = false;
+    toggle.dispatchEvent(new Event('change'));
+    await settle(view);
+    right.scrollTop = 360;
+    right.dispatchEvent(new Event('scroll'));
+    expect(left.scrollTop).toBe(240);
+    part<HTMLButtonElement>(comparison, 'button[aria-label="Up one folder"]').click();
+    await settle(view);
+    expect(locations.source.value.volume).toBe('photos');
+    expect(locations.comparison.value.volume).toBeNull();
+  });
+
   it('fills its parent and keeps the tool bar, the filter bar and the bottom bar fixed', async () => {
     const view = await mountView();
     for (const name of ['flex', 'h-full', 'min-h-0', 'min-w-0', 'flex-col']) {
@@ -516,16 +573,16 @@ describe('the bottom bar', () => {
     expect(bottomBar(view).comparison?.counts).toBeNull();
   });
 
-  it('sets the thumbnail size of the pane whose slider moved', async () => {
+  it('sets both thumbnail scales when either slider moves', async () => {
     const view = await mountView();
     const slider = part<HTMLInputElement>(segment(view, 'comparison'), 'input[type="range"]');
     slider.value = '224';
     slider.dispatchEvent(new Event('input', { bubbles: true }));
     expect(gridSize.value.comparison).toBe(224);
-    expect(gridSize.value.source).toBe(GRID_SIZE.default);
+    expect(gridSize.value.source).toBe(224);
     await view.updateComplete;
     expect(bottomBar(view).comparison?.size).toBe(224);
-    expect(bottomBar(view).source.size).toBe(GRID_SIZE.default);
+    expect(bottomBar(view).source.size).toBe(224);
   });
 
   it('gives the slider the bounds of the preference', async () => {
@@ -725,7 +782,7 @@ describe('the tool bar', () => {
     it('is only there for `recursive: toggle`', async () => {
       for (const recursive of [undefined, 'always'] as const) {
         const view = await mountView(toolConfig(recursive ? { recursive } : {}));
-        expect(toolBar(view).querySelector('input[role="switch"]'), String(recursive)).toBeNull();
+        expect(text(toolBar(view)), String(recursive)).not.toContain('Include subfolders');
         view.remove();
       }
       const view = await mountView(toolConfig({ recursive: 'toggle' }));

@@ -1189,6 +1189,19 @@ describe('the selection', () => {
     expect(selection.source.toArray()).toEqual([]);
   });
 
+  it('clears existing selection and never selects originals in a proposed-name preview', async () => {
+    goTo('comparison', TRIP);
+    const pane = await mountPane({ pane: 'comparison' });
+    selection.comparison.set([1, 2]);
+    pane.plannedOnly = true;
+    await settle(pane);
+
+    expect(selection.comparison.toArray()).toEqual([]);
+    await selection.comparison.selectAll();
+    expect(server.calls.ids).toEqual([]);
+    expect(selection.comparison.toArray()).toEqual([]);
+  });
+
   it('is served by the pane of its own id', async () => {
     goTo('comparison', { volume: 'backup', dir: 'old' });
     await mountPane({ pane: 'comparison' });
