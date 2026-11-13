@@ -15,6 +15,7 @@ import { createPlan, executePlan } from '@/api/plans';
 import { events } from '@/api/sse';
 import { OpmElement } from '@/base/opm-element';
 import { confirmDialog } from '@/components/confirm-dialog';
+import { tooltip } from '@/components/tooltip';
 import '@/components/opm-file-card';
 import '@/components/opm-folder-picker';
 import type { MatchChangeEvent } from '@/components/opm-match-mode';
@@ -31,6 +32,7 @@ import {
   differingFields,
   inFolder,
   parentFolders,
+  type SelectionBadge,
   type SelectionRule,
   selectWithReasons,
 } from '@/tools/duplicates/file-selection';
@@ -76,6 +78,7 @@ export class OpmDuplicateFiles extends OpmElement {
   private size = 280;
   private visible = PAGE_SIZE;
   private reasons = new Map<number, string>();
+  private badges = new Map<number, SelectionBadge[]>();
   private observer: IntersectionObserver | null = null;
   private automatic = false;
   private rules = defaultRules();
@@ -216,6 +219,7 @@ export class OpmDuplicateFiles extends OpmElement {
     this.rules = rules;
     const selections = this.groups.map((group) => selectWithReasons(group, rules));
     this.reasons = new Map(selections.flatMap((selection) => [...selection.reasons]));
+    this.badges = new Map(selections.flatMap((selection) => [...selection.badges]));
     this.keep = new Set(selections.flatMap((selection) => [...selection.keep]));
   }
 
@@ -225,6 +229,8 @@ export class OpmDuplicateFiles extends OpmElement {
     const selection = selectWithReasons(group, this.rules, id);
     for (const keeper of selection.keep) keep.add(keeper);
     this.reasons = new Map([...this.reasons, ...selection.reasons]);
+    for (const file of group.files) this.badges.delete(file.item.id);
+    this.badges = new Map([...this.badges, ...selection.badges]);
     this.keep = keep;
   }
 
@@ -284,7 +290,7 @@ export class OpmDuplicateFiles extends OpmElement {
             const path = `${this.folderLabel({ volume_id: file.item.volume_id, dir: file.item.dir })}/${file.item.name}`;
             return html`<div class="min-w-0">
             <div style=${styleMap({ aspectRatio: file.item.width !== null && file.item.width > 0 && file.item.height !== null && file.item.height > 0 ? `${file.item.width} / ${file.item.height}` : '1' })}
-              title=${this.reasons.get(file.item.id) ?? ''}
+              ${tooltip(this.reasons.get(file.item.id) ?? '')}
               @contextmenu=${(event: MouseEvent) => {
                 event.preventDefault();
                 if (!this.busy && !this.stale) {
@@ -306,15 +312,29 @@ export class OpmDuplicateFiles extends OpmElement {
               </opm-file-card>
             </div>
             <dl class="mt-2 space-y-1 text-sm">
-              <div><dt class="sr-only">Filename</dt><dd data-copy-name class="break-all ${differences.name ? 'font-bold' : 'font-normal'}">${file.item.name}</dd></div>
+              <div><dt class="sr-only">Filename</dt>
+                <dd class="flex flex-wrap items-center gap-1">
+                  <span data-copy-name class="min-w-0 break-all ${differences.name ? 'font-bold' : 'font-normal'}">${file.item.name}</span>
+                  ${
+                    keep
+                      ? (this.badges.get(file.item.id) ?? []).map(
+                          (badge) => html`
+                    <span class="badge badge-sm badge-soft h-auto max-w-full whitespace-normal text-left"
+                      data-keeper-rule=${badge.kind} tabindex="0" ${tooltip(badge.detail)}>${badge.label}</span>
+                  `,
+                        )
+                      : nothing
+                  }
+                </dd>
+              </div>
               <div><dt class="sr-only">Size</dt><dd data-copy-size class=${differences.size ? 'font-bold' : 'font-normal'}
-                title=${`${file.item.size.toLocaleString()} bytes`}>${formatFileSize(file.item.size)}${differences.size ? ` (${file.item.size.toLocaleString()} bytes)` : nothing}</dd></div>
+                ${tooltip(`${file.item.size.toLocaleString()} bytes`)}>${formatFileSize(file.item.size)}${differences.size ? ` (${file.item.size.toLocaleString()} bytes)` : nothing}</dd></div>
               <div><dt class="sr-only">Capture date</dt><dd data-copy-date class=${differences.capture_ts ? 'font-bold' : 'font-normal'}>${file.item.capture_ts === null ? 'No capture date' : formatCaptureDate(file.item.capture_ts, undefined, true)}</dd></div>
             </dl>
             <div class="mt-2 flex items-center justify-between gap-2 text-sm">
-              <span class="badge badge-sm ${keep ? 'badge-success' : 'badge-error'}" title=${this.reasons.get(file.item.id) ?? ''}>${keep ? 'Keep' : 'Remove'}</span>
+              <span class="badge badge-sm ${keep ? 'badge-success' : 'badge-error'}" ${tooltip(this.reasons.get(file.item.id) ?? '')}>${keep ? 'Keep' : 'Remove'}</span>
             </div>
-            <p class="mt-2 break-all text-xs text-base-content/70" title=${path}>${this.folderLabel({ volume_id: file.item.volume_id, dir: file.item.dir })}</p>
+            <p class="mt-2 break-all text-xs text-base-content/70" ${tooltip(path)}>${this.folderLabel({ volume_id: file.item.volume_id, dir: file.item.dir })}</p>
           </div>`;
           },
         )}

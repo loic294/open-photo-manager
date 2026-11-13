@@ -198,11 +198,11 @@ describe('opm-folder-list structure', () => {
       ],
     });
 
-    const label = (name: string) => row(host, name).querySelector<HTMLElement>('[title]');
+    const label = (name: string) => row(host, name).querySelector<HTMLElement>('[data-tooltip]');
     expect(label('Été 日本語')?.textContent).toBe('Été 日本語');
-    expect(label('.hidden')?.getAttribute('title')).toBe('.hidden');
+    expect(label('.hidden')?.getAttribute('data-tooltip')).toBe('.hidden');
     expect(label(nasty)?.textContent).toBe(nasty);
-    expect(label(nasty)?.getAttribute('title')).toBe(nasty);
+    expect(label(nasty)?.getAttribute('data-tooltip')).toBe(nasty);
     expect(host.querySelector('img')).toBeNull();
   });
 
@@ -344,7 +344,9 @@ describe('opm-folder-list plan overlay', () => {
     expect(anchor.classList.contains('border-dashed')).toBe(true);
     expect(anchor.classList.contains('border-info')).toBe(true);
     expect(badges(anchor)).toEqual(['new', '4']);
-    expect(anchor.querySelector('.badge-info')?.getAttribute('title')).toBe('Will be created');
+    expect(anchor.querySelector('.badge-info')?.getAttribute('data-tooltip')).toBe(
+      'Will be created',
+    );
   });
 
   it('marks a folder the plan deletes with a red border and icon, and says so in words', async () => {

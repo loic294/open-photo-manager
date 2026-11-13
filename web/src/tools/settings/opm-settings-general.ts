@@ -6,6 +6,7 @@ import type { FieldError } from '@/api/generated/FieldError';
 import type { SettingsDto } from '@/api/generated/SettingsDto';
 import { OpmElement } from '@/base/opm-element';
 import { type ChipValuesChange, OpmChipInput } from '@/components/opm-chip-input';
+import { tooltip } from '@/components/tooltip';
 import '@/components/opm-icon';
 import '@/components/opm-save-bar';
 import '@/components/opm-select';
@@ -746,7 +747,7 @@ export class OpmSettingsGeneral extends OpmElement {
     return html`
       <li class="list-row items-center gap-2 py-2">
         <opm-icon name="folder-x" size="sm" class="text-base-content/60"></opm-icon>
-        <span class="list-col-grow min-w-0 truncate" title=${folder.path}>
+        <span class="list-col-grow min-w-0 truncate" ${tooltip(folder.path)}>
           <span class="font-medium">${volume?.name ?? `Volume ${folder.volume_id}`}</span>
           <span class="font-mono">/${folder.path}</span>
         </span>

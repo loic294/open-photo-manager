@@ -11,9 +11,9 @@ it('renders only the shared options with their titles and a visible label', asyn
     [...el.querySelectorAll('option')].map((option) => ({
       value: option.value,
       label: option.textContent,
-      title: option.title,
     })),
-  ).toEqual(MATCH_MODES);
+  ).toEqual(MATCH_MODES.map(({ value, label }) => ({ value, label })));
+  expect(el.querySelector('select')?.getAttribute('data-tooltip')).toBe(MATCH_MODES[0]?.title);
   expect(el.textContent).toContain('Match by');
   expect(el.querySelector('select')?.getAttribute('aria-label')).toBe('Match by');
 });
@@ -38,7 +38,7 @@ it('only prefix offers the toggle, with its label and explanation; editing keeps
   await el.updateComplete;
   const toggle = el.querySelector('input');
   expect(toggle?.closest('label')?.textContent).toContain('Strict prefix');
-  expect(toggle?.closest('label')?.title).toContain('IMG_00012');
+  expect(toggle?.closest('label')?.getAttribute('data-tooltip')).toContain('IMG_00012');
   const change = vi.fn();
   el.addEventListener('match-change', change);
   if (!toggle) throw new Error('Missing toggle');

@@ -8,6 +8,73 @@ import { expect, test } from '../../src/test';
 
 test.use({ allowedErrors: [/^requestfailed: .*\/api\/events net::ERR_ABORTED$/] });
 
+test('keeper badges explain preferences beside filenames without clipping in the scrolling results', async ({
+  app,
+  page,
+  manifest,
+  source,
+  comparison,
+  duplicatesPage,
+}) => {
+  const fixture = manifest.duplicateGroups(1).find((group) => group.source);
+  if (!fixture?.source) throw new Error('Missing duplicate source fixture');
+  const file = manifest.file(fixture.source.volume, fixture.source.path);
+  const dir = file.path.includes('/') ? file.path.slice(0, file.path.lastIndexOf('/')) : '';
+  const url = new URL('/duplicates', app.url);
+  url.searchParams.set('src', `${file.volume}/${dir}`);
+  await page.goto(url.href);
+  await source.waitReady();
+  await comparison.waitReady();
+  await duplicatesPage.showFiles();
+  expect((await duplicatesPage.findFiles()).ok()).toBe(true);
+  const group = duplicatesPage
+    .files()
+    .getByRole('article', { name: 'Duplicate group 1', exact: true });
+  await group.locator('opm-file-card').first().click();
+  const badge = group.locator('[data-keeper-rule="manual"]');
+  await expect(badge).toHaveText('Manual selection');
+  await expect(badge.locator('..').locator('[data-copy-name]')).toHaveCount(1);
+  await badge.focus();
+  await expect(page.getByRole('tooltip')).toHaveText('Keep: Manual selection');
+  expect(
+    await page
+      .getByRole('tooltip')
+      .evaluate((element) => element.parentElement?.matches(':popover-open')),
+  ).toBe(true);
+  await expect(group.locator('[title]')).toHaveCount(0);
+  await page.keyboard.press('Escape');
+  await expect(page.getByRole('tooltip')).toHaveCount(0);
+  await group.locator('opm-file-card').first().click({ button: 'right' });
+  await page
+    .locator('[data-duplicate-menu]')
+    .getByRole('button', { name: 'Keep files from this folder' })
+    .click();
+  await page
+    .getByRole('dialog', { name: 'Keep files from this folder', exact: true })
+    .getByRole('button', { name: 'Apply to all groups' })
+    .click();
+  await expect(group.locator('[data-keeper-rule="folder"]').first()).toBeVisible();
+  for (const width of [1440, 390]) {
+    await page.setViewportSize({ width, height: 900 });
+    for (const theme of ['light', 'dark']) {
+      await page
+        .locator('html')
+        .evaluate((element, value) => element.setAttribute('data-theme', value), theme);
+      const rule = group.locator('[data-keeper-rule="folder"]').first();
+      await rule.press('Tab');
+      await rule.focus();
+      const bounds = await page.getByRole('tooltip').boundingBox();
+      expect(bounds).not.toBeNull();
+      expect(bounds?.x).toBeGreaterThanOrEqual(0);
+      expect((bounds?.x ?? 0) + (bounds?.width ?? 0)).toBeLessThanOrEqual(width);
+      expect(
+        await page.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth),
+      ).toBe(true);
+    }
+    await captureScreens(page, `keeper-rules-${width}`);
+  }
+});
+
 test('duplicate file view compares copies, highlights metadata, prioritizes rules and trashes only removals', async ({
   app,
   page,

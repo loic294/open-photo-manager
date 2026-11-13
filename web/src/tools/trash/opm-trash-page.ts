@@ -16,6 +16,7 @@ import { emptyTrash, listTrash, listTrashBatches, restoreTrash, syncTrash } from
 import { OpmElement } from '@/base/opm-element';
 import { confirmDialog } from '@/components/confirm-dialog';
 import { toast } from '@/components/toast';
+import { tooltip } from '@/components/tooltip';
 import { linkTo } from '@/stores/nav';
 import { isEnded } from '@/stores/tasks';
 import type { TrashBatchEvent } from '@/tools/trash/opm-trash-deletions';
@@ -657,11 +658,11 @@ export class OpmTrashPage extends OpmElement {
         ? `Empty trash${ELLIPSIS}`
         : `Empty trash on ${scope.where}${ELLIPSIS}`;
     return html`
-      <span class="inline-block" title=${ifDefined(reason ?? undefined)}>
+      <span class="inline-block" ${tooltip(ifDefined(reason ?? undefined))}>
         <button
           type="button"
           class="btn btn-error btn-outline btn-sm"
-          title=${ifDefined(reason ?? undefined)}
+          ${tooltip(ifDefined(reason ?? undefined))}
           ?disabled=${reason !== null || this.busy}
           @click=${() => this.confirmEmpty()}
         >
@@ -680,7 +681,7 @@ export class OpmTrashPage extends OpmElement {
           role="button"
           class="btn btn-ghost btn-square btn-sm"
           aria-label="More actions"
-          title="More actions"
+          ${tooltip('More actions')}
         >
           <opm-icon name="ellipsis-vertical" size="sm"></opm-icon>
         </div>
@@ -691,7 +692,7 @@ export class OpmTrashPage extends OpmElement {
           <li>
             <button
               type="button"
-              title="Add what is in the trash folders on disk but not in this list, and drop what is gone"
+              ${tooltip('Add what is in the trash folders on disk but not in this list, and drop what is gone')}
               ?disabled=${this.busy}
               @click=${() => {
                 closeMenu();

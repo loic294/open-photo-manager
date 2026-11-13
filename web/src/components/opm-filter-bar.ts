@@ -7,6 +7,7 @@ import type { FlagFilter } from '@/api/generated/FlagFilter';
 import type { TaskState } from '@/api/generated/TaskState';
 import { events, type ServerEventOf } from '@/api/sse';
 import { OpmElement } from '@/base/opm-element';
+import { tooltip } from '@/components/tooltip';
 import '@/components/opm-icon';
 import '@/components/opm-multi-select';
 import type { MultiSelectChangeEvent } from '@/components/opm-multi-select';
@@ -406,7 +407,7 @@ export class OpmFilterBar extends OpmElement {
     const label = this.selectionLabel || 'Selection';
     return html`
       <span class="badge badge-info h-7 min-w-0 max-w-full gap-1 pr-0.5">
-        <span class="truncate" title=${label}>${label}</span>
+        <span class="truncate" ${tooltip(label)}>${label}</span>
         <button
           type="button"
           class="btn btn-ghost btn-circle btn-xs size-5 min-h-0 shrink-0"
@@ -443,7 +444,7 @@ export class OpmFilterBar extends OpmElement {
     return html`
       <label
         class="flex items-center gap-2 text-sm ${this.disabled ? 'cursor-not-allowed opacity-50' : 'cursor-pointer'}"
-        title=${title}
+        ${tooltip(title)}
       >
         <input
           type="checkbox"
@@ -469,7 +470,7 @@ export class OpmFilterBar extends OpmElement {
       <p
         class="flex items-center gap-1 text-sm text-warning"
         role="status"
-        title=${this.facetError}
+        ${tooltip(this.facetError)}
       >
         <opm-icon name="triangle-alert" size="sm"></opm-icon>
         Filter options unavailable

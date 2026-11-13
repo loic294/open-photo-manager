@@ -21,7 +21,9 @@ it('uses the caller code, text and title and retries from Check again', () => {
   const container = document.createElement('div');
   render(renderPendingNotice(ctx, notice), container);
   expect(container.querySelector('.badge-warning')?.textContent).toBe('17 still reading');
-  expect(container.querySelector('[title]')?.getAttribute('title')).toBe('Caller tooltip');
+  expect(container.querySelector('[data-tooltip]')?.getAttribute('data-tooltip')).toBe(
+    'Caller tooltip',
+  );
   const button = container.querySelector('button');
   expect(button?.textContent).toContain('Check again');
   button?.click();

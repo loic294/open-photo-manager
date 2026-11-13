@@ -1,6 +1,7 @@
 import { html, nothing } from 'lit';
 import { errorMessage } from '@/api/errors';
 import type { MatchChangeEvent } from '@/components/opm-match-mode';
+import { tooltip } from '@/components/tooltip';
 import '@/components/opm-match-mode';
 import type { PatternChangeEvent } from '@/components/opm-pattern-editor';
 import '@/components/opm-pattern-editor';
@@ -102,7 +103,7 @@ export function renderMoveSummary(ctx: ToolContext) {
       'cross_volume_items',
     ].map((code) =>
       (stats[code] ?? 0) > 0
-        ? html`<span class="badge badge-ghost badge-xs" title=${skipLabel(code)}>${formatCount(stats[code] ?? 0)} ${skipLabel(code)}</span>`
+        ? html`<span class="badge badge-ghost badge-xs" ${tooltip(skipLabel(code))}>${formatCount(stats[code] ?? 0)} ${skipLabel(code)}</span>`
         : nothing,
     )}
   </span>`;
@@ -166,7 +167,7 @@ export function moveControls(ctx: ToolContext) {
     ${
       moveType.value === 'keep_source' && destinationInsideSource(ctx)
         ? html`<span
-      class="badge badge-warning" title="Files already moved there would be moved again, one folder deeper, the next time you run this">Destination is inside the source</span>`
+      class="badge badge-warning" ${tooltip('Files already moved there would be moved again, one folder deeper, the next time you run this')}>Destination is inside the source</span>`
         : nothing
     }
     ${renderMoveSummary(ctx)}${renderPendingNotices(ctx, { hash: moveType.value === 'keep_destination' && matchMode.value === 'hash' })}

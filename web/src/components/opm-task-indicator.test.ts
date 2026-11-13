@@ -235,7 +235,7 @@ describe('opm-task-indicator trigger', () => {
       '2 tasks running, 62 percent, 1 failed',
     );
     expect(badge(element, 'error')?.textContent).toBe('1');
-    expect(badge(element, 'error')?.getAttribute('title')).toBe('1 failed');
+    expect(badge(element, 'error')?.getAttribute('data-tooltip')).toBe('1 failed');
     expect(badge(element, 'ghost')).toBeNull();
   });
 
@@ -247,7 +247,7 @@ describe('opm-task-indicator trigger', () => {
     );
 
     expect(badge(element, 'ghost')?.textContent).toBe('2');
-    expect(badge(element, 'ghost')?.getAttribute('title')).toBe('2 waiting');
+    expect(badge(element, 'ghost')?.getAttribute('data-tooltip')).toBe('2 waiting');
     expect(badge(element, 'error')).toBeNull();
     expect(trigger(element).getAttribute('aria-label')).toBe(
       'Move 3 files running, 20 percent, 2 waiting',

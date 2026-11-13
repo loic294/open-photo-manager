@@ -465,7 +465,7 @@ describe('opm-file-card', () => {
       ]);
       for (const badge of badges) {
         expect(badge.getAttribute('role')).toBe('img');
-        expect(badge.getAttribute('title')).toBe(badge.getAttribute('aria-label'));
+        expect(badge.getAttribute('data-tooltip')).toBe(badge.getAttribute('aria-label'));
         expect(badge.classList.contains('badge')).toBe(true);
       }
     });

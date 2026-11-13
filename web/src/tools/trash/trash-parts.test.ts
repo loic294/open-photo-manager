@@ -44,13 +44,13 @@ describe('renderReasonBadge', () => {
   it('says what the reason is and explains it in the tooltip', async () => {
     const badge = (await show(renderReasonBadge('user'))).querySelector('.badge');
     expect(text(badge)).toBe('Deleted');
-    expect(badge?.getAttribute('title')).toBe('Deleted by you');
+    expect(badge?.getAttribute('data-tooltip')).toBe('Deleted by you');
   });
 
   it('calls an item that was found on disk by that name', async () => {
     const badge = (await show(renderReasonBadge(null))).querySelector('.badge');
     expect(text(badge)).toBe('Found on disk');
-    expect(badge?.getAttribute('title')).toContain('not trashed through this app');
+    expect(badge?.getAttribute('data-tooltip')).toContain('not trashed through this app');
   });
 
   it('shows a reason it does not know as it is', async () => {
@@ -132,7 +132,10 @@ describe('renderVolumeBadges', () => {
     );
     const badges = [...container.querySelectorAll('li')];
     expect(badges.map(text)).toEqual(['photos \u00b7 2 KB', 'archive \u00b7 5 MB']);
-    expect(badges.map((badge) => badge.getAttribute('title'))).toEqual(['1 item', '1,250 items']);
+    expect(badges.map((badge) => badge.getAttribute('data-tooltip'))).toEqual([
+      '1 item',
+      '1,250 items',
+    ]);
     expect(container.querySelector('ul')?.getAttribute('aria-label')).toBe('Volumes with trash');
   });
 

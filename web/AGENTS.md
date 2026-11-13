@@ -29,6 +29,10 @@ files (`package.json`, configs, `src/base/`) alone unless your task says so.
   class names; a name built by concatenation (`btn-${kind}`) is silently dropped from the CSS.
   Choose between full names instead: `kind === 'main' ? 'btn-primary' : 'btn-ghost'`.
 - Theme: `data-theme="light"` or `"dark"` on `<html>`; without it the OS preference applies.
+- Tooltips ALWAYS use DaisyUI, including disabled controls and scrolling panels. Apply
+  `${tooltip(text)}` from `@/components/tooltip` to an element for viewport-safe, top-layer help
+  on hover/focus; keep its accessible name. Use a wrapper for disabled controls and focusable
+  info icons for menu help. Native HTML `title` tooltips are forbidden.
 
 ## Components
 - Every component extends `OpmElement` (`src/base/opm-element.ts`) and renders in the LIGHT DOM, so
@@ -125,10 +129,12 @@ router) and renders the single toast host: never start those anywhere else.
 - A DaisyUI `alert` (`role="alert"`) shows while `events.connection` is `reconnecting` or `closed`
   (not during the first `connecting`). Right under it `<opm-index-notices>` warns about the removals the
   scanner held back (see Index controls).
-- The "Re-index" menu entries call `requestReindex('current' | 'all')` (`@/app/app-actions`), and
+- The sidebar's scan split button calls `requestReindex` (`@/app/app-actions`) for current/all
+  scopes in full or changed-only mode. It remembers its selection under `indexing`, initially
+  `current-changed`; choosing an option does not run it or close the mobile drawer.
   `startReindex()` (`@/app/reindex`, started by the shell) is the `onReindex` handler that does the work
-  (see Index controls). The entries are `disabled` (`menu-disabled` on the `li`) while a request is being
-  sent and while the event stream is down; the pressed one shows a spinner instead of its icon. The
+  (see Index controls). The split button is disabled while a request is being sent or the event
+  stream is down, and shows a spinner while sending. The
   request is a cancelable `opm-reindex` event on `document`; with no handler (the shell is not mounted)
   the user sees an info toast.
 - `main.ts` loads `urlpattern-polyfill` only when the browser has no `URLPattern` (the router needs
@@ -382,6 +388,8 @@ menu upwards to select another one.
   (`danger` = red main button while selected, `hint` = tooltip on the entry), `default-id`,
   `persist-key` (the tool id), `count` (badge in the main button), `busy` (spinner, both buttons off)
   and `disabled`.
+- `info-icons` adds focusable menu help icons; `menu-start` anchors the menu to the join's left
+  edge for narrow sidebars; `menu-label` names the chooser and menu (default "Choose action").
 - Events, bubbling, `detail` is `{ optionId }`: `split-action` comes ONLY from the main button,
   `split-select` from a menu entry, which selects and remembers it but never runs it. The actions are
   destructive, so the host owns the confirmation (`confirmDialog`) on `split-action`.
@@ -553,8 +561,8 @@ emit, not from the task.
   capture phase and is then NOT passed on, so the page's own Escape does not also run (an open modal
   `dialog` keeps its Escape). The trigger is a disclosure button (`aria-expanded`, `aria-controls`), not a
   menu: no `aria-haspopup`. Never put a `tabindex` on a DaisyUI dropdown trigger (its `:first-child` rule
-  removes the pointer events) and never use `tooltip` inside the scrolling panel (a native `title` is
-  used).
+  removes the pointer events). Tooltip help in the scrolling panel uses the shared top-layer
+  directive (see UI rules).
 - The panel is `md:w-96` hung from the right edge of the trigger (`dropdown-end`). Below `md` it is
   `max-md:fixed max-md:inset-x-2`: a sheet 0.5rem from each side, just under the trigger. A panel hung
   from the trigger would stick out of a phone screen on the left, because the theme toggle follows the
@@ -1008,11 +1016,11 @@ calls it and shows what it answers.
   selected (N)" (no confirmation, `{ target: { kind: 'ids', ids } }`), a "Restore" per row and the
   pager (`PAGE_SIZE` = 50). The selection is cleared by a page change, a sort, a search or a filter,
   and a reload drops the ids that are no longer on the page. Rows of an offline or read-only volume
-  cannot be selected or restored; the `title` of the disabled control says why (`title` is the
-  tooltip here, as elsewhere in the app).
+  cannot be selected or restored; shared DaisyUI tooltips on disabled controls and their wrappers
+  explain why.
 - "Empty trash…" asks with the numbers on screen and sends `{ volume_id, up_to_id: summary.max_id }`:
   both are taken BEFORE the dialog opens, so what is deleted is what the user was shown even when the
-  summary changes meanwhile. It is disabled, with the reason as a `title` on the button and on its
+  summary changes meanwhile. It is disabled, with shared DaisyUI help on the button and on its
   wrapper, while loading, when nothing is deletable, and for an offline or read-only volume; with
   several volumes the question names those that stay behind. `409 trash_already_empty` is an info
   toast plus a reload; any other failure is an error toast with the server's message.
@@ -1137,6 +1145,9 @@ is always present (5 samples), and wording names the current pattern in the shar
 Repeated-run idempotence is decided by the backend's `already_in_place` status.
 
 ## Duplicate finder
+- File-view keeper badges show every enabled rule favoring that keeper over at least one directly
+  matching removal. `file-selection.ts` owns this evidence and distinguishes decisive from supporting
+  preferences; badge presentation never changes the ordered keeper selection or direct-match safety.
 - Asset move reuses `util/match-modes.ts` (`MATCH_MODES`, `isMatchMode`, `matchModeLabel`) and
   controlled `opm-match-mode`: `mode`, `strict`, `label`, `disabled`, bubbling
   `match-change { mode, strict }`, no store access.

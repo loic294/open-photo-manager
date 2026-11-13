@@ -25,12 +25,15 @@ export class ShellPage {
     await this.taskIndicator().hover();
   }
   async reindex(all = false) {
-    await this.menu()
-      .getByRole('button', {
+    const split = this.menu().locator('opm-split-button');
+    await split.getByRole('button', { name: 'Choose scan action', exact: true }).click();
+    await split
+      .getByRole('menuitemradio', {
         name: all ? 'Re-index all assets' : 'Re-index current folders',
         exact: true,
       })
       .click();
+    await this.reindexButton().click();
   }
   async theme(theme: 'light' | 'dark') {
     await this.page
@@ -53,11 +56,8 @@ export class ShellPage {
       has: this.page.getByText(title, { exact: true }),
     });
   }
-  reindexButton(all = false) {
-    return this.menu().getByRole('button', {
-      name: all ? 'Re-index all assets' : 'Re-index current folders',
-      exact: true,
-    });
+  reindexButton(_all = false) {
+    return this.menu().locator('opm-split-button .join > button');
   }
   notices() {
     return this.page.locator('opm-index-notices');

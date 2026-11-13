@@ -8,6 +8,7 @@ import { fileItem } from '@/test/file-item';
 import { mount } from '@/test/helpers';
 import { sampleSettings } from '@/test/settings-fixtures';
 import { matchMode, strictPrefix } from './duplicates-state';
+import { defaultRules } from './file-selection';
 import './opm-duplicate-files';
 
 const groups = [
@@ -71,10 +72,10 @@ it('preserves image aspect ratios and explains selections on hover', async () =>
   const el = await searched();
   const card = el.querySelector('opm-file-card');
   expect(card?.parentElement?.style.aspectRatio).toBe('6000 / 4000');
-  expect(card?.parentElement?.title).toContain('lowest file ID');
+  expect(card?.parentElement?.getAttribute('data-tooltip')).toContain('lowest file ID');
   card?.dispatchEvent(new CustomEvent('card-activate', { bubbles: true }));
   await settle(el);
-  expect(card?.parentElement?.title).toBe('Keep: Manual selection');
+  expect(card?.parentElement?.getAttribute('data-tooltip')).toBe('Keep: Manual selection');
   expect(el.textContent).toContain('0 files with duplicates in folder');
   expect(el.textContent).toContain('1 in subfolders');
 });
@@ -147,6 +148,35 @@ async function searched() {
   await settle(el);
   return el;
 }
+
+it('places all favorable rule badges beside keeper filenames and refreshes them after manual choices', async () => {
+  const el = await searched();
+  const rules = defaultRules().map((rule) => ({
+    ...rule,
+    enabled: rule.kind === 'description' || rule.kind === 'tags',
+  }));
+  el.querySelector('opm-duplicate-selection')?.dispatchEvent(
+    new CustomEvent('selection-rules', { detail: rules }),
+  );
+  await settle(el);
+  const names = el.querySelectorAll('[data-copy-name]');
+  const badges = () => [...(names[1]?.parentElement?.querySelectorAll('[data-keeper-rule]') ?? [])];
+  expect(badges().map((badge) => badge.getAttribute('data-keeper-rule'))).toEqual([
+    'description',
+    'tags',
+  ]);
+  expect(badges()[0]?.getAttribute('data-tooltip')).toContain('Decisive');
+  expect(badges()[1]?.getAttribute('data-tooltip')).toContain('Supporting');
+  expect(names[0]?.parentElement?.querySelector('[data-keeper-rule]')).toBeNull();
+  el.querySelector('opm-file-card')?.dispatchEvent(
+    new CustomEvent('card-activate', { bubbles: true }),
+  );
+  await settle(el);
+  expect(names[0]?.parentElement?.querySelector('[data-keeper-rule="manual"]')?.textContent).toBe(
+    'Manual selection',
+  );
+  expect(badges()).toEqual([]);
+});
 
 it('waits for the source volume instead of accidentally searching all volumes during startup', async () => {
   resetVolumesForTests();

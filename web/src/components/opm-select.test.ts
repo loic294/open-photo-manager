@@ -43,7 +43,7 @@ describe('opm-select', () => {
     const select = nativeSelect(host);
     expect(select.classList.contains('select')).toBe(true);
     expect(select.getAttribute('aria-label')).toBe('Sort by');
-    expect(select.title).toBe('Sort by');
+    expect(select.getAttribute('data-tooltip')).toBe('Sort by');
     expect(host.querySelector('label')).toBeNull();
   });
 
@@ -53,7 +53,7 @@ describe('opm-select', () => {
     const options = Array.from(host.querySelectorAll('option'));
     expect(options.map((option) => option.value)).toEqual(['name', 'date', 'size']);
     expect(options.map((option) => option.textContent)).toEqual(['Name', 'Date', 'Size']);
-    expect(options.map((option) => option.title)).toEqual(['', 'Capture date', '']);
+    expect(options.every((option) => !option.hasAttribute('title'))).toBe(true);
     expect(options.map((option) => option.disabled)).toEqual([false, false, true]);
   });
 
@@ -61,6 +61,7 @@ describe('opm-select', () => {
     const host = await mountSelect({ value: 'date' });
 
     expect(nativeSelect(host).value).toBe('date');
+    expect(nativeSelect(host).getAttribute('data-tooltip')).toBe('Capture date');
   });
 
   it('follows `value` and `options` when they change', async () => {
