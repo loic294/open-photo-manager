@@ -130,7 +130,7 @@
 //! (1.4 to 2.7 times faster, still proportional to the scope); keyset paging instead of offsets
 //! (the contract of [`FileQuery::items`] is an offset and a limit).
 
-use opm_core::dto::{Filter, FolderEntry, Overlay, Scope, SortKey, SortOrder};
+use opm_core::dto::{ExcludedFolder, Filter, FolderEntry, Overlay, Scope, SortKey, SortOrder};
 use opm_core::filter::FilterError;
 use opm_core::paths::{FileId, PathError, RelPath, VolumeId};
 
@@ -237,6 +237,7 @@ pub struct FileQuery {
     kinds: KindFilter,
     sort: SortKey,
     order: SortOrder,
+    excluded: Vec<FileQuery>,
 }
 
 impl FileQuery {
@@ -250,7 +251,32 @@ impl FileQuery {
             kinds: KindFilter::default(),
             sort: SortKey::default(),
             order: SortOrder::default(),
+            excluded: Vec::new(),
         })
+    }
+
+    /// Recursive folder scopes for tool-only exclusions. Browsing and indexing do not use them.
+    pub fn folder_exclusions(folders: &[ExcludedFolder]) -> Result<Vec<Self>, QueryError> {
+        folders
+            .iter()
+            .map(|folder| {
+                Self::new(
+                    QueryScope {
+                        volume_id: Some(folder.volume_id),
+                        dir: RelPath::new(&folder.path)?,
+                        recursive: true,
+                    },
+                    &Filter::default(),
+                )
+                .map(|query| query.kinds(KindFilter::All))
+            })
+            .collect()
+    }
+
+    #[must_use]
+    pub fn excluding(mut self, excluded: &[FileQuery]) -> Self {
+        self.excluded.extend_from_slice(excluded);
+        self
     }
 
     /// Which kinds of files the query covers (default [`KindFilter::Assets`]).

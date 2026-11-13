@@ -51,6 +51,27 @@ async function mountList(props: Partial<OpmFolderList> = {}): Promise<OpmFolderL
 }
 
 describe('folder thumbnails', () => {
+  it.each(['list', 'thumbnails'] as const)(
+    'keeps soft-excluded subtrees visible with tags in %s mode',
+    async (view) => {
+      const host = await mountList({
+        view,
+        hideUnmatched: true,
+        showMatches: true,
+        softExcludedFolders: [{ volume_id: 1, path: 'trip' }],
+        folders: [
+          folderEntry({ name: 'trip', path: 'trip', matches: 0 }),
+          folderEntry({ name: 'nested', path: 'trip/nested', matches: 0 }),
+          folderEntry({ name: 'sibling', path: 'trip.old', matches: 0 }),
+          folderEntry({ name: 'other-volume', path: 'trip', volume_id: 2, matches: 0 }),
+        ],
+      });
+      expect(names(host)).toEqual(['trip', 'nested']);
+      expect(badges(row(host, 'trip'))).toContain('Soft exclude');
+      expect(badges(row(host, 'nested'))).toContain('Soft exclude');
+      expect(click(row(host, 'nested')).defaultPrevented).toBe(true);
+    },
+  );
   it('shows lazy, aspect-preserving previews with counts and the same navigation', async () => {
     const entry = folderEntry({ name: 'trip', matches: 2, preview: { id: 42, mtime: 123 } });
     const host = await mountList({

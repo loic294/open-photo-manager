@@ -19,6 +19,7 @@ import { stubBrowseServer } from '@/test/browse-server';
 import { pressConfirm, shownConfirm } from '@/test/confirm';
 import { FakeEventSource } from '@/test/fake-event-source';
 import { mount } from '@/test/helpers';
+import { sampleSettings } from '@/test/settings-fixtures';
 import { makeTask, taskEvent } from '@/test/task-fixtures';
 import '@/app/opm-app';
 
@@ -62,6 +63,7 @@ function serve(initial: Partial<Answers> = {}): Answers {
   vi.spyOn(api, 'get').mockImplementation(async (path: string) => {
     if (path === '/api/volumes') return answers.volumes;
     if (path === '/api/index/status') return answers.status;
+    if (path === '/api/settings') return sampleSettings();
     return [];
   });
   return answers;
@@ -118,7 +120,9 @@ function stubRoute(path: string, overrides: Partial<AppRoute> = {}) {
 beforeEach(() => {
   FakeEventSource.reset();
   vi.stubGlobal('EventSource', FakeEventSource);
-  vi.spyOn(api, 'get').mockResolvedValue([]);
+  vi.spyOn(api, 'get').mockImplementation(async (path) =>
+    path === '/api/settings' ? sampleSettings() : [],
+  );
   // The Browse page is the real one: its panes ask for the folders, and no server is there.
   const nothing = { folders: [], counts: { in_folder: 0, in_subfolders: 0 } };
   vi.stubGlobal(
@@ -762,6 +766,7 @@ describe('app services', () => {
     expect(loaded.sort()).toEqual([
       '/api/immich/status',
       '/api/index/status',
+      '/api/settings',
       '/api/tasks',
       '/api/volumes',
     ]);

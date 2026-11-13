@@ -18,6 +18,7 @@ export function sampleSettings(overrides: Partial<SettingsDto> = {}): SettingsDt
     },
     trash_retention_days: null,
     excluded_folders: [],
+    soft_excluded_folders: [],
     ...overrides,
   };
 }

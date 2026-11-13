@@ -63,6 +63,10 @@ pub struct SettingsDto {
     /// `POST /api/settings/excluded-folders/remove`.
     #[serde(default)]
     pub excluded_folders: Vec<ExcludedFolder>,
+    /// Folders left visible and indexed, but excluded from tool plans, with all descendants.
+    /// Changed through the soft-excluded-folders endpoints; a settings PUT preserves this list.
+    #[serde(default)]
+    pub soft_excluded_folders: Vec<ExcludedFolder>,
 }
 
 /// One folder excluded from the index and from every file operation.
@@ -207,6 +211,7 @@ impl SettingsDto {
             },
             trash_retention_days: None,
             excluded_folders: Vec::new(),
+            soft_excluded_folders: Vec::new(),
         }
     }
 
@@ -242,6 +247,10 @@ impl SettingsDto {
             normalize_excluded_folders(&self.excluded_folders),
             &mut errors,
         );
+        let soft_excluded = keep(
+            normalize_soft_excluded_folders(&self.soft_excluded_folders),
+            &mut errors,
+        );
         let (
             Some(sidecar_extensions),
             Some(junk_names),
@@ -253,6 +262,7 @@ impl SettingsDto {
             Some(rescan_interval_minutes),
             Some(trash_retention_days),
             Some(excluded_folders),
+            Some(soft_excluded_folders),
         ) = (
             sidecar_extensions,
             junk_names,
@@ -264,6 +274,7 @@ impl SettingsDto {
             rescan,
             retention,
             excluded,
+            soft_excluded,
         )
         else {
             return Err(errors);
@@ -284,6 +295,7 @@ impl SettingsDto {
             },
             trash_retention_days,
             excluded_folders,
+            soft_excluded_folders,
         })
     }
 
@@ -348,6 +360,12 @@ impl SettingsDto {
             "excluded_folders",
             &mut settings.excluded_folders,
             |v| normalize_excluded_folders(v),
+        );
+        top.field(
+            &mut issues,
+            "soft_excluded_folders",
+            &mut settings.soft_excluded_folders,
+            |v| normalize_soft_excluded_folders(v),
         );
 
         match object.get("index") {
@@ -422,6 +440,19 @@ impl<'a> Loader<'a> {
             )),
         }
     }
+}
+
+fn normalize_soft_excluded_folders(
+    input: &[ExcludedFolder],
+) -> Result<Vec<ExcludedFolder>, Vec<FieldError>> {
+    normalize_excluded_folders(input).map_err(|mut fields| {
+        for field in &mut fields {
+            field.field = field
+                .field
+                .replacen("excluded_folders", "soft_excluded_folders", 1);
+        }
+        fields
+    })
 }
 
 fn owned(values: &[&str]) -> Vec<String> {
@@ -768,12 +799,48 @@ mod tests {
                 "keep_cross_volume_source_in_trash",
                 "name_max_len",
                 "sidecar_extensions",
+                "soft_excluded_folders",
                 "trash_retention_days",
             ]
         );
         assert_eq!(wire["default_conflict_policy"], json!("smart"));
         assert_eq!(wire["trash_retention_days"], json!(null));
         assert_eq!(wire["index"]["rescan_interval_minutes"], json!(360));
+    }
+
+    #[test]
+    fn soft_exclusions_normalize_roundtrip_and_default_on_upgrade() {
+        let mut settings = defaults();
+        let folder = ExcludedFolder {
+            volume_id: 1,
+            path: "Photos/Trip".into(),
+        };
+        settings.soft_excluded_folders = vec![folder.clone(), folder.clone()];
+        let normalized = settings.normalized().unwrap();
+        assert_eq!(normalized.soft_excluded_folders, vec![folder]);
+        let mut wire = roundtrip(&normalized);
+        assert_eq!(
+            SettingsDto::from_stored(&wire, &defaults()).settings,
+            normalized
+        );
+        wire.as_object_mut()
+            .unwrap()
+            .remove("soft_excluded_folders");
+        let loaded = SettingsDto::from_stored(&wire, &defaults());
+        assert!(loaded.issues.is_empty());
+        assert!(loaded.settings.soft_excluded_folders.is_empty());
+        let mut invalid = defaults();
+        invalid.soft_excluded_folders = vec![ExcludedFolder {
+            volume_id: 1,
+            path: "../private".into(),
+        }];
+        assert!(
+            invalid
+                .normalized()
+                .unwrap_err()
+                .iter()
+                .all(|e| e.field.starts_with("soft_excluded_folders"))
+        );
     }
 
     #[test]

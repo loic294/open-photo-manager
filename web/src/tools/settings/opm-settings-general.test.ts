@@ -288,6 +288,7 @@ describe('opm-settings-general', () => {
         'Indexing',
         'Volumes',
         'Excluded folders',
+        'Soft-excluded folders',
       ]);
       expect(element.querySelector('form')?.getAttribute('aria-label')).toBe('General settings');
     });
@@ -808,7 +809,7 @@ describe('opm-settings-general', () => {
       expect(requests).toHaveLength(2);
       for (const card of element.querySelectorAll('fieldset')) {
         const legend = card.querySelector('legend')?.textContent?.trim() ?? '';
-        if (['Volumes', 'Excluded folders'].includes(legend)) {
+        if (['Volumes', 'Excluded folders', 'Soft-excluded folders'].includes(legend)) {
           expect(card.hasAttribute('disabled')).toBe(false);
           continue;
         }
@@ -1239,6 +1240,22 @@ describe('opm-settings-general', () => {
 });
 
 describe('excluded folders', () => {
+  it('removes a soft exclusion immediately without queuing an index request', async () => {
+    const folder = { volume_id: 1, path: '2024/private' };
+    const { element, requests } = await open(
+      sampleSettings({ soft_excluded_folders: [folder] }),
+      ok(sampleSettings()),
+    );
+    const card = element.querySelector('[data-soft-excluded-folders]');
+    expect(card?.textContent).toContain('/2024/private');
+    buttonLabelled(element, 'Include in tools')?.click();
+    await vi.waitFor(() => expect(card?.textContent).toContain('No folder is soft-excluded.'));
+    const posts = requests.filter((request) => request.method === 'POST');
+    expect(posts).toHaveLength(1);
+    expect(posts[0]?.path).toBe('/api/settings/soft-excluded-folders/remove');
+    expect(posts[0]?.body).toEqual(folder);
+    expect(bar(element)).toBeNull();
+  });
   const card = (element: Form) => element.querySelector('[data-excluded-folders]');
 
   it('says when no folder is excluded', async () => {

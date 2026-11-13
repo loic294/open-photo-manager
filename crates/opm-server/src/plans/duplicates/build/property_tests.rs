@@ -165,7 +165,7 @@ async fn random_collisions_filters_and_overlaps_match_reference_under_both_polic
                     }
                     let mut collected = Collect::default();
                     let mut conn = db.read().acquire().await.unwrap();
-                    candidate_pairs(&mut conn, &params, policy, &cancel, &mut collected)
+                    candidate_pairs(&mut conn, &params, policy, &cancel, &mut collected, &[])
                         .await
                         .unwrap();
                     assert_eq!(

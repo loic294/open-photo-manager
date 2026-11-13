@@ -22,6 +22,8 @@ const ROUTES: &[(&str, &str)] = &[
     ("PUT", "/api/settings"),
     ("POST", "/api/settings/excluded-folders"),
     ("POST", "/api/settings/excluded-folders/remove"),
+    ("POST", "/api/settings/soft-excluded-folders"),
+    ("POST", "/api/settings/soft-excluded-folders/remove"),
     ("GET", "/api/volumes"),
     ("POST", "/api/browse/folders"),
     ("POST", "/api/browse/items"),

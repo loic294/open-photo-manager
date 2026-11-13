@@ -295,6 +295,17 @@ not accepted by **Folder formatting**. The examples use the generated sample fil
    You should see: the folder disappears from the pane at once, and its counts leave the totals
    after a short background scan.
 
+6. To leave a folder out of tools without hiding it, right-click it and choose **Soft exclude
+   folder**. The folder and its descendants stay indexed and browsable with a **Soft exclude**
+   tag, but are omitted from duplicate matching, moves, folder formatting, batch rename and
+   empty-folder cleanup. This is one shared list across tools, separate from search-specific
+   exclusions. Plans refresh when the list changes; older plans cannot modify newly excluded files.
+
+   Choose **Remove soft exclusion** on the exact folder, or **Include in tools** under
+   **Settings** > **General** > **Soft-excluded folders**, to include it again immediately.
+   Neither action requires a rescan. A child excluded by its parent must be re-included at that
+   parent or through Settings.
+
 ## Trash and recovery
 
 1. File-deletion actions send content to `<volume>/.opm-trash/<batch>/<original-relative-path>`,

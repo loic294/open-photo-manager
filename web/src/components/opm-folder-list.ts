@@ -2,12 +2,14 @@ import { html, nothing } from 'lit';
 import { repeat } from 'lit/directives/repeat.js';
 import { styleMap } from 'lit/directives/style-map.js';
 import { thumbSizeFor, thumbUrl } from '@/api/files';
+import type { ExcludedFolder } from '@/api/generated/ExcludedFolder';
 import type { FolderEntry } from '@/api/generated/FolderEntry';
 import { OpmElement } from '@/base/opm-element';
 import type { IconName } from '@/components/opm-icon';
 import '@/components/opm-icon';
 import type { PaneId } from '@/stores/nav';
 import { type FolderView, GRID_SIZE } from '@/stores/prefs';
+import { isExcluded } from '@/stores/settings';
 import { type FolderState, folderState } from '@/util/folder-state';
 import { formatCount } from '@/util/format-count';
 import { isPlainClick } from '@/util/plain-click';
@@ -136,6 +138,7 @@ export class OpmFolderList extends OpmElement {
     loading: { type: Boolean },
     view: { type: String },
     size: { type: Number },
+    softExcludedFolders: { attribute: false },
   };
 
   declare folders: readonly FolderEntry[];
@@ -146,6 +149,8 @@ export class OpmFolderList extends OpmElement {
   declare loading: boolean;
   declare view: FolderView;
   declare size: number;
+  /** Tool-only exclusions stay visible, including when unmatched folders are hidden. */
+  declare softExcludedFolders: readonly ExcludedFolder[];
 
   private failedPreviews = new Set<string>();
 
@@ -159,6 +164,7 @@ export class OpmFolderList extends OpmElement {
     this.loading = false;
     this.view = 'list';
     this.size = GRID_SIZE.default;
+    this.softExcludedFolders = [];
   }
 
   override connectedCallback(): void {
@@ -255,11 +261,16 @@ export class OpmFolderList extends OpmElement {
             }
             <span class="badge badge-ghost badge-sm" aria-hidden="true">${countText(entry)}</span>
             <span class="sr-only">${countSentence(entry)}</span>
+            ${this.isSoftExcluded(entry) ? html`<span class="badge badge-outline badge-sm" title="Excluded from all tool plans; still indexed and browsable">Soft exclude</span>` : nothing}
             ${this.showMatches && matches !== null ? this.renderMatches(matches) : nothing}
           </span>
         </a>
       </li>
     `;
+  }
+
+  private isSoftExcluded(entry: FolderEntry): boolean {
+    return isExcluded(this.softExcludedFolders, entry.volume_id, entry.path);
   }
 
   private renderPreview(entry: FolderEntry) {
@@ -289,7 +300,7 @@ export class OpmFolderList extends OpmElement {
   protected override render() {
     const rows: { entry: FolderEntry; state: FolderState }[] = [];
     for (const entry of this.folders) {
-      const state = folderState(entry, this.hideUnmatched);
+      const state = folderState(entry, this.hideUnmatched && !this.isSoftExcluded(entry));
       if (state !== 'hide') rows.push({ entry, state });
     }
     if (rows.length === 0) {

@@ -49,11 +49,7 @@ fn excluding(
     excluded: &[FileQuery],
     members: Option<&str>,
 ) {
-    predicate(qb, query, "f");
-    for exclude in excluded {
-        qb.push(" AND NOT ");
-        exclude.push_where(qb, "f");
-    }
+    predicate(qb, &query.clone().excluding(excluded), "f");
     if let Some(members) = members {
         qb.push(" AND f.id IN (SELECT value FROM json_each(")
             .push_bind(members.to_owned())
@@ -141,8 +137,9 @@ pub(crate) async fn candidate_pairs(
     policy: Policy,
     cancel: &CancellationToken,
     visitor: &mut dyn Visitor,
+    excluded: &[FileQuery],
 ) -> Result<u64, PlanError> {
-    pairs_excluding(conn, params, policy, cancel, visitor, &[], None).await
+    pairs_excluding(conn, params, policy, cancel, visitor, excluded, None).await
 }
 
 async fn pairs_excluding(
@@ -159,7 +156,13 @@ async fn pairs_excluding(
     let source = query(&params.source, "source")?;
     let comparison = query(&params.comparison, "comparison")?;
     let both = if policy == Policy::Oriented {
-        overlap(conn, &source, &comparison, cancel).await?
+        overlap(
+            conn,
+            &source.clone().excluding(excluded),
+            &comparison.clone().excluding(excluded),
+            cancel,
+        )
+        .await?
     } else {
         HashSet::new()
     };
@@ -298,7 +301,7 @@ pub(super) async fn build(
     max_matched: usize,
 ) -> Result<Built, PlanError> {
     let (params, file_view) = super::parameters(value)?;
-    let excluded = file_view
+    let mut excluded = file_view
         .as_ref()
         .map(|options| {
             options
@@ -317,6 +320,9 @@ pub(super) async fn build(
         })
         .transpose()?
         .unwrap_or_default();
+    excluded.extend(FileQuery::folder_exclusions(
+        &ctx.settings.soft_excluded_folders,
+    )?);
     ctx.check_cancelled()?;
     let mut registration = ctx.db.begin_write().await?;
     crate::plans::file_identity::begin(&mut registration, ctx.plan_id).await?;
@@ -551,7 +557,7 @@ mod tests {
                     };
                     let mut collect = Collect::default();
                     let mut conn = db.read().acquire().await.unwrap();
-                    candidate_pairs(&mut conn, &params, policy, &cancel, &mut collect)
+                    candidate_pairs(&mut conn, &params, policy, &cancel, &mut collect, &[])
                         .await
                         .unwrap();
                     let mut expected = HashSet::new();
@@ -625,7 +631,7 @@ mod tests {
             comparison: side,
         };
         assert!(matches!(
-            candidate_pairs(&mut conn, &p, Policy::Oriented, &cancel, &mut collect).await,
+            candidate_pairs(&mut conn, &p, Policy::Oriented, &cancel, &mut collect, &[]).await,
             Err(PlanError::Cancelled)
         ));
     }

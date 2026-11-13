@@ -25,7 +25,7 @@ import {
 import { INVALIDATE_DEBOUNCE_MS } from '@/stores/paged-items';
 import { folderView, GRID_SIZE, setGridSize, setSort, sort } from '@/stores/prefs';
 import { activePane, resetSelectionForTests, selection } from '@/stores/selection';
-import { includeFolder } from '@/stores/settings';
+import { includeFolder, softExcludeFolder } from '@/stores/settings';
 import { clearToasts, toasts } from '@/stores/toasts';
 import { loadVolumes } from '@/stores/volumes';
 import {
@@ -1578,6 +1578,73 @@ describe('a pane that left the page', () => {
 describe('the folder context menu', () => {
   const PRIVATE = { name: 'private-x', path: 'trip/private-x' };
 
+  it('explains inherited exclusions and keeps excluded unmatched folders navigable', async () => {
+    const saved = sampleSettings({ soft_excluded_folders: [{ volume_id: 1, path: 'trip' }] });
+    const realPost = api.post.bind(api);
+    vi.spyOn(api, 'post').mockImplementation((path, init) =>
+      path === '/api/settings/soft-excluded-folders'
+        ? Promise.resolve(saved)
+        : realPost(path, init),
+    );
+    await softExcludeFolder({ volume_id: 1, path: 'trip' });
+    goTo('source', TRIP);
+    serveFolders({ ...PRIVATE, count: 0, matches: 0 });
+    const pane = await mountPane({ hideUnmatched: true, showMatches: true });
+    expect(text(row(pane, PRIVATE.name))).toContain('Soft exclude');
+    expect(pane.querySelector('[role="separator"]')).not.toBeNull();
+    expect(pane.querySelector('opm-file-grid')?.emptyText).toBe('No files in this folder');
+    rightClick(row(pane, PRIVATE.name));
+    await settle(pane);
+    expect(buttonNamed(menu(pane) as HTMLElement, 'Soft excluded by parent')?.disabled).toBe(true);
+    expect(document.activeElement?.textContent?.trim()).toBe('Exclude folder…');
+  });
+
+  it('reports a failed soft exclusion without changing the folder', async () => {
+    goTo('source', TRIP);
+    serveFolders(PRIVATE);
+    const pane = await mountPane();
+    vi.spyOn(api, 'post').mockRejectedValue(new Error('Cannot save exclusions'));
+    rightClick(row(pane, PRIVATE.name));
+    await settle(pane);
+    buttonNamed(menu(pane) as HTMLElement, 'Soft exclude folder')?.click();
+    await settle(pane);
+    expect(toasts.value.some((toast) => toast.message.includes('Cannot save exclusions'))).toBe(
+      true,
+    );
+    expect(text(row(pane, PRIVATE.name))).not.toContain('Soft exclude');
+  });
+
+  it('soft-excludes and includes a folder through right-click without hiding it or rescanning', async () => {
+    goTo('source', TRIP);
+    serveFolders(PRIVATE);
+    const pane = await mountPane();
+    const folder = { volume_id: 1, path: PRIVATE.path };
+    const realPost = api.post.bind(api);
+    const post = vi.spyOn(api, 'post').mockImplementation((path, init) => {
+      if (path === '/api/settings/soft-excluded-folders')
+        return Promise.resolve(sampleSettings({ soft_excluded_folders: [folder] }));
+      if (path === '/api/settings/soft-excluded-folders/remove')
+        return Promise.resolve(sampleSettings());
+      return realPost(path, init);
+    });
+    const calls = server.calls.folders.length;
+    rightClick(row(pane, PRIVATE.name));
+    await settle(pane);
+    buttonNamed(menu(pane) as HTMLElement, 'Soft exclude folder')?.click();
+    await settle(pane);
+    expect(text(row(pane, PRIVATE.name))).toContain('Soft exclude');
+    expect(server.calls.folders).toHaveLength(calls);
+    expect(post).toHaveBeenCalledWith('/api/settings/soft-excluded-folders', { body: folder });
+    rightClick(row(pane, PRIVATE.name));
+    await settle(pane);
+    buttonNamed(menu(pane) as HTMLElement, 'Remove soft exclusion')?.click();
+    await settle(pane);
+    expect(text(row(pane, PRIVATE.name))).not.toContain('Soft exclude');
+    expect(post).toHaveBeenCalledWith('/api/settings/soft-excluded-folders/remove', {
+      body: folder,
+    });
+  });
+
   afterEach(async () => {
     // The settings store is shared: leave it without exclusions for the next tests.
     vi.spyOn(api, 'post').mockResolvedValue(sampleSettings());
@@ -1628,7 +1695,7 @@ describe('the folder context menu', () => {
 
     rightClick(row(pane, PRIVATE.name));
     await settle(pane);
-    menu(pane)?.querySelector('button')?.click();
+    buttonNamed(menu(pane) as HTMLElement, 'Exclude folder…')?.click();
     const shown = await shownConfirm();
     expect(shown.message).toContain('The files on disk stay untouched');
     await pressConfirm('Exclude folder');
@@ -1652,7 +1719,7 @@ describe('the folder context menu', () => {
 
     rightClick(row(pane, PRIVATE.name));
     await settle(pane);
-    menu(pane)?.querySelector('button')?.click();
+    buttonNamed(menu(pane) as HTMLElement, 'Exclude folder…')?.click();
     await pressConfirm('Cancel');
     await settle(pane);
 

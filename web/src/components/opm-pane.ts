@@ -50,7 +50,13 @@ import {
   sort,
 } from '@/stores/prefs';
 import { selection, selectionContextKey } from '@/stores/selection';
-import { excludeFolder, isExcluded, settings } from '@/stores/settings';
+import {
+  excludeFolder,
+  isExcluded,
+  settings,
+  softExcludeFolder,
+  softIncludeFolder,
+} from '@/stores/settings';
 import { loadVolumes, volumeByName, volumesError, volumesStatus } from '@/stores/volumes';
 import {
   type Crumb,
@@ -504,7 +510,7 @@ export class OpmPane extends OpmElement {
     document.addEventListener('pointerdown', this.onOutsideMenu, true);
     window.addEventListener('blur', this.onWindowBlur);
     void this.updateComplete.then(() =>
-      this.querySelector<HTMLElement>('[data-folder-menu] button')?.focus(),
+      this.querySelector<HTMLElement>('[data-folder-menu] button:not(:disabled)')?.focus(),
     );
   };
 
@@ -558,6 +564,29 @@ export class OpmPane extends OpmElement {
     event.stopPropagation();
     const key = event.detail.value;
     if (isSortKey(key)) setSort(this.pane, { ...this.sortSpec, key });
+  };
+
+  private readonly onSoftExcludeFolder = async (): Promise<void> => {
+    const entry = this.folderMenu?.entry;
+    this.closeFolderMenu();
+    if (!entry) return;
+    const folder = { volume_id: entry.volume_id, path: entry.path };
+    const excluded = settings
+      .peek()
+      ?.soft_excluded_folders.some(
+        (candidate) => candidate.volume_id === folder.volume_id && candidate.path === folder.path,
+      );
+    try {
+      if (excluded) await softIncludeFolder(folder);
+      else await softExcludeFolder(folder);
+      toast.success(
+        excluded
+          ? `Removed soft exclusion for ${entry.name}`
+          : `Soft-excluded ${entry.name} from all tools`,
+      );
+    } catch (error) {
+      toast.error(errorMessage(error, 'Could not change the soft exclusion'));
+    }
   };
 
   private readonly onSortOrder = (): void => {
@@ -851,6 +880,7 @@ export class OpmPane extends OpmElement {
         .folders=${this.visibleFolders()}
         .view=${folderView.value[this.pane]}
         .size=${gridSize.value[this.pane]}
+        .softExcludedFolders=${settings.value?.soft_excluded_folders ?? []}
         ?hide-unmatched=${this.hideUnmatched}
         ?show-matches=${this.showMatches}
         .hrefFor=${this.hrefFor}
@@ -872,8 +902,13 @@ export class OpmPane extends OpmElement {
   private renderFolderMenu(): TemplateResult | typeof nothing {
     const menu = this.folderMenu;
     if (!menu) return nothing;
+    const soft = settings.value?.soft_excluded_folders ?? [];
+    const exact = soft.some(
+      (folder) => folder.volume_id === menu.entry.volume_id && folder.path === menu.entry.path,
+    );
+    const inherited = !exact && isExcluded(soft, menu.entry.volume_id, menu.entry.path);
     const left = Math.max(0, Math.min(menu.x, window.innerWidth - 232));
-    const top = Math.max(0, Math.min(menu.y, window.innerHeight - 48));
+    const top = Math.max(0, Math.min(menu.y, window.innerHeight - 96));
     const position = { left: `${left}px`, top: `${top}px` };
     return html`
       <ul
@@ -884,6 +919,14 @@ export class OpmPane extends OpmElement {
         style=${styleMap(position)}
         @keydown=${this.onFolderMenuKey}
       >
+        <li role="none">
+          <button type="button" role="menuitem" ?disabled=${inherited}
+            title=${inherited ? 'Remove the soft exclusion on the parent folder or in Settings' : 'Keep indexed and visible, but leave out of all tool plans'}
+            @click=${this.onSoftExcludeFolder}>
+            <opm-icon name="folder-x" size="sm"></opm-icon>
+            ${exact ? 'Remove soft exclusion' : inherited ? 'Soft excluded by parent' : 'Soft exclude folder'}
+          </button>
+        </li>
         <li role="none">
           <button type="button" role="menuitem" @click=${this.onExcludeFolder}>
             <opm-icon name="folder-x" size="sm"></opm-icon>
@@ -934,7 +977,11 @@ export class OpmPane extends OpmElement {
     const atRoot = request.volume_id === null;
     const folders = subfolders.folders;
     const filterActive = isFilterActive(this.filter);
-    const visible = folders.some((entry) => folderState(entry, hideUnmatched) !== 'hide');
+    const keepVisible = (entry: FolderEntry) =>
+      isExcluded(settings.value?.soft_excluded_folders ?? [], entry.volume_id, entry.path);
+    const visible = folders.some(
+      (entry) => keepVisible(entry) || folderState(entry, hideUnmatched) !== 'hide',
+    );
     const alerts = html`
       ${
         volume !== undefined && !volume.online
@@ -958,7 +1005,14 @@ export class OpmPane extends OpmElement {
 
     const foldersKnown = subfolders.status === 'ready';
     if (atRoot) {
-      const text = emptyTextFor({ folders, hideUnmatched, filterActive, atRoot, foldersKnown });
+      const text = emptyTextFor({
+        folders,
+        hideUnmatched,
+        filterActive,
+        atRoot,
+        foldersKnown,
+        keepVisible,
+      });
       return html`
         ${alerts}${this.renderFolders(subfolders.status === 'loading')}
         ${
@@ -968,7 +1022,13 @@ export class OpmPane extends OpmElement {
         }
       `;
     }
-    const emptyText = emptyTextFor({ folders, hideUnmatched, filterActive, foldersKnown });
+    const emptyText = emptyTextFor({
+      folders,
+      hideUnmatched,
+      filterActive,
+      foldersKnown,
+      keepVisible,
+    });
     return html`
       ${alerts}${this.renderFolders(subfolders.status === 'loading')}
       ${visible ? html`<div role="separator" class="divider my-0"></div>` : nothing}

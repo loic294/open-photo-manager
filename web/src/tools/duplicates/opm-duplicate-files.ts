@@ -23,6 +23,7 @@ import '@/components/opm-modal';
 import { openPlanResult } from '@/components/opm-plan-result';
 import { locations } from '@/stores/nav';
 import { lastRun, trackPlanRun } from '@/stores/plan-runs';
+import { settings } from '@/stores/settings';
 import { volumeIdByName, volumes } from '@/stores/volumes';
 import { matchMode, strictPrefix } from '@/tools/duplicates/duplicates-state';
 import {
@@ -83,6 +84,7 @@ export class OpmDuplicateFiles extends OpmElement {
   private folderFile: DuplicateFile | null = null;
   private folderIndex = 0;
   private folderRecursive = false;
+  private softExclusionKey = '[]';
   private request: AbortController | null = null;
   private stops: (() => void)[] = [];
   private initialized = false;
@@ -91,6 +93,14 @@ export class OpmDuplicateFiles extends OpmElement {
     super.connectedCallback();
     if (this.plan) this.stale = true;
     this.stops = [
+      effect(() => {
+        const key = JSON.stringify(settings.value?.soft_excluded_folders ?? []);
+        if (key === this.softExclusionKey) return;
+        this.softExclusionKey = key;
+        this.request?.abort();
+        this.busy = false;
+        if (this.plan) this.stale = true;
+      }),
       effect(() => {
         if (this.initialized) return;
         const location = locations.source.peek();

@@ -56,4 +56,9 @@ trash_retention_days: number | null,
  * list: change it with `POST /api/settings/excluded-folders` and
  * `POST /api/settings/excluded-folders/remove`.
  */
-excluded_folders: Array<ExcludedFolder>, };
+excluded_folders: Array<ExcludedFolder>, 
+/**
+ * Folders left visible and indexed, but excluded from tool plans, with all descendants.
+ * Changed through the soft-excluded-folders endpoints; a settings PUT preserves this list.
+ */
+soft_excluded_folders: Array<ExcludedFolder>, };

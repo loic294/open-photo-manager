@@ -2,9 +2,11 @@ import { afterEach, beforeEach, expect, it, vi } from 'vitest';
 import { api } from '@/api/client';
 import { events } from '@/api/sse';
 import { setLocation } from '@/stores/nav';
+import { saveSettings } from '@/stores/settings';
 import { loadVolumes, resetVolumesForTests } from '@/stores/volumes';
 import { fileItem } from '@/test/file-item';
 import { mount } from '@/test/helpers';
+import { sampleSettings } from '@/test/settings-fixtures';
 import { matchMode, strictPrefix } from './duplicates-state';
 import './opm-duplicate-files';
 
@@ -352,4 +354,23 @@ it('shows search errors and disables destructive choices after an index change',
   button(el, 'Find duplicates').click();
   await settle(el);
   expect(el.querySelector('[role="alert"]')?.textContent).toContain('Search too large');
+});
+
+it('invalidates results only when the shared soft-exclusion list changes', async () => {
+  const el = await searched();
+  const put = vi.spyOn(api, 'put').mockResolvedValue(sampleSettings({ name_max_len: 143 }));
+  await saveSettings(sampleSettings());
+  await settle(el);
+  expect(button(el, 'Trash 2 duplicates').disabled).toBe(false);
+  put.mockResolvedValue(
+    sampleSettings({
+      soft_excluded_folders: [{ volume_id: 2, path: 'backup' }],
+    }),
+  );
+  await saveSettings(sampleSettings());
+  await settle(el);
+  expect(button(el, 'Automatic Selection').disabled).toBe(true);
+  expect(button(el, 'Trash 2 duplicates').disabled).toBe(true);
+  put.mockResolvedValue(sampleSettings());
+  await saveSettings(sampleSettings());
 });

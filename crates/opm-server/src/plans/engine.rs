@@ -915,11 +915,13 @@ impl PlanService {
         };
         let op = OpContext::from_task(&ctx, &inner.deps.tasks).with_batch(batch);
         let batch = op.batch().clone();
+        let settings = inner.deps.settings.get();
         let exec = ExecContext {
             plan_id: plan.id,
             db: inner.deps.db.clone(),
             fsops: inner.deps.fsops.clone(),
-            settings: inner.deps.settings.get(),
+            soft_exclusions: opm_core::exclusions::Exclusions::new(&settings.soft_excluded_folders),
+            settings,
             volumes: inner.deps.volumes.clone(),
             task: ctx.clone(),
             op,

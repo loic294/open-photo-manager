@@ -14,6 +14,7 @@ import { OpmElement } from '@/base/opm-element';
 import { startImmich } from '@/stores/immich';
 import { startIndexStatus } from '@/stores/index-status';
 import { currentPath, currentTool, linkTo, startNavSync } from '@/stores/nav';
+import { startSettings } from '@/stores/settings';
 import { startTasks } from '@/stores/tasks';
 import { filtersOpen, toolHelpOpen } from '@/stores/tool-chrome';
 import { startVolumes } from '@/stores/volumes';
@@ -80,6 +81,7 @@ export class OpmApp extends OpmElement {
     this.stopServices = [
       startTheme(),
       startNavSync(),
+      startSettings(),
       startTasks(),
       startVolumes(),
       startIndexStatus(),

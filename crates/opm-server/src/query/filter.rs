@@ -98,6 +98,16 @@ impl FileQuery {
         let mut and = And::open(qb);
         self.push_scope(&mut and, alias, recursive);
         self.push_kind(&mut and, alias);
+        // Bound each AND chain so the 1000-folder settings limit stays below SQLite's expression depth.
+        for chunk in self.excluded.chunks(50) {
+            let mut group = And::open(and.term());
+            for excluded in chunk {
+                let qb = group.term();
+                qb.push("NOT ");
+                excluded.push_where(qb, alias);
+            }
+            group.close();
+        }
         match filter {
             FilterPart::All => self.push_filter(&mut and, alias, None),
             FilterPart::Except(dimension) => self.push_filter(&mut and, alias, Some(dimension)),

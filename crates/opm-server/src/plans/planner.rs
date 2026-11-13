@@ -334,6 +334,7 @@ pub struct ExecContext {
     pub db: Db,
     pub fsops: FsOps,
     pub settings: Arc<Settings>,
+    pub soft_exclusions: opm_core::exclusions::Exclusions,
     pub volumes: VolumeRegistry,
     /// The `plan_execute` task: its cancellation token and its progress.
     pub task: TaskCtx,

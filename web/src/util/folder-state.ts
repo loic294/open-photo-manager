@@ -32,6 +32,8 @@ export interface EmptyTextInput {
   atRoot?: boolean;
   /** False until the folder list has answered (or after it failed); defaults to true. */
   foldersKnown?: boolean;
+  /** Folders that remain navigable even when unmatched folders are hidden. */
+  keepVisible?: (entry: FolderEntry) => boolean;
 }
 
 /**
@@ -44,7 +46,9 @@ export interface EmptyTextInput {
 export function emptyTextFor(input: EmptyTextInput): string {
   const { folders, hideUnmatched, filterActive, atRoot = false, foldersKnown = true } = input;
   if (!foldersKnown) return filterActive ? 'No files match the filters' : 'No files in this folder';
-  const hidden = folders.filter((entry) => folderState(entry, hideUnmatched) === 'hide');
+  const hidden = folders.filter(
+    (entry) => !input.keepVisible?.(entry) && folderState(entry, hideUnmatched) === 'hide',
+  );
   const hasVisibleFolders = hidden.length < folders.length;
   if (hasVisibleFolders)
     return filterActive ? 'No files match the filters' : 'No files in this folder';

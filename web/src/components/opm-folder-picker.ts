@@ -8,6 +8,7 @@ import { OpmElement } from '@/base/opm-element';
 import type { FolderOpenEvent } from '@/components/opm-folder-list';
 import '@/components/opm-folder-list';
 import '@/components/opm-modal';
+import { settings } from '@/stores/settings';
 import { volumes } from '@/stores/volumes';
 import { EMPTY_FILTER } from '@/util/filter';
 
@@ -109,6 +110,7 @@ export class OpmFolderPicker extends OpmElement {
         }
         <div class="max-h-72 overflow-auto">
           <opm-folder-list .folders=${this.listing?.folders ?? []} .loading=${this.loading}
+            .softExcludedFolders=${settings.value?.soft_excluded_folders ?? []}
             .showMatches=${this.plan !== null}
             @folder-open=${(event: FolderOpenEvent) => this.move(event.detail.entry.volume_id, event.detail.entry.path)}>
           </opm-folder-list>

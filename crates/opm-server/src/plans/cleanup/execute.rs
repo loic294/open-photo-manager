@@ -78,6 +78,19 @@ pub(super) async fn execute(
             cursor = Some((depth, path.clone()));
             let rel = RelPath::new(&path).map_err(|err| PlanError::Internal(err.into()))?;
             let shown = display_path(&ctx.volumes, volume_id, &rel);
+            if ctx.soft_exclusions.touches(volume_id, &rel) {
+                result.skip_with_detail(
+                    None,
+                    shown,
+                    "soft_excluded",
+                    "The folder contains a soft exclusion",
+                );
+                ctx.item_processed();
+                checkpoint
+                    .save("cleanup-progress", &(&cursor, &result))
+                    .await?;
+                continue;
+            }
             if is_protected_path(&rel) {
                 result.skip_with_detail(
                     None,

@@ -164,6 +164,15 @@ async fn trash_sidecars(
         if let Some(row) = live(&ctx.db, id).await? {
             let loc = row.loc()?;
             let path = display_path(&ctx.volumes, loc.volume_id, &loc.rel);
+            if ctx.soft_exclusions.contains(loc.volume_id, &loc.rel) {
+                result.skip_with_detail(
+                    Some(id),
+                    path,
+                    "soft_excluded",
+                    "The folder is soft-excluded from tools",
+                );
+                continue;
+            }
             let request = TrashRequest {
                 file_id: Some(id),
                 loc,
@@ -323,6 +332,15 @@ async fn process(
         .into_iter()
         .filter(|(id, _)| !deletion.contains(id))
         .collect();
+    if ctx.soft_exclusions.contains(loc.volume_id, &loc.rel) {
+        result.skip_with_detail(
+            Some(id),
+            path,
+            "soft_excluded",
+            "The folder is soft-excluded from tools",
+        );
+        return Ok(());
+    }
     if candidates.is_empty() {
         result.skip_with_detail(
             Some(id),
@@ -364,6 +382,12 @@ async fn process(
         let Some(other) = live(&ctx.db, candidate).await? else {
             continue;
         };
+        if ctx
+            .soft_exclusions
+            .contains(other.volume_id, &other.loc()?.rel)
+        {
+            continue;
+        }
         if !row.media()? || !other.media()? {
             continue;
         }

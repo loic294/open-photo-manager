@@ -12,7 +12,13 @@ import '@/components/opm-select';
 import { toast } from '@/components/toast';
 import { UnsavedGuard } from '@/controllers/unsaved-guard';
 import { indexStatus } from '@/stores/index-status';
-import { includeFolder, loadSettings, saveSettings, settings } from '@/stores/settings';
+import {
+  includeFolder,
+  loadSettings,
+  saveSettings,
+  settings,
+  softIncludeFolder,
+} from '@/stores/settings';
 import { volumes } from '@/stores/volumes';
 import {
   DEFAULT_TRASH_RETENTION_DAYS,
@@ -486,7 +492,7 @@ export class OpmSettingsGeneral extends OpmElement {
         @submit=${(event: Event) => event.preventDefault()}
       >
         ${this.renderAlert()} ${this.renderFiles(doc)} ${this.renderMoving(doc)}
-        ${this.renderIndexing(doc)} ${this.renderVolumes()} ${this.renderExcluded()}
+        ${this.renderIndexing(doc)} ${this.renderVolumes()} ${this.renderExcluded()} ${this.renderExcluded(true)}
         ${this.dirty ? this.renderActionBar() : nothing}
       </form>
     `;
@@ -711,21 +717,22 @@ export class OpmSettingsGeneral extends OpmElement {
     `;
   }
 
-  private renderExcluded() {
-    const excluded = settings.value?.excluded_folders ?? [];
+  private renderExcluded(soft = false) {
+    const excluded =
+      (soft ? settings.value?.soft_excluded_folders : settings.value?.excluded_folders) ?? [];
     return html`
-      <fieldset class=${CARD} data-excluded-folders>
-        <legend class="fieldset-legend text-base">Excluded folders</legend>
+      <fieldset class=${CARD} ?data-excluded-folders=${!soft} ?data-soft-excluded-folders=${soft}>
+        <legend class="fieldset-legend text-base">${soft ? 'Soft-excluded folders' : 'Excluded folders'}</legend>
         <p class="text-base-content/70">
-          Excluded folders are left out of the index and of every tool; their files stay on disk.
+          ${soft ? 'Soft-excluded folders and their subfolders remain indexed and visible, but are left out of all tool plans.' : 'Excluded folders are left out of the index and of every tool; their files stay on disk.'}
           Right-click a folder in a pane to exclude it.
         </p>
         ${
           excluded.length === 0
-            ? html`<p class="text-base-content/70">No folder is excluded.</p>`
+            ? html`<p class="text-base-content/70">${soft ? 'No folder is soft-excluded.' : 'No folder is excluded.'}</p>`
             : html`
               <ul class="list rounded-box bg-base-100">
-                ${excluded.map((folder) => this.renderExcludedRow(folder))}
+                ${excluded.map((folder) => this.renderExcludedRow(folder, soft))}
               </ul>
             `
         }
@@ -733,9 +740,9 @@ export class OpmSettingsGeneral extends OpmElement {
     `;
   }
 
-  private renderExcludedRow(folder: ExcludedFolder) {
+  private renderExcludedRow(folder: ExcludedFolder, soft = false) {
     const volume = volumes.value.find((candidate) => candidate.id === folder.volume_id);
-    const busy = this.including.has(excludedKey(folder));
+    const busy = this.including.has(`${soft ? 'soft:' : ''}${excludedKey(folder)}`);
     return html`
       <li class="list-row items-center gap-2 py-2">
         <opm-icon name="folder-x" size="sm" class="text-base-content/60"></opm-icon>
@@ -747,21 +754,26 @@ export class OpmSettingsGeneral extends OpmElement {
           type="button"
           class="btn btn-sm"
           ?disabled=${busy}
-          @click=${() => this.onInclude(folder)}
+          @click=${() => this.onInclude(folder, soft)}
         >
           ${busy ? html`<span class="loading loading-spinner loading-xs"></span>` : nothing}
-          Include again
+          ${soft ? 'Include in tools' : 'Include again'}
         </button>
       </li>
     `;
   }
 
-  private async onInclude(folder: ExcludedFolder): Promise<void> {
-    const key = excludedKey(folder);
+  private async onInclude(folder: ExcludedFolder, soft = false): Promise<void> {
+    const key = `${soft ? 'soft:' : ''}${excludedKey(folder)}`;
     this.including = new Set([...this.including, key]);
     try {
-      await includeFolder(folder);
-      toast.success(`Included ${folder.path} again; it is being indexed`);
+      if (soft) await softIncludeFolder(folder);
+      else await includeFolder(folder);
+      toast.success(
+        soft
+          ? `Removed soft exclusion for ${folder.path}`
+          : `Included ${folder.path} again; it is being indexed`,
+      );
     } catch (error) {
       toast.error(errorMessage(error, 'Could not include the folder'));
     } finally {

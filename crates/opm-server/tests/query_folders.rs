@@ -17,6 +17,44 @@ use query_support::{Fixture, FolderExpect, MatrixFilter, Spec};
 
 const KINDS: [KindFilter; 2] = [KindFilter::Assets, KindFilter::All];
 
+#[tokio::test]
+async fn tool_folder_exclusions_are_volume_local_subtrees_and_support_the_full_settings_limit() {
+    use opm_core::dto::{ExcludedFolder, SettingsDto};
+    let mut fixture = Fixture::empty().await;
+    let volume = fixture.photos;
+    let other = fixture.backup;
+    fixture
+        .add(volume, "2019%_/nested", "hidden.jpg", Spec::default())
+        .await;
+    let sibling = fixture
+        .add(volume, "2019%_.old", "visible.jpg", Spec::default())
+        .await;
+    let foreign = fixture
+        .add(other, "2019%_", "visible.jpg", Spec::default())
+        .await;
+    let mut folders: Vec<_> = (0..SettingsDto::MAX_EXCLUDED_FOLDERS - 1)
+        .map(|n| ExcludedFolder {
+            volume_id: volume,
+            path: format!("unused-{n}"),
+        })
+        .collect();
+    folders.push(ExcludedFolder {
+        volume_id: volume,
+        path: "2019%_".into(),
+    });
+    let query = qs::query(
+        &qs::scope(None, "", true),
+        &Filter::default(),
+        KindFilter::Assets,
+    )
+    .excluding(&FileQuery::folder_exclusions(&folders).unwrap());
+    let mut ids = query.ids(fixture.db()).await.unwrap();
+    ids.sort_unstable();
+    let mut expected = vec![sibling, foreign];
+    expected.sort_unstable();
+    assert_eq!(ids, expected);
+}
+
 fn expect(row: FolderRow) -> FolderExpect {
     FolderExpect {
         name: row.name,

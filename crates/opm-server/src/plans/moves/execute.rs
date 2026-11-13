@@ -134,6 +134,12 @@ impl super::Revalidate for MovesHook {
                 let Some(other) = live(&ctx.db, id).await? else {
                     return Ok(Err("stale_match"));
                 };
+                if ctx
+                    .soft_exclusions
+                    .contains(other.volume_id, &other.loc()?.rel)
+                {
+                    return Ok(Err("soft_excluded"));
+                }
                 if !is_match(
                     self.params.match_mode.unwrap_or_default(),
                     &row.facts()?,
@@ -289,7 +295,16 @@ pub(crate) async fn run(
             }
             Err(error) => return Err(error.into()),
         };
-        let validation = if let Some(MoveOutcome::Moved { file_id, .. }) = &completed {
+        let destination_path = RelPath::new(&item.dst_dir).map_err(anyhow::Error::from)?;
+        let validation = if ctx
+            .soft_exclusions
+            .contains(item.src_volume_id, &source_path)
+            || ctx
+                .soft_exclusions
+                .contains(item.dst_volume_id, &destination_path)
+        {
+            Err("soft_excluded")
+        } else if let Some(MoveOutcome::Moved { file_id, .. }) = &completed {
             let mut conn = ctx.db.read().acquire().await?;
             if *file_id == item.file_id
                 && crate::plans::file_identity::is_live(&mut conn, ctx.plan_id, item.file_id)
