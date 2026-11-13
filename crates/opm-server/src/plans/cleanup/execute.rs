@@ -71,10 +71,10 @@ pub(super) async fn execute(
             break;
         }
         for (depth, path) in rows {
-            if ctx.cancelled() {
+            let Some(_mutation) = ctx.fsops.mutation_guard(&ctx.task.cancel).await else {
                 result.mark_cancelled();
                 return Ok(result.finish());
-            }
+            };
             cursor = Some((depth, path.clone()));
             let rel = RelPath::new(&path).map_err(|err| PlanError::Internal(err.into()))?;
             let shown = display_path(&ctx.volumes, volume_id, &rel);

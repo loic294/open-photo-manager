@@ -9,6 +9,8 @@ use opm_core::paths::TaskId;
 
 use super::model::Lane;
 
+pub(super) const MAX_RUNNING: usize = 3;
+
 /// How many tasks of each lane run at once.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub struct LaneLimits {
@@ -76,21 +78,29 @@ impl<T> Scheduler<T> {
         self.lane_mut(lane).queue.push_back((id, item));
     }
 
-    /// Takes the next task allowed to start and counts it as running. A lane whose slots are all
-    /// busy is skipped, so lanes never wait for each other; inside a lane the order is FIFO.
+    /// Starts the oldest eligible task, respecting both lane limits and the shared three slots.
     pub(super) fn start_next(&mut self) -> Option<T> {
-        for lane in Lane::ALL {
-            let limit = self.limits.get(lane);
-            let state = self.lane_mut(lane);
-            if state.running >= limit {
-                continue;
-            }
-            if let Some((_, item)) = state.queue.pop_front() {
-                state.running += 1;
-                return Some(item);
-            }
+        if Lane::ALL
+            .iter()
+            .map(|lane| self.lane(*lane).running)
+            .sum::<usize>()
+            >= MAX_RUNNING
+        {
+            return None;
         }
-        None
+        let (_, lane) = Lane::ALL
+            .into_iter()
+            .filter_map(|lane| {
+                let state = self.lane(lane);
+                (state.running < self.limits.get(lane))
+                    .then(|| state.queue.front().map(|(id, _)| (*id, lane)))
+                    .flatten()
+            })
+            .min_by_key(|(id, _)| *id)?;
+        let state = self.lane_mut(lane);
+        let (_, item) = state.queue.pop_front()?;
+        state.running += 1;
+        Some(item)
     }
 
     /// A running task of `lane` ended: its slot is free again.
@@ -127,6 +137,14 @@ impl<T> Scheduler<T> {
         }
     }
 
+    fn lane(&self, lane: Lane) -> &LaneState<T> {
+        match lane {
+            Lane::Fs => &self.fs,
+            Lane::Index => &self.index,
+            Lane::Immich => &self.immich,
+        }
+    }
+
     #[cfg(test)]
     fn queued(&self, lane: Lane) -> Vec<TaskId> {
         let state = match lane {
@@ -152,13 +170,61 @@ mod tests {
     use super::*;
 
     fn scheduler() -> Scheduler<&'static str> {
-        Scheduler::new(LaneLimits::default())
+        Scheduler::new(LaneLimits {
+            fs: 1,
+            index: 1,
+            immich: 2,
+        })
     }
 
     #[test]
-    fn default_limits_are_one_one_two() {
+    fn default_limits_allow_three_in_any_lane() {
         let limits = LaneLimits::default();
-        assert_eq!((limits.fs, limits.index, limits.immich), (1, 1, 2));
+        assert_eq!((limits.fs, limits.index, limits.immich), (3, 3, 3));
+    }
+
+    #[test]
+    fn three_slots_are_shared_across_lanes_even_with_higher_custom_limits() {
+        for lanes in [
+            [Lane::Fs; 4],
+            [Lane::Index; 4],
+            [Lane::Immich; 4],
+            [Lane::Fs, Lane::Index, Lane::Immich, Lane::Fs],
+        ] {
+            let mut scheduler = Scheduler::new(LaneLimits {
+                fs: 10,
+                index: 10,
+                immich: 10,
+            });
+            for (id, lane) in (1..).zip(lanes) {
+                scheduler.enqueue(lane, id, id);
+            }
+            assert_eq!(scheduler.start_next(), Some(1));
+            assert_eq!(scheduler.start_next(), Some(2));
+            assert_eq!(scheduler.start_next(), Some(3));
+            assert_eq!(scheduler.start_next(), None);
+            scheduler.finish(lanes[0]);
+            assert_eq!(scheduler.start_next(), Some(4));
+            assert_eq!(scheduler.start_next(), None);
+        }
+    }
+
+    #[test]
+    fn waiting_lanes_get_slots_in_submission_order() {
+        let mut scheduler = Scheduler::new(LaneLimits::default());
+        for id in 1..=3 {
+            scheduler.enqueue(Lane::Fs, id, id);
+            assert_eq!(scheduler.start_next(), Some(id));
+        }
+        scheduler.enqueue(Lane::Immich, 4, 4);
+        scheduler.enqueue(Lane::Fs, 5, 5);
+        scheduler.enqueue(Lane::Index, 6, 6);
+        scheduler.finish(Lane::Fs);
+        assert_eq!(scheduler.start_next(), Some(4));
+        scheduler.finish(Lane::Fs);
+        assert_eq!(scheduler.start_next(), Some(5));
+        scheduler.finish(Lane::Immich);
+        assert_eq!(scheduler.start_next(), Some(6));
     }
 
     #[test]

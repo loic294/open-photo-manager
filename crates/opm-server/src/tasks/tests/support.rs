@@ -69,6 +69,17 @@ impl Harness {
         Self::with(fast()).await
     }
 
+    pub(super) async fn serial_fs() -> Self {
+        Self::with(TaskOptions {
+            concurrency: crate::tasks::LaneLimits {
+                fs: 1,
+                ..Default::default()
+            },
+            ..fast()
+        })
+        .await
+    }
+
     pub(super) async fn with(options: TaskOptions) -> Self {
         let db = Db::open_temp().await.unwrap();
         let shutdown = CancellationToken::new();

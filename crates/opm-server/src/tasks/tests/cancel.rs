@@ -13,7 +13,7 @@ use crate::tasks::TaskError;
 
 #[tokio::test]
 async fn a_queued_task_is_cancelled_and_its_runner_never_starts() {
-    let h = Harness::new().await;
+    let h = Harness::serial_fs().await;
     let mut events = h.events();
     let mut gate = Gate::new();
     let first = h.engine.submit(fs(), gate.runner()).await.unwrap();
@@ -62,7 +62,7 @@ async fn a_queued_task_is_cancelled_and_its_runner_never_starts() {
 
 #[tokio::test]
 async fn cancelling_a_queued_task_lets_the_next_one_move_up() {
-    let h = Harness::new().await;
+    let h = Harness::serial_fs().await;
     let mut gate = Gate::new();
     let first = h.engine.submit(fs(), gate.runner()).await.unwrap();
     assert_eq!(gate.started().await, first);
@@ -123,7 +123,7 @@ async fn cancelling_twice_is_fine() {
 
 #[tokio::test]
 async fn cancelling_a_queued_task_twice_at_once_gives_both_callers_the_same_answer() {
-    let h = Harness::new().await;
+    let h = Harness::serial_fs().await;
     let mut events = h.events();
     let mut gate = Gate::new();
     let first = h.engine.submit(fs(), gate.runner()).await.unwrap();
@@ -147,7 +147,7 @@ async fn cancelling_a_queued_task_twice_at_once_gives_both_callers_the_same_answ
 
 #[tokio::test]
 async fn a_task_that_a_shutdown_is_closing_cannot_be_cancelled() {
-    let h = Harness::new().await;
+    let h = Harness::serial_fs().await;
     let mut gate = Gate::new();
     let first = h.engine.submit(fs(), gate.runner()).await.unwrap();
     assert_eq!(gate.started().await, first);
@@ -186,7 +186,7 @@ async fn a_task_that_ended_another_way_cannot_be_cancelled() {
 
 #[tokio::test]
 async fn a_runner_that_ignores_the_token_keeps_its_lane_until_it_returns() {
-    let h = Harness::new().await;
+    let h = Harness::serial_fs().await;
     let mut gate = Gate::new();
     let (finish, hold) = oneshot::channel::<()>();
     let (entered, running) = oneshot::channel::<()>();

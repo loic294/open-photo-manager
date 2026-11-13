@@ -49,9 +49,10 @@
 //! restart. The wire calls the success state `done`; the table calls it `succeeded` (one mapping
 //! function in `model.rs`, unit-tested).
 //!
-//! * Lanes: `fs` (moves, trash, rmdir, plan execution, trash emptying) runs 1 task at a time,
-//!   `index` 1, `immich` 2. Tasks of one lane start in submission order; lanes never wait for each
-//!   other. [`Lane::for_kind`] picks the default lane, [`TaskSpec::with_lane`] overrides it.
+//! * At most three tasks run across `fs` (moves, trash, rmdir, plan execution, trash emptying),
+//!   `index` and `immich`. Any lane can use all three slots. The oldest eligible queued task
+//!   starts next; custom lane limits can narrow concurrency but never raise the global cap.
+//!   [`Lane::for_kind`] picks the default lane, [`TaskSpec::with_lane`] overrides it.
 //! * A runner returning `Ok(value)` makes the task `done`, `Err(TaskError::Failed(message))` makes
 //!   it `failed` (the message is shown to the user: keep secrets out of it), and
 //!   `Err(TaskError::Cancelled)` makes it `cancelled`. A runner that finishes while its `cancel`
@@ -180,7 +181,7 @@ impl Default for Retention {
 /// Knobs of the engine; the defaults are what the server runs with, tests shorten the intervals.
 #[derive(Clone, Debug)]
 pub struct TaskOptions {
-    /// Tasks running at once per lane (fs 1, index 1, immich 2).
+    /// Per-lane limits (default 3 each), always bounded by the shared three-task cap.
     pub concurrency: LaneLimits,
     /// Pause between two samples of a running task, hence the shortest gap between two of its
     /// progress events (200 ms).

@@ -169,9 +169,11 @@ impl TrashService {
             checkpoint.load("purge-progress").await?.unwrap_or_default();
         ctx.progress.add(next as i64, report.bytes as i64);
         for (index, item) in items.iter().enumerate().skip(next) {
-            if ctx.cancel.is_cancelled() {
-                return Err(TaskError::Cancelled);
-            }
+            let _mutation = self
+                .fsops
+                .mutation_guard(&ctx.cancel)
+                .await
+                .ok_or(TaskError::Cancelled)?;
             let loc = crate::fsops::Loc::new(
                 item.volume_id,
                 opm_core::paths::RelPath::new(&item.trash_path).map_err(AppError::internal)?,

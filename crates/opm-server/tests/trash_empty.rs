@@ -469,7 +469,7 @@ async fn a_second_request_for_the_same_items_queues_behind_and_finds_nothing_lef
         fx.app.state.tasks.get(second).await.unwrap().state,
         TaskState::Queued
     );
-    gate.open();
+    gate.open_one();
 
     assert_eq!(fx.finished(gate.task).await.state, TaskState::Done);
     let first = fx.finished(first).await;
@@ -479,6 +479,7 @@ async fn a_second_request_for_the_same_items_queues_behind_and_finds_nothing_lef
     assert_eq!(second.state, TaskState::Done, "{:?}", second.error);
     assert_eq!(second.title, "Deleted 0 items");
     assert!(fx.ids().await.is_empty());
+    gate.open();
 }
 
 #[tokio::test]

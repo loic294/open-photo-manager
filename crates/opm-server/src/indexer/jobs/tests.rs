@@ -19,7 +19,7 @@ use crate::db::{Db, TempDb};
 use crate::indexer::test_support::touch;
 use crate::indexer::{FakeExtractor, VolumeRegistry};
 use crate::settings::SettingsService;
-use crate::tasks::ProgressView;
+use crate::tasks::{LaneLimits, ProgressView, TaskOptions};
 
 /// How long a test waits for something that has to happen.
 const PATIENCE: Duration = Duration::from_secs(10);
@@ -217,7 +217,19 @@ impl Fixture {
             .await
             .unwrap();
         let shutdown = CancellationToken::new();
-        let tasks = TaskEngine::new(db.clone(), shutdown.clone()).await.unwrap();
+        let tasks = TaskEngine::with_options(
+            db.clone(),
+            shutdown.clone(),
+            TaskOptions {
+                concurrency: LaneLimits {
+                    index: 1,
+                    ..LaneLimits::default()
+                },
+                ..TaskOptions::default()
+            },
+        )
+        .await
+        .unwrap();
         let indexer = Indexer::new(db.clone(), settings.clone(), volumes.clone())
             .with_extractor(Arc::new(FakeExtractor::unavailable("tests")));
         let fsops = FsOps::new(db, volumes.clone(), settings.clone(), indexer.clone());

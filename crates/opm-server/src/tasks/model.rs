@@ -22,11 +22,10 @@ use crate::error::AppError;
 pub const INTERRUPTED_BY_RESTART: &str = "interrupted by restart";
 
 /// A queue with its own concurrency limit. The tasks of one lane start in submission order (FIFO)
-/// and lanes never wait for each other, so a long scan does not hold up a file move.
+/// within the engine's shared three-task limit.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash, PartialOrd, Ord)]
 pub enum Lane {
-    /// File operations: moves, trash, rmdir, plan execution. One at a time, so two operations
-    /// never race for the same files.
+    /// File operations: moves, trash, rmdir, plan execution.
     Fs,
     /// Scanning, metadata extraction, hashing and thumbnails.
     Index,
@@ -51,11 +50,10 @@ impl Lane {
         }
     }
 
-    /// How many tasks of this lane run at once by default: `fs` 1, `index` 1, `immich` 2.
+    /// Any lane may use all three shared task slots.
     pub const fn default_concurrency(self) -> usize {
         match self {
-            Self::Fs | Self::Index => 1,
-            Self::Immich => 2,
+            Self::Fs | Self::Index | Self::Immich => super::lanes::MAX_RUNNING,
         }
     }
 
@@ -314,10 +312,10 @@ mod tests {
     }
 
     #[test]
-    fn default_concurrency_is_one_one_two() {
-        assert_eq!(Lane::Fs.default_concurrency(), 1);
-        assert_eq!(Lane::Index.default_concurrency(), 1);
-        assert_eq!(Lane::Immich.default_concurrency(), 2);
+    fn default_concurrency_is_three_per_lane() {
+        assert_eq!(Lane::Fs.default_concurrency(), 3);
+        assert_eq!(Lane::Index.default_concurrency(), 3);
+        assert_eq!(Lane::Immich.default_concurrency(), 3);
     }
 
     #[test]

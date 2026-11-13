@@ -270,6 +270,10 @@ not accepted by **Folder formatting**. The examples use the generated sample fil
 
 3. **Indexing** controls scans, hashing, thumbnails, watches and periodic repair.
    The top-right task indicator lets background work proceed without locking the rest of the app.
+   Up to three tasks run at once across indexing, file operations and Immich; additional tasks
+   wait in submission order. Multiple move/delete tasks can progress together. Each file or
+   owner/sidecar group is rechecked and changed as one synchronized unit, so tasks interleave
+   between items rather than racing a duplicate's last surviving copy.
    Failed and interrupted tasks remain visible until dismissed; dismissing history is not a retry.
    See [watcher fallback](synology.md#watcher-and-rescan-fallback) and
    [indexing troubleshooting](troubleshooting.md#indexing).

@@ -256,10 +256,10 @@ pub(super) async fn execute(
         .progress
         .add(next as i64, result.bytes_done() as i64);
     for (index, (volume, dir, name, id)) in ordered.into_iter().enumerate().skip(next) {
-        if ctx.cancelled() {
+        let Some(_mutation) = ctx.fsops.mutation_guard(&ctx.task.cancel).await else {
             result.mark_cancelled();
             break;
-        }
+        };
         let before = result.counted();
         let previous = if name.is_empty() {
             None

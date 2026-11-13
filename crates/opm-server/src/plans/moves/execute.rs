@@ -260,10 +260,10 @@ pub(crate) async fn run(
             .into_iter()
             .collect();
     for (index, item) in items.into_iter().enumerate().skip(next) {
-        if ctx.cancelled() {
+        let Some(_mutation) = ctx.fsops.mutation_guard(&ctx.task.cancel).await else {
             result.mark_cancelled();
             break;
-        }
+        };
         let source_path = RelPath::new(&item.src_dir)
             .and_then(|dir| dir.join(&item.src_name))
             .map_err(anyhow::Error::from)?;

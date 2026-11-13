@@ -761,6 +761,116 @@ async fn disk_pair(app: &TestApp, mode: MatchMode) -> (i64, i64, i64, common::Tr
     (volume, s, c, tree, plan)
 }
 
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+async fn simultaneous_opposite_deletions_keep_a_survivor_and_waiters_can_cancel() {
+    use opm_server::fsops::{FailAction, Failpoints, Step};
+    use std::sync::Mutex;
+
+    let mut app = TestApp::new().await;
+    let (entered_tx, mut entered) = tokio::sync::oneshot::channel();
+    let entered_tx = Mutex::new(Some(entered_tx));
+    let (release, released) = std::sync::mpsc::channel();
+    let released = Mutex::new(released);
+    let fsops = app
+        .state
+        .fsops
+        .clone()
+        .with_failpoints(Failpoints::new(move |step| {
+            if step == Step::AfterJournal {
+                let entered = entered_tx.lock().unwrap().take();
+                if let Some(entered) = entered {
+                    entered.send(()).unwrap();
+                    tokio::task::block_in_place(|| {
+                        released
+                            .lock()
+                            .unwrap()
+                            .recv_timeout(Duration::from_secs(10))
+                            .unwrap();
+                    });
+                }
+            }
+            FailAction::Continue
+        }));
+    app.state.plans = PlanService::new(deps(&app, fsops)).await.unwrap();
+    app.router = opm_server::app::router(app.state.clone());
+    let (volume, _, _, tree, first) = disk_pair(&app, MatchMode::Hash).await;
+    let parameters = params(MatchMode::Hash, side(volume, "a"), side(volume, "b"));
+    let second = build(&app, &parameters).await;
+    let cancelled = build(&app, &parameters).await;
+    let mut tasks = Vec::new();
+    for (plan, action) in [
+        (first.id, "delete_comparison"),
+        (second.id, "delete_source"),
+        (cancelled.id, "delete_comparison"),
+    ] {
+        let (status, body) = app
+            .call(
+                Method::POST,
+                &format!("/api/plans/{plan}/execute"),
+                Some(json!({"options": {"action": action}, "only": null})),
+            )
+            .await;
+        assert_eq!(status, StatusCode::ACCEPTED, "{body}");
+        tasks.push(body["id"].as_i64().unwrap());
+        if tasks.len() == 1 {
+            tokio::time::timeout(Duration::from_secs(5), &mut entered)
+                .await
+                .unwrap()
+                .unwrap();
+        }
+    }
+    assert_eq!(
+        app.state.tasks.get(tasks[1]).await.unwrap().state,
+        TaskState::Running
+    );
+    assert!(
+        tokio::time::timeout(
+            Duration::from_millis(150),
+            app.state.tasks.wait_finished(tasks[1])
+        )
+        .await
+        .is_err(),
+        "the second deletion must wait for the first survivor check and mutation"
+    );
+    app.state.tasks.cancel(tasks[2]).await.unwrap();
+    let cancelled = tokio::time::timeout(
+        Duration::from_secs(1),
+        app.state.tasks.wait_finished(tasks[2]),
+    )
+    .await
+    .unwrap()
+    .unwrap();
+    assert_eq!(cancelled.state, TaskState::Cancelled);
+    release.send(()).unwrap();
+    for id in &tasks[..2] {
+        let done = app.state.tasks.wait_finished(*id).await.unwrap();
+        assert_eq!(done.state, TaskState::Done, "{:?}", done.error);
+    }
+    assert!(tree.path("a/one.jpg").exists());
+    assert!(!tree.path("b/one.jpg").exists());
+    assert_eq!(
+        app.state
+            .plans
+            .get(first.id)
+            .await
+            .unwrap()
+            .result
+            .unwrap()
+            .done,
+        1
+    );
+    let result = app
+        .state
+        .plans
+        .get(second.id)
+        .await
+        .unwrap()
+        .result
+        .unwrap();
+    assert_eq!((result.done, result.skipped, result.failed), (0, 1, 0));
+    app.state.begin_shutdown();
+}
+
 #[tokio::test]
 async fn both_delete_actions_use_one_trash_batch_and_restore() {
     for action in [

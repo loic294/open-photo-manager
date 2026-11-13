@@ -94,6 +94,21 @@ impl Gate {
             .expect("the gate keeps its sender")
     }
 
+    async fn fill_slots(&mut self, app: &TestApp, kind: TaskKind) -> Vec<TaskId> {
+        let mut ids = Vec::new();
+        for _ in 0..3 {
+            let id = app
+                .state
+                .tasks
+                .submit(spec(kind, "Running"), self.runner())
+                .await
+                .unwrap();
+            assert_eq!(self.started().await, id);
+            ids.push(id);
+        }
+        ids
+    }
+
     /// Fails if a runner starts within a short while.
     async fn assert_nothing_starts(&mut self) {
         if let Ok(started) =
@@ -153,13 +168,8 @@ async fn the_list_has_the_running_task_then_the_queued_ones_then_the_finished_ne
     let first = run_to_the_end(&app, TaskKind::FsMove, "First").await;
     let second = run_to_the_end(&app, TaskKind::FsTrash, "Second").await;
 
-    // The `fs` lane runs one task at a time, so the last two wait behind the gate.
     let mut gate = Gate::new();
-    let running = tasks
-        .submit(spec(TaskKind::FsMove, "Running"), gate.runner())
-        .await
-        .unwrap();
-    assert_eq!(gate.started().await, running);
+    let running = gate.fill_slots(&app, TaskKind::FsMove).await;
     let queued_a = tasks
         .submit(spec(TaskKind::FsMove, "Queued A"), gate.runner())
         .await
@@ -172,23 +182,31 @@ async fn the_list_has_the_running_task_then_the_queued_ones_then_the_finished_ne
     let listed = list(&app).await;
     assert_eq!(
         ids(&listed),
-        [running, queued_a, queued_b, second, first],
+        [
+            running[0], running[1], running[2], queued_a, queued_b, second, first
+        ],
         "{listed:?}"
     );
     assert_eq!(
         states(&listed),
-        ["running", "queued", "queued", "done", "done"]
+        [
+            "running", "running", "running", "queued", "queued", "done", "done"
+        ]
     );
 
-    gate.release(3);
-    within(tasks.wait_finished(queued_b)).await.unwrap();
+    for id in running.iter().copied().chain([queued_a, queued_b]) {
+        gate.release(1);
+        within(tasks.wait_finished(id)).await.unwrap();
+    }
     let listed = list(&app).await;
     assert_eq!(
         ids(&listed),
-        [queued_b, queued_a, running, second, first],
+        [
+            queued_b, queued_a, running[2], running[1], running[0], second, first
+        ],
         "newest first once everything is over: {listed:?}"
     );
-    assert_eq!(states(&listed), ["done"; 5]);
+    assert_eq!(states(&listed), ["done"; 7]);
 }
 
 #[tokio::test]
@@ -196,7 +214,7 @@ async fn a_task_is_listed_with_the_fields_of_the_dto() {
     let app = TestApp::new().await;
     let tasks = &app.state.tasks;
     let finished = run_to_the_end(&app, TaskKind::FsTrash, "Trash 3 files").await;
-    // The index lane is independent of the fs lane, and the second move waits behind the first.
+    // Fill the three shared slots so the second move stays queued.
     let mut gate = Gate::new();
     let indexing = tasks
         .submit(spec(TaskKind::Index, "Index photos"), gate.runner())
@@ -208,6 +226,11 @@ async fn a_task_is_listed_with_the_fields_of_the_dto() {
         .await
         .unwrap();
     assert_eq!(gate.started().await, moving);
+    let syncing = tasks
+        .submit(spec(TaskKind::ImmichSync, "Sync photos"), gate.runner())
+        .await
+        .unwrap();
+    assert_eq!(gate.started().await, syncing);
     let waiting = tasks
         .submit(spec(TaskKind::FsMove, "Move 4 files"), gate.runner())
         .await
@@ -253,7 +276,7 @@ async fn a_task_is_listed_with_the_fields_of_the_dto() {
 
     // Every entry reads back as the DTO the frontend is generated from.
     let parsed: Vec<TaskDto> = serde_json::from_value(Value::Array(listed.clone())).unwrap();
-    assert_eq!(parsed.len(), 4);
+    assert_eq!(parsed.len(), 5);
 
     app.state.begin_shutdown();
     app.state.shutdown().await;
@@ -305,11 +328,7 @@ async fn cancelling_a_queued_task_answers_202_with_the_cancelled_task_and_it_nev
     let app = TestApp::new().await;
     let tasks = &app.state.tasks;
     let mut gate = Gate::new();
-    let running = tasks
-        .submit(spec(TaskKind::FsMove, "Running"), gate.runner())
-        .await
-        .unwrap();
-    assert_eq!(gate.started().await, running);
+    let running = gate.fill_slots(&app, TaskKind::FsMove).await;
     let queued = tasks
         .submit(spec(TaskKind::FsMove, "Waiting"), gate.runner())
         .await
@@ -328,12 +347,17 @@ async fn cancelling_a_queued_task_answers_202_with_the_cancelled_task_and_it_nev
     assert_eq!(again["state"], "cancelled");
 
     let listed = list(&app).await;
-    assert_eq!(ids(&listed), [running, queued]);
-    assert_eq!(states(&listed), ["running", "cancelled"]);
+    assert_eq!(ids(&listed), [running[0], running[1], running[2], queued]);
+    assert_eq!(
+        states(&listed),
+        ["running", "running", "running", "cancelled"]
+    );
 
     // The lane frees up when the running task ends, but nothing is left to run in it.
-    gate.release(1);
-    within(tasks.wait_finished(running)).await.unwrap();
+    gate.release(3);
+    for id in running {
+        within(tasks.wait_finished(id)).await.unwrap();
+    }
     gate.assert_nothing_starts().await;
 }
 
@@ -416,11 +440,7 @@ async fn a_stopped_server_leaves_its_tasks_interrupted_for_the_next_start() {
     let app = TestApp::new().await;
     let tasks = &app.state.tasks;
     let mut gate = Gate::new();
-    let running = tasks
-        .submit(spec(TaskKind::Index, "Index photos"), gate.runner())
-        .await
-        .unwrap();
-    assert_eq!(gate.started().await, running);
+    let running = gate.fill_slots(&app, TaskKind::Index).await;
     let queued = tasks
         .submit(spec(TaskKind::Index, "Index again"), gate.runner())
         .await
@@ -444,7 +464,9 @@ async fn a_stopped_server_leaves_its_tasks_interrupted_for_the_next_start() {
     assert_eq!(
         seen,
         [
-            (running, TaskState::Interrupted, restart),
+            (running[0], TaskState::Interrupted, restart),
+            (running[1], TaskState::Interrupted, restart),
+            (running[2], TaskState::Interrupted, restart),
             (queued, TaskState::Interrupted, restart)
         ]
     );

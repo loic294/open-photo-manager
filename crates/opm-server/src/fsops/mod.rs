@@ -20,6 +20,9 @@
 //!   used, so a symbolic link is never followed.
 //! * A failure of one item is a return value ([`FsOpError`] with a stable
 //!   [`code`](FsOpError::code)), never a panic and never the end of the other items.
+//! * Concurrent task runners hold `mutation_guard` from each item's live safety checks through
+//!   its filesystem changes. Tasks interleave between items, not between checking a duplicate's
+//!   last survivor and trashing it, or between moving an owner and its sidecars.
 //!
 //! # Calling it
 //! Every operation takes an [`OpContext`]: [`OpContext::from_task`] inside a task runner,
@@ -336,6 +339,7 @@ pub struct FsOps {
     failpoints: Option<Failpoints>,
     /// One recovery pass at a time: two passes over the same row would race.
     reconcile_lock: Arc<tokio::sync::Mutex<()>>,
+    mutation_lock: Arc<tokio::sync::Mutex<()>>,
 }
 
 impl fmt::Debug for FsOps {
@@ -367,6 +371,19 @@ impl FsOps {
             free_space: Arc::new(SystemFreeSpace),
             failpoints: None,
             reconcile_lock: Arc::default(),
+            mutation_lock: Arc::default(),
+        }
+    }
+
+    /// Keeps a task item's revalidation and mutations together. Cancellation also stops a waiter.
+    pub(crate) async fn mutation_guard(
+        &self,
+        cancel: &tokio_util::sync::CancellationToken,
+    ) -> Option<tokio::sync::MutexGuard<'_, ()>> {
+        tokio::select! {
+            biased;
+            () = cancel.cancelled() => None,
+            guard = self.mutation_lock.lock() => Some(guard),
         }
     }
 

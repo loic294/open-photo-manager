@@ -846,13 +846,13 @@ async fn new_engine(
 /// Keeps the file operations lane busy with a task that does nothing until it is released, so
 /// a plan task submitted meanwhile stays `queued`.
 pub struct LaneBlock {
-    release: Option<oneshot::Sender<()>>,
+    release: Vec<oneshot::Sender<()>>,
     pub task_id: TaskId,
 }
 
 impl LaneBlock {
-    pub fn release(mut self) {
-        if let Some(release) = self.release.take() {
+    pub fn release(self) {
+        for release in self.release {
             let _ = release.send(());
         }
     }
@@ -1053,32 +1053,38 @@ impl Harness {
 
     /// Occupies the lane `plan_execute` tasks run in, until the block is released.
     pub async fn block_lane(&self) -> LaneBlock {
-        let (release, released) = oneshot::channel::<()>();
-        let (started, running) = oneshot::channel::<()>();
-        let task_id = self
-            .app
-            .state
-            .tasks
-            .submit(
-                TaskSpec::new(TaskKind::FsMove, "Block the lane"),
-                move |ctx: TaskCtx| async move {
-                    let _ = started.send(());
-                    tokio::select! {
-                        _ = released => {}
-                        () = ctx.cancel.cancelled() => {}
-                    }
-                    Ok(json!({}))
-                },
-            )
-            .await
-            .unwrap();
-        tokio::time::timeout(PATIENCE, running)
-            .await
-            .expect("the blocker never started")
-            .unwrap();
+        let mut release = Vec::new();
+        let mut ids = Vec::new();
+        for _ in 0..3 {
+            let (sender, released) = oneshot::channel::<()>();
+            let (started, running) = oneshot::channel::<()>();
+            let task_id = self
+                .app
+                .state
+                .tasks
+                .submit(
+                    TaskSpec::new(TaskKind::FsMove, "Block the lane"),
+                    move |ctx: TaskCtx| async move {
+                        let _ = started.send(());
+                        tokio::select! {
+                            _ = released => {}
+                            () = ctx.cancel.cancelled() => {}
+                        }
+                        Ok(json!({}))
+                    },
+                )
+                .await
+                .unwrap();
+            tokio::time::timeout(PATIENCE, running)
+                .await
+                .expect("the blocker never started")
+                .unwrap();
+            release.push(sender);
+            ids.push(task_id);
+        }
         LaneBlock {
-            release: Some(release),
-            task_id,
+            release,
+            task_id: ids[0],
         }
     }
 
