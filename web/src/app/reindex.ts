@@ -22,7 +22,7 @@ export const reindexPending: ReadonlySignal<ReindexScope | null> = pending;
 /**
  * True while a re-index cannot start: one is already being started, or the event stream is down
  * (the server is out of reach, and a task started now could not be followed). The menu entries
- * are disabled, and both functions do nothing.
+ * are disabled, and re-index requests do nothing.
  */
 export const reindexDisabled: ReadonlySignal<boolean> = computed(
   () => pending.value !== null || DOWN.has(events.connection.value),
@@ -61,46 +61,56 @@ async function start(scope: ReindexScope, run: () => Promise<void>): Promise<voi
 }
 
 /**
- * Re-indexes the folders shown in the panes, subfolders included: the server re-processes every
- * file there (`force`: metadata, checksums and thumbnails, even when size and modification time
- * are unchanged), and the progress shows in the task indicator like any other task. With no folder
- * open (both panes at the volumes root) it only tells the user so and sends nothing.
+ * Re-indexes the folders shown in the panes, subfolders included. Full mode re-processes every
+ * file; changed mode discovers additions/removals and only re-processes new or changed files.
+ * With no folder open it only tells the user so and sends nothing.
  */
-export function reindexCurrentFolders(): Promise<void> {
-  return start('current', async () => {
+export function reindexCurrentFolders(mode: 'full' | 'changed' = 'full'): Promise<void> {
+  const changedOnly = mode === 'changed';
+  return start(changedOnly ? 'current-changed' : 'current', async () => {
     const targets = currentFolderTargets();
     if (targets.length === 0) {
       toast.info('Open a folder first');
       return;
     }
-    await rescan({ targets, force: true, confirm_removals: false });
-    toast.success(`Re-indexing ${plural(targets.length, 'folder')}`);
+    await rescan({ targets, force: !changedOnly, confirm_removals: false });
+    toast.success(
+      changedOnly
+        ? `Scanning ${plural(targets.length, 'folder')} for changes`
+        : `Re-indexing ${plural(targets.length, 'folder')}`,
+    );
   });
 }
 
-/** Re-indexes every file of every volume, after the user agreed it may take long. */
-export function reindexAllAssets(): Promise<void> {
-  return start('all', async () => {
+/** Scans every volume, fully or for changes, after the user agreed it may take long. */
+export function reindexAllAssets(mode: 'full' | 'changed' = 'full'): Promise<void> {
+  const changedOnly = mode === 'changed';
+  return start(changedOnly ? 'all-changed' : 'all', async () => {
     const confirmed = await confirmDialog({
-      title: 'Re-index all assets?',
+      title: changedOnly ? 'Scan all assets for changes?' : 'Re-index all assets?',
       message:
-        'This re-reads the metadata, checksums and thumbnails of every file in every volume. ' +
+        (changedOnly
+          ? 'This looks for new and removed files in every volume, and re-processes files whose ' +
+            'size or modification time changed. Unchanged files are not re-processed. '
+          : 'This re-reads the metadata, checksums and thumbnails of every file in every volume. ') +
         'It can take a long time on a large library, and you can keep using the app meanwhile.',
-      confirmLabel: 'Re-index all assets',
+      confirmLabel: changedOnly ? 'Scan for changes' : 'Re-index all assets',
     });
     if (!confirmed) return;
-    await rescan({ targets: [], force: true, confirm_removals: false });
-    toast.success('Re-indexing all assets');
+    await rescan({ targets: [], force: !changedOnly, confirm_removals: false });
+    toast.success(changedOnly ? 'Scanning all assets for changes' : 'Re-indexing all assets');
   });
 }
 
 const HANDLERS: Readonly<Record<ReindexScope, () => Promise<void>>> = {
   current: reindexCurrentFolders,
   all: reindexAllAssets,
+  'current-changed': () => reindexCurrentFolders('changed'),
+  'all-changed': () => reindexAllAssets('changed'),
 };
 
 /**
- * Makes the shell's "Re-index" menu entries work, by registering the two functions above as the
+ * Makes the shell's scan and re-index menu entries work, by registering the functions above as the
  * handlers of `app/app-actions` (so the "not available yet" toast never shows). The shell calls
  * this once; the result unregisters.
  */

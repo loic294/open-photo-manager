@@ -22,7 +22,7 @@ use axum::http::request::Builder;
 use axum::http::{Method, Request, StatusCode, header};
 use common::browse::{error_code, folders, items, names};
 use common::fsops::{Trap, crash_fx, loc, request as move_request};
-use common::{TestApp, Tree};
+use common::{BASE_MTIME, TestApp, Tree};
 use futures_util::future::BoxFuture;
 use http_body_util::BodyExt;
 use opm_core::dto::common::ConflictPolicy;
@@ -470,6 +470,45 @@ async fn a_rescan_of_folders_indexes_only_those_folders() {
     assert_eq!((count(&below, "added"), count(&below, "removed")), (1, 0));
     assert_eq!(listing(&lab.app, lab.volume, "a/sub").await, ["IMG_2.jpg"]);
     assert!(!indexed_dir(&lab.app, lab.volume, "b").await);
+}
+
+#[tokio::test]
+async fn a_changed_files_rescan_indexes_additions_removals_size_and_time_changes_only() {
+    let lab = Lab::new().await;
+    for name in ["same.jpg", "size.jpg", "time.jpg", "removed.jpg"] {
+        lab.tree.write(name, b"one");
+    }
+    rescan_result(&lab.app, json!({})).await;
+
+    lab.tree.write("added.jpg", b"new");
+    lab.tree.remove("removed.jpg");
+    lab.tree.write("size.jpg", b"longer");
+    lab.tree.set_mtime("time.jpg", BASE_MTIME + 10);
+
+    let result = rescan_result(
+        &lab.app,
+        json!({"targets": [], "force": false, "confirm_removals": false}),
+    )
+    .await;
+
+    assert_eq!(
+        [
+            count(&result, "added"),
+            count(&result, "removed"),
+            count(&result, "changed"),
+            count(&result, "extracted"),
+        ],
+        [1, 1, 2, 3],
+        "{result}"
+    );
+    assert_eq!(
+        listing(&lab.app, lab.volume, "").await,
+        ["added.jpg", "same.jpg", "size.jpg", "time.jpg"]
+    );
+    assert!(
+        lab.tree.path("same.jpg").is_file(),
+        "scanning only changes the index, not files on disk"
+    );
 }
 
 #[tokio::test]

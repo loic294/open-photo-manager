@@ -292,6 +292,74 @@ describe('reindexAllAssets', () => {
   });
 });
 
+describe('changed-files scans', () => {
+  it('scans current folders recursively without forcing unchanged files or removals', async () => {
+    show(['photos', 'trips'], ['photos', 'trips']);
+
+    await reindexCurrentFolders('changed');
+
+    expect(post).toHaveBeenCalledExactlyOnceWith(
+      ...rescanBody({
+        targets: [{ volume_id: 1, dir: 'trips', recursive: true }],
+        force: false,
+        confirm_removals: false,
+      }),
+    );
+    expect(messages()).toEqual([['success', 'Scanning 1 folder for changes']]);
+  });
+
+  it('requires an open folder for a current-folders scan', async () => {
+    await reindexCurrentFolders('changed');
+
+    expect(post).not.toHaveBeenCalled();
+    expect(messages()).toEqual([['info', 'Open a folder first']]);
+  });
+
+  it('explains the change criteria before scanning all volumes, and allows cancellation', async () => {
+    const run = reindexAllAssets('changed');
+    const dialog = await shownConfirm();
+
+    expect(dialog.title).toBe('Scan all assets for changes?');
+    expect(dialog.message).toContain('new and removed files in every volume');
+    expect(dialog.message).toContain('size or modification time changed');
+    expect(dialog.message).toContain('Unchanged files are not re-processed');
+    expect(post).not.toHaveBeenCalled();
+    expect(reindexPending.value).toBe('all-changed');
+
+    await pressConfirm('Cancel');
+    await run;
+
+    expect(post).not.toHaveBeenCalled();
+    expect(messages()).toEqual([]);
+    expect(reindexPending.value).toBeNull();
+  });
+
+  it('scans all volumes without force or removal confirmation once accepted', async () => {
+    show(['photos', 'trips']);
+    const run = reindexAllAssets('changed');
+
+    await pressConfirm('Scan for changes');
+    await run;
+
+    expect(post).toHaveBeenCalledExactlyOnceWith(
+      ...rescanBody({ targets: [], force: false, confirm_removals: false }),
+    );
+    expect(messages()).toEqual([['success', 'Scanning all assets for changes']]);
+  });
+
+  it('reports a refusal and releases the pending state', async () => {
+    show(['nas', 'photos']);
+    post.mockRejectedValueOnce(
+      new ApiError({ status: 409, code: 'volume_offline', message: 'Volume nas is offline' }),
+    );
+
+    await reindexCurrentFolders('changed');
+
+    expect(messages()).toEqual([['error', 'Volume nas is offline']]);
+    expect(reindexPending.value).toBeNull();
+  });
+});
+
 describe('while a re-index is being started', () => {
   it('is busy from the click until the server answered, and ignores clicks meanwhile', async () => {
     show(['photos', 'trips'], [null, '']);
@@ -305,6 +373,8 @@ describe('while a re-index is being started', () => {
 
     await reindexCurrentFolders();
     await reindexAllAssets();
+    await reindexCurrentFolders('changed');
+    await reindexAllAssets('changed');
     expect(post).toHaveBeenCalledTimes(1);
     expect(document.querySelector('opm-confirm-dialog')).toBeNull();
 
@@ -344,6 +414,8 @@ describe('while the event stream is down', () => {
       expect(reindexDisabled.value).toBe(true);
       await reindexCurrentFolders();
       await reindexAllAssets();
+      await reindexCurrentFolders('changed');
+      await reindexAllAssets('changed');
 
       expect(post).not.toHaveBeenCalled();
       expect(messages()).toEqual([]);
@@ -386,6 +458,25 @@ describe('startReindex', () => {
       await pressConfirm('Cancel');
       await vi.waitFor(() => expect(reindexPending.value).toBeNull());
       expect(post).toHaveBeenCalledTimes(1);
+
+      requestReindex('current-changed');
+      await vi.waitFor(() => expect(post).toHaveBeenCalledTimes(2));
+      await vi.waitFor(() => expect(reindexPending.value).toBeNull());
+      expect(post.mock.calls[1]).toEqual(
+        rescanBody({
+          targets: [{ volume_id: 1, dir: 'trips', recursive: true }],
+          force: false,
+          confirm_removals: false,
+        }),
+      );
+
+      requestReindex('all-changed');
+      await pressConfirm('Scan for changes');
+      await vi.waitFor(() => expect(post).toHaveBeenCalledTimes(3));
+      await vi.waitFor(() => expect(reindexPending.value).toBeNull());
+      expect(post.mock.calls[2]).toEqual(
+        rescanBody({ targets: [], force: false, confirm_removals: false }),
+      );
     } finally {
       stop();
     }
