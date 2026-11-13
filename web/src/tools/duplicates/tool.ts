@@ -13,7 +13,6 @@ export const duplicatesTool = defineTool({
     'Use filters and Include subfolders to narrow the files being compared. Review the matching files before acting.',
     'Select matches to limit the action, or leave the selection empty for all matches. Choose which side to delete, then confirm. Deleted files go to the trash.',
   ],
-  floatingActions: true,
   recursive: 'toggle',
   filter: { applies: 'choice' },
   panes: {

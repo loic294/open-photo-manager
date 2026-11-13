@@ -214,10 +214,12 @@ describe('opm-file-card', () => {
       expect(part(card, '[data-name]').textContent).toBe('IMG_0007.jpg');
     });
 
-    it('shows the size of the file in the name tooltip', async () => {
+    it('shows the full filename in a DaisyUI tooltip', async () => {
       const card = await mount('opm-file-card', { item: fileItem({ size: 4_200_000 }) });
 
-      expect(part(card, '[data-name]').getAttribute('title')).toBe('IMG_0007.jpg (4 MB)');
+      const name = part(card, '[data-name]');
+      expect(name.classList.contains('tooltip')).toBe(true);
+      expect(name.getAttribute('data-tip')).toBe('IMG_0007.jpg');
     });
   });
 
@@ -230,6 +232,16 @@ describe('opm-file-card', () => {
       const text = part(card, '[data-date] span').textContent;
       expect(text).toBe(formatCaptureDate(ts));
       expect(text).toContain('2024');
+    });
+
+    it('shows the capture time and file size in the date tooltip', async () => {
+      const card = await mount('opm-file-card', {
+        item: fileItem({ capture_ts: ts, size: 4_200_000 }),
+      });
+      const date = part(card, '[data-date]');
+      expect(date.classList.contains('tooltip')).toBe(true);
+      expect(date.getAttribute('data-tip')).toContain(formatCaptureDate(ts));
+      expect(date.getAttribute('data-tip')).toContain('4 MB');
     });
 
     it.each(['exif', 'xmp', 'video'] as const)(
@@ -246,7 +258,7 @@ describe('opm-file-card', () => {
       const item = fileItem({ capture_ts: ts, capture_src: src });
       const card = await mount('opm-file-card', { item });
 
-      const hint = part(card, '[data-date]').getAttribute('title');
+      const hint = part(card, '[data-date]').getAttribute('data-tip');
       expect(part(card, '[data-date] opm-icon').getAttribute('name')).toBe('clock');
       expect(hint).toContain('File date');
     });

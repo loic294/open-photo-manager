@@ -16,7 +16,7 @@ export class DuplicatesPage {
   }
 
   actionButton() {
-    return this.page.locator('[data-floating-actions] opm-split-button .join > button').first();
+    return this.page.locator('opm-bottom-bar opm-split-button .join > button').first();
   }
 
   async actionLabel() {
@@ -36,7 +36,7 @@ export class DuplicatesPage {
   }
 
   actionMenu() {
-    return this.page.locator('[data-floating-actions] opm-split-button');
+    return this.page.locator('opm-bottom-bar opm-split-button');
   }
 
   files() {

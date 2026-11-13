@@ -75,7 +75,7 @@ function renderWarnings(ctx: ToolContext) {
       </div>
       <ul
         tabindex="0"
-        class="dropdown-content z-10 mt-1 flex w-72 max-w-[calc(100vw-1rem)] flex-col gap-2 rounded-box border border-base-300 bg-base-100 p-3 text-sm shadow-lg"
+        class="dropdown-content z-10 mt-1 w-72 max-w-[calc(100vw-1rem)] space-y-2 rounded-box border border-base-300 bg-base-100 p-3 text-sm shadow-lg"
       >
         ${warnings.map(
           (warning) => html`

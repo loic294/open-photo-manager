@@ -24,10 +24,12 @@ The five tools operate on the index and show a plan before a confirmed file oper
    The bottom bar shows matching counts, selected counts, **Select all**, **Clear selection** and
    a thumbnail-size slider for each pane. The top-right task indicator shows background work.
 
-   You should see: folder navigation, selection and thumbnail size are independent per pane;
-   tasks continue while you use other tools.
+   You should see: selection stays independent, while either thumbnail-size slider scales both panes.
+   **Sync navigation**, beside **Include subfolders**, makes both panes show the exact same folder
+   and links their scrolling. Turn it off to browse separately. Tasks continue while you use other tools.
    Long folder paths collapse their middle into **...**; open it to navigate to a hidden parent.
    Hover or focus a path segment to see the full path in a tooltip.
+   Hover a filename for its full name, or its capture date for the time, file size and date source.
 
 ## Check the library
 
@@ -98,7 +100,7 @@ images and videos are queued for metadata extraction after the database upgrade.
    You should see: matching files have a green border, and the summary reports matching files in
    both panes. Matches update as background hashing finishes.
 
-2. The compact split action floating above the grid offers **Delete source items**, **Delete comparison items** and
+2. The compact split action in the bottom bar offers **Delete source items**, **Delete comparison items** and
    **Move files**. Its last-used choice is remembered. Delete actions ask for confirmation and
    send only matched files to Trash when a matching survivor remains outside the effective
    deletion set. **Move files** hands the chosen files to **Asset move**; no files move until its
@@ -165,8 +167,8 @@ images and videos are queued for metadata extraction after the database upgrade.
    use Rust syntax and search anywhere unless anchored with `^` and `$`. Matching ignores case by
    default when a matcher pattern is used.
 
-   You should see: matching source files are marked, while the comparison pane shows the current
-   files and non-selectable new-name ghosts. Folder rows and counts remain real because files stay
+   You should see: matching source files are marked, while the comparison pane shows only
+   proposed names as non-selectable ghost cards. Folder rows and counts remain real because files stay
    in their current folders.
 
 2. **Clean numbered copies** optionally removes recognized copy suffixes from the stem, including
@@ -230,6 +232,8 @@ not accepted by **Folder formatting**. The examples use the generated sample fil
    never removed. Planned deletions have a red border.
 
    You should see: the comparison pane marks the empty folders below the base that qualify.
+   Parent folders show the number of matches below them even when the parent itself is not empty;
+   only folders that will actually be removed have a red border.
 
 2. Choose **Delete empty folders (N)** and review the counts of top-level and nested folders.
    Empty directories are removed, not sent to Trash. Leftover junk files (such as thumbnail

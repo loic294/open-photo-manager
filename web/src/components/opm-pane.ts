@@ -188,6 +188,8 @@ export class OpmPane extends OpmElement {
     baseDefault: { attribute: false },
     disabled: { type: Boolean },
     disabledReason: { type: String, attribute: 'disabled-reason' },
+    syncNavigation: { type: Boolean, attribute: 'sync-navigation' },
+    plannedOnly: { type: Boolean, attribute: 'planned-only' },
     crumbsCollapsed: { state: true },
     folderMenu: { state: true },
   };
@@ -203,6 +205,8 @@ export class OpmPane extends OpmElement {
   declare baseDefault: BaseDefault | null;
   declare disabled: boolean;
   declare disabledReason: string;
+  syncNavigation = false;
+  plannedOnly = false;
 
   private readonly subfolders = new FoldersController(this);
   private readonly selecting = new SelectionController(this, { pane: () => this.pane });
@@ -319,7 +323,7 @@ export class OpmPane extends OpmElement {
   private async loadIds(signal: AbortSignal): Promise<readonly number[]> {
     const { request } = this;
     // The volumes root lists volumes only: there are no files to select.
-    if (request === null || request.volume_id === null) return [];
+    if (request === null || request.volume_id === null || this.plannedOnly) return [];
     const { key, order } = this.sortSpec;
     return fetchIds(request, key, order, { signal });
   }
@@ -341,6 +345,7 @@ export class OpmPane extends OpmElement {
     // A pane that left the page (an update can still be queued) must not touch the shared store.
     if (!this.isConnected) return;
     if (this.listingKey !== null) selection[this.pane].setContext(this.listingKey);
+    if (this.plannedOnly) selection[this.pane].clear();
     if (this.providerPane !== this.pane) this.bindIdsProvider();
   }
 
@@ -399,7 +404,7 @@ export class OpmPane extends OpmElement {
       this.walkedUp = true;
       toast.info(`The folder ${locationName(location)} no longer exists`);
     }
-    setLocation(this.pane, parentLocation(location), { replace: true });
+    setLocation(this.pane, parentLocation(location), { replace: true, sync: this.syncNavigation });
   }
 
   private canWalkUp(location: PaneLocation): boolean {
@@ -471,16 +476,18 @@ export class OpmPane extends OpmElement {
   private follow(event: MouseEvent, location: PaneLocation): void {
     if (!isPlainClick(event)) return;
     event.preventDefault();
-    setLocation(this.pane, location);
+    setLocation(this.pane, location, { sync: this.syncNavigation });
   }
 
   private readonly onUp = (): void => {
-    setLocation(this.pane, parentLocation(locations[this.pane].peek()));
+    setLocation(this.pane, parentLocation(locations[this.pane].peek()), {
+      sync: this.syncNavigation,
+    });
   };
 
   private readonly onFolderOpen = (event: FolderOpenEvent): void => {
     this.refocus = this.contains(document.activeElement);
-    setLocation(this.pane, this.entryLocation(event.detail.entry));
+    setLocation(this.pane, this.entryLocation(event.detail.entry), { sync: this.syncNavigation });
   };
 
   private readonly onFolderMenu = (event: FolderMenuEvent): void => {
@@ -556,7 +563,7 @@ export class OpmPane extends OpmElement {
   };
 
   private readonly onGoToBase = (): void => {
-    if (this.base) setLocation(this.pane, this.base);
+    if (this.base) setLocation(this.pane, this.base, { sync: this.syncNavigation });
   };
 
   private readonly onResetBase = (): void => {
@@ -579,7 +586,7 @@ export class OpmPane extends OpmElement {
 
   /** Read by the folder list while it renders, so the links follow the other pane's moves too. */
   private readonly hrefFor = (entry: FolderEntry): string =>
-    linkToLocation(this.pane, this.entryLocation(entry));
+    linkToLocation(this.pane, this.entryLocation(entry), this.syncNavigation);
 
   private renderAlert(
     tone: AlertTone,
@@ -604,7 +611,7 @@ export class OpmPane extends OpmElement {
     return html`
       <a
         class="link"
-        href=${linkToLocation(this.pane, ROOT_LOCATION)}
+        href=${linkToLocation(this.pane, ROOT_LOCATION, this.syncNavigation)}
         @click=${(event: MouseEvent) => this.follow(event, ROOT_LOCATION)}
         >Show all volumes</a
       >
@@ -617,7 +624,7 @@ export class OpmPane extends OpmElement {
       <li class=${last ? 'min-w-0 flex-1 before:shrink-0' : 'shrink-0 before:shrink-0'}>
         <span class="tooltip tooltip-bottom ${crumb.location.volume === null ? 'tooltip-start' : ''} block min-w-0 max-w-full before:break-all" data-tip=${path}>
         <a
-          href=${linkToLocation(this.pane, crumb.location)}
+          href=${linkToLocation(this.pane, crumb.location, this.syncNavigation)}
           class="block min-w-0 truncate"
           title=${crumb.label}
           aria-current=${last ? 'page' : nothing}
@@ -705,7 +712,7 @@ export class OpmPane extends OpmElement {
                             (crumb) => html`
                             <li>
                               <a class="tooltip tooltip-bottom before:break-all" data-tip=${path}
-                                href=${linkToLocation(this.pane, crumb.location)}
+                                href=${linkToLocation(this.pane, crumb.location, this.syncNavigation)}
                                 title=${formatLocation(crumb.location) ?? ROOT_CRUMB_LABEL}
                                 @click=${(event: MouseEvent) => this.follow(event, crumb.location)}>
                                 <span class="truncate">${crumb.label}</span>
@@ -809,7 +816,7 @@ export class OpmPane extends OpmElement {
         .size=${gridSize.value[this.pane]}
         .selectedIds=${this.selecting.selectedIds}
         .selectionActive=${this.selecting.active}
-        .emptyText=${emptyText}
+        .emptyText=${this.plannedOnly ? 'No files would be renamed in this folder' : emptyText}
         .label=${`${this.paneName} files`}
       ></opm-file-grid>
     `;
@@ -953,6 +960,7 @@ export class OpmPane extends OpmElement {
         data-pane-body
         class="min-h-0 flex-1 overflow-y-auto"
         aria-busy=${this.subfolders.refreshing ? 'true' : nothing}
+        @scroll=${() => this.emit('pane-scroll', { pane: this.pane })}
       >
         ${
           request === null

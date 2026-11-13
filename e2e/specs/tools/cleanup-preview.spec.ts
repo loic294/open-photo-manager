@@ -23,6 +23,14 @@ test('@smoke cleanup preview marks exactly the empty subtree', async ({
   await page.goto(url.href);
   const plan = (await (await planResponse).json()) as PlanDto;
   expect(plan.stats.empty_folders).toBe(expected.length);
+  await comparison.element.getByRole('button', { name: 'Up one folder' }).click();
+  await expect
+    .poll(() => comparison.folderState('empty'))
+    .toMatchObject({
+      red: false,
+      matches: `${expected.length} matches`,
+    });
+  await comparison.openFolder('empty');
 
   for (const name of ['nested', 'chain', 'cascade']) {
     await expect.poll(() => comparison.folderState(name)).toMatchObject({ red: true });

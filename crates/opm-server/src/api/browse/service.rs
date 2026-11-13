@@ -17,7 +17,7 @@ use super::merge;
 use super::request::{self, Place};
 use crate::db::Db;
 use crate::error::AppResult;
-use crate::plans::overlay::{FolderOverlay, GhostView, PlanOverlay};
+use crate::plans::overlay::{FolderOverlay, GhostView, PlanOverlay, Window};
 use crate::query::volumes::{self, VolumeCount};
 use crate::query::{FileQuery, QueryScope};
 
@@ -43,7 +43,7 @@ pub async fn folders(
 }
 
 /// `POST /api/browse/items`: one page of the files directly in a directory, real files first and
-/// then the ghosts of the plan.
+/// then the ghosts of the plan. Rename comparison lists only proposed-name ghosts.
 ///
 /// A directory that is not in the index lists nothing (only [`folders`] reports
 /// `folder_not_found`). The volumes root has no files.
@@ -67,6 +67,25 @@ pub async fn items(
 
     let offset = i64::from(req.offset);
     let limit = request::page_limit(req.limit);
+    if let Some(plan) = browse.plan
+        && plans.ghosts_only(plan).await?
+    {
+        let ghosts = plans
+            .ghost_items(
+                plan,
+                &ghost_view(&query, volume_id),
+                Window {
+                    skip: offset,
+                    take: limit,
+                },
+            )
+            .await?;
+        return Ok(ItemsResponse {
+            items: ghosts.items,
+            total: ghosts.total,
+            offset: req.offset,
+        });
+    }
     let (real_total, real) = tokio::try_join!(query.count(db), query.items(db, offset, limit))?;
     let Some(plan) = browse.plan else {
         return Ok(ItemsResponse {
