@@ -545,11 +545,9 @@ describe('the breadcrumbs and the up button', () => {
       'page',
     ]);
     expect(part(pane, '[data-crumbs]').getAttribute('aria-label')).toBe('Source folder path');
-    expect(part(pane, '[data-crumbs]').getAttribute('title')).toBe('photos/trip/2024');
+    expect(part(pane, '[data-crumbs]').getAttribute('data-tooltip')).toBe('photos/trip/2024');
     expect(
-      [...pane.querySelectorAll('[data-crumbs] .tooltip')].map((tip) =>
-        tip.getAttribute('data-tip'),
-      ),
+      [...pane.querySelectorAll('[data-crumbs] a')].map((tip) => tip.getAttribute('data-tooltip')),
     ).toEqual(Array(4).fill('photos/trip/2024'));
   });
 
@@ -565,7 +563,7 @@ describe('the breadcrumbs and the up button', () => {
     await settle(pane);
 
     expect(text(part(nav, 'summary'))).toBe('...');
-    expect(part(nav, 'summary').getAttribute('data-tip')).toBe('photos/trip/2024');
+    expect(part(nav, 'summary').getAttribute('data-tooltip')).toBe('photos/trip/2024');
     expect([...nav.querySelectorAll(':scope > ul > li > span > a')].map(text)).toEqual([
       'Volumes',
       '2024',
@@ -586,7 +584,7 @@ describe('the breadcrumbs and the up button', () => {
     goTo('comparison', { volume: 'backup', dir: 'old' });
     const pane = await mountPane();
 
-    const result = clickLink(part(pane, '[data-crumbs] a[title="trip"]'));
+    const result = clickLink(part(pane, '[data-crumbs] li:nth-child(3) a'));
     await settle(pane);
 
     expect(result.claimed).toBe(true);
@@ -599,7 +597,7 @@ describe('the breadcrumbs and the up button', () => {
     goTo('source', { volume: 'photos', dir: 'trip/2024' });
     const pane = await mountPane();
 
-    const result = clickLink(part(pane, '[data-crumbs] a[title="trip"]'), { ctrlKey: true });
+    const result = clickLink(part(pane, '[data-crumbs] li:nth-child(3) a'), { ctrlKey: true });
 
     expect(result.claimed).toBe(false);
     expect(locations.source.value).toEqual({ volume: 'photos', dir: 'trip/2024' });
@@ -661,7 +659,7 @@ describe('the sort controls', () => {
     expect(toggle.getAttribute('aria-label')).toBe(
       'Sort order (Backup): descending. Switch to ascending',
     );
-    expect(toggle.getAttribute('title')).toBe(toggle.getAttribute('aria-label'));
+    expect(toggle.getAttribute('data-tooltip')).toBe(toggle.getAttribute('aria-label'));
   });
 
   it('are named after the pane when it has no heading', async () => {
@@ -1316,7 +1314,7 @@ describe('the base folder row', () => {
       const row = baseRow(pane) as Element;
 
       expect(text(row)).toContain('photos/trip/raw');
-      expect(row.querySelector('[title="photos/trip/raw"]')).not.toBeNull();
+      expect(row.querySelector('[data-tooltip="photos/trip/raw"]')).not.toBeNull();
       expect(buttonNamed(row, 'Reset')).toBeUndefined();
 
       buttonNamed(row, 'Use this folder')?.click();
@@ -1369,7 +1367,7 @@ describe('the base folder row', () => {
 
       const row = baseRow(pane) as Element;
       expect(text(row)).toContain('Source folder');
-      expect(row.querySelector('[title="Source folder"]')).not.toBeNull();
+      expect(row.querySelector('[data-tooltip="Source folder"]')).not.toBeNull();
       expect(buttonNamed(row, 'Reset')).toBeUndefined();
       // Picking the folder that is the default pins it for good.
       goTo('source', base);
@@ -1390,7 +1388,7 @@ describe('the base folder row', () => {
       });
 
       const reset = buttonNamed(baseRow(pane) as Element, 'Reset');
-      expect(reset?.getAttribute('title')).toBe('Use again: Source folder');
+      expect(reset?.getAttribute('data-tooltip')).toBe('Use again: Source folder');
       reset?.click();
       expect(changes).toEqual([{ pane: 'source', base: null }]);
     });

@@ -14,6 +14,7 @@ import type { VolumeDto } from '@/api/generated/VolumeDto';
 import { events, type ServerEventOf } from '@/api/sse';
 import { OpmElement } from '@/base/opm-element';
 import type { OpmFileGrid } from '@/components/opm-file-grid';
+import { tooltip } from '@/components/tooltip';
 import '@/components/opm-file-grid';
 import { confirmDialog } from '@/components/confirm-dialog';
 import type {
@@ -659,11 +660,11 @@ export class OpmPane extends OpmElement {
     const path = formatLocation(locations[this.pane].value) ?? ROOT_CRUMB_LABEL;
     return html`
       <li class=${last ? 'min-w-0 flex-1 before:shrink-0' : 'shrink-0 before:shrink-0'}>
-        <span class="tooltip tooltip-bottom ${crumb.location.volume === null ? 'tooltip-start' : ''} block min-w-0 max-w-full before:break-all" data-tip=${path}>
+        <span class="block min-w-0 max-w-full">
         <a
           href=${linkToLocation(this.pane, crumb.location, this.syncNavigation)}
           class="block min-w-0 truncate"
-          title=${crumb.label}
+          ${tooltip(path)}
           aria-current=${last ? 'page' : nothing}
           @click=${(event: MouseEvent) => this.follow(event, crumb.location)}
           >${crumb.label}</a
@@ -693,7 +694,7 @@ export class OpmPane extends OpmElement {
           type="button"
           class="btn btn-ghost btn-square btn-xs"
           aria-label=${orderLabel}
-          title=${orderLabel}
+          ${tooltip(orderLabel)}
           @click=${this.onSortOrder}
         >
           <opm-icon name=${ascending ? 'arrow-up' : 'arrow-down'} size="sm"></opm-icon>
@@ -715,7 +716,7 @@ export class OpmPane extends OpmElement {
           type="button"
           class="btn btn-ghost btn-xs"
           aria-label="Up one folder"
-          title="Up one folder"
+          ${tooltip('Up one folder')}
           ?disabled=${location.volume === null}
           @click=${this.onUp}
         >
@@ -726,7 +727,7 @@ export class OpmPane extends OpmElement {
           data-crumbs
           aria-label="${this.paneName} folder path"
           class="breadcrumbs min-w-56 flex-1 overflow-visible py-0 text-sm"
-          title=${path}
+          ${tooltip(path)}
         >
           <ul class=${collapsed ? 'w-full min-w-0' : 'w-max'}>
             ${
@@ -742,15 +743,15 @@ export class OpmPane extends OpmElement {
                         details.open = false;
                         details.querySelector('summary')?.focus();
                       }}>
-                        <summary class="tooltip tooltip-bottom cursor-pointer list-none rounded px-1 before:break-all focus-visible:outline"
-                          data-tip=${path} aria-label="Show parent folders">...</summary>
+                        <summary class="cursor-pointer list-none rounded px-1 focus-visible:outline"
+                          ${tooltip(path)} aria-label="Show parent folders">...</summary>
                         <ul class="menu dropdown-content z-20 mt-2 max-h-64 w-64 max-w-[80vw] flex-col overflow-y-auto rounded-box border border-base-300 bg-base-100 p-2 shadow-lg">
                           ${crumbs.slice(1, -1).map(
                             (crumb) => html`
                             <li>
-                              <a class="tooltip tooltip-bottom before:break-all" data-tip=${path}
+                              <a
                                 href=${linkToLocation(this.pane, crumb.location, this.syncNavigation)}
-                                title=${formatLocation(crumb.location) ?? ROOT_CRUMB_LABEL}
+                                ${tooltip(formatLocation(crumb.location) ?? ROOT_CRUMB_LABEL)}
                                 @click=${(event: MouseEvent) => this.follow(event, crumb.location)}>
                                 <span class="truncate">${crumb.label}</span>
                               </a>
@@ -781,7 +782,7 @@ export class OpmPane extends OpmElement {
             const selected = folderView.value[this.pane] === view;
             return html`<button type="button"
               class="btn btn-square btn-xs join-item max-sm:min-h-11 max-sm:min-w-11 ${selected ? 'btn-primary' : 'btn-ghost'}"
-              aria-label=${label} title=${label} aria-pressed=${String(selected)}
+              aria-label=${label} ${tooltip(label)} aria-pressed=${String(selected)}
               @click=${() => {
                 folderView.value = { ...folderView.peek(), [this.pane]: view };
               }}>
@@ -803,7 +804,7 @@ export class OpmPane extends OpmElement {
     return html`
       <span
         class="badge badge-outline min-w-0 max-w-full gap-1"
-        title=${activeDefault ? activeDefault.label : text}
+        ${tooltip(activeDefault ? activeDefault.label : text)}
       >
         <opm-icon name="pin" size="xs"></opm-icon>
         <span class="truncate">${text}</span>
@@ -829,7 +830,7 @@ export class OpmPane extends OpmElement {
           ? html`<button
               type="button"
               class="btn btn-ghost btn-xs"
-              title=${`Use again: ${baseDefault.label}`}
+              ${tooltip(`Use again: ${baseDefault.label}`)}
               @click=${this.onResetBase}
             >
               Reset
@@ -921,7 +922,7 @@ export class OpmPane extends OpmElement {
       >
         <li role="none">
           <button type="button" role="menuitem" ?disabled=${inherited}
-            title=${inherited ? 'Remove the soft exclusion on the parent folder or in Settings' : 'Keep indexed and visible, but leave out of all tool plans'}
+            ${tooltip(inherited ? 'Remove the soft exclusion on the parent folder or in Settings' : 'Keep indexed and visible, but leave out of all tool plans')}
             @click=${this.onSoftExcludeFolder}>
             <opm-icon name="folder-x" size="sm"></opm-icon>
             ${exact ? 'Remove soft exclusion' : inherited ? 'Soft excluded by parent' : 'Soft exclude folder'}

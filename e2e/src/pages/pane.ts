@@ -123,7 +123,7 @@ export class PanePage {
   }
   async folderGeometry(name: string) {
     return this.folder(name).evaluate((row) => {
-      const label = row.querySelector('span[title]')?.getBoundingClientRect();
+      const label = row.querySelector('span[data-tooltip]')?.getBoundingClientRect();
       const count = row.querySelector('.badge[aria-hidden="true"]')?.getBoundingClientRect();
       return { nameRight: label?.right, countLeft: count?.left };
     });

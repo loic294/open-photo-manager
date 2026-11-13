@@ -19,7 +19,7 @@ it('keeps the action chooser reachable beside a long label without losing its ac
   expect(el.classList.contains('max-w-[calc(100vw-6rem)]')).toBe(true);
   const button = el.querySelector('.join > button');
   expect(button?.classList.contains('flex-1')).toBe(true);
-  expect(button?.getAttribute('title')).toBe('Delete comparison items');
+  expect(button?.getAttribute('data-tooltip')).toBe('Delete comparison items');
   expect(button?.querySelector('.truncate')?.textContent).toBe('Delete comparison items');
   expect(el.querySelector('details')?.classList.contains('shrink-0')).toBe(true);
 });
@@ -129,6 +129,7 @@ describe('opm-split-button structure', () => {
     expect(
       dropdown?.querySelector(':scope > summary.btn.btn-sm.btn-square.join-item'),
     ).not.toBeNull();
+    expect(chevron(host).getAttribute('role')).toBe('button');
     expect(dropdown?.querySelector(':scope > ul.menu.dropdown-content')).not.toBeNull();
   });
 
@@ -895,10 +896,12 @@ describe('opm-split-button hints', () => {
   it('puts a hint in a DaisyUI tooltip on the entry', async () => {
     const host = await mount('opm-split-button', { options: hinted });
 
-    const tip = items(host)[0]?.closest('li');
-    expect(tip?.classList.contains('tooltip')).toBe(true);
-    expect(tip?.classList.contains('tooltip-left')).toBe(true);
-    expect(tip?.getAttribute('data-tip')).toBe('Moves the matches to the target folder');
+    const tip = items(host)[0];
+    expect(tip?.getAttribute('data-tooltip')).toBe('Moves the matches to the target folder');
+    tip?.dispatchEvent(new Event('pointerenter'));
+    expect(document.querySelector('.tooltip .tooltip-content')?.textContent).toBe(
+      'Moves the matches to the target folder',
+    );
   });
 
   it('adds no tooltip to an entry without a hint', async () => {
@@ -926,7 +929,7 @@ describe('opm-split-button hints', () => {
 
     const entry = item(host, 'Link files');
     expect(entry.disabled).toBe(true);
-    expect(entry.closest('li')?.getAttribute('data-tip')).toBe('Not available here');
+    expect(entry.getAttribute('data-tooltip')).toBe('Not available here');
   });
 
   it('treats an empty hint as no hint', async () => {
@@ -934,5 +937,27 @@ describe('opm-split-button hints', () => {
 
     expect(host.querySelector('li')?.classList.contains('tooltip')).toBe(false);
     expect(host.querySelector('li')?.hasAttribute('data-tip')).toBe(false);
+  });
+
+  it('offers independently focusable info icons in a scan menu without selecting or executing', async () => {
+    const host = await mount('opm-split-button', {
+      options: hinted,
+      infoIcons: true,
+      menuStart: true,
+      menuLabel: 'Choose scan action',
+    });
+    const events = recordEvents(host);
+    await openMenu(host);
+    const info = host.querySelector<HTMLButtonElement>('button[aria-label="About Move files"]');
+    expect(info).not.toBeNull();
+    expect(info?.getAttribute('data-tooltip')).toContain('Moves the matches');
+    info?.focus();
+    expect(document.querySelector('[role="tooltip"]')?.textContent).toContain('Moves the matches');
+    info?.click();
+    expect(events.actions).toEqual([]);
+    expect(events.selections).toEqual([]);
+    expect(details(host).open).toBe(true);
+    expect(chevron(host).getAttribute('aria-label')).toBe('Choose scan action');
+    expect(details(host).classList.contains('dropdown-end')).toBe(false);
   });
 });

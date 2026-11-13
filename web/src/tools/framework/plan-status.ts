@@ -1,4 +1,5 @@
 import { html, nothing, type TemplateResult } from 'lit';
+import { tooltip } from '@/components/tooltip';
 import '@/components/opm-icon';
 import { openPlanResult } from '@/components/opm-plan-result';
 import { dismissLastRun, lastRun } from '@/stores/plan-runs';
@@ -48,7 +49,9 @@ function renderProgress(ctx: ToolContext): TemplateResult | null {
         <span class="truncate">${ctx.plan.status === 'building' ? 'Matching...' : 'Working...'}</span>`;
     default: {
       const reason = notReadyReason(ctx);
-      return reason === null ? null : html`<span class="truncate" title=${reason}>${reason}</span>`;
+      return reason === null
+        ? null
+        : html`<span class="truncate" ${tooltip(reason)}>${reason}</span>`;
     }
   }
 }

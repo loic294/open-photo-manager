@@ -45,6 +45,173 @@ async fn ready(app: &TestApp) {
         .unwrap();
 }
 
+async fn folders(
+    app: &TestApp,
+    volume: i64,
+    dir: &str,
+    plan: Option<PlanRef>,
+    filter: Filter,
+) -> FoldersResponse {
+    let (status, body) = app
+        .call(
+            Method::POST,
+            "/api/browse/folders",
+            Some(json!(BrowseRequest {
+                volume_id: Some(volume),
+                dir: dir.into(),
+                filter,
+                plan,
+            })),
+        )
+        .await;
+    assert_eq!(status, StatusCode::OK, "{body}");
+    serde_json::from_value(body).unwrap()
+}
+
+#[tokio::test]
+async fn formatting_existing_folders_show_projected_counts_including_outgoing_nested_files() {
+    let app = TestApp::new().await;
+    let (volume, _) = app.add_volume("photos").await;
+    let seed = Seed::new(&app.state.db);
+    for (dir, name, capture, rating) in [
+        ("src/2020", "outgoing.jpg", 1_609_459_200, 5),
+        ("src/2020/nested", "outgoing-too.jpg", 1_609_459_200, 1),
+        ("src/2020", "stay.jpg", 1_577_836_800, 5),
+        ("src/2021", "outgoing.jpg", 1_640_995_200, 5),
+        ("src/2021", "stay.jpg", 1_609_459_200, 1),
+        ("src/2020.old", "sibling.jpg", 1_577_836_800, 5),
+    ] {
+        seed.file(volume, dir, name)
+            .capture(capture)
+            .rating(rating)
+            .insert()
+            .await;
+    }
+    ready(&app).await;
+    let mut p = params(MoveType::Custom, volume, volume);
+    p.destination.dir = "src".into();
+    p.pattern = Some("{YYYY}".into());
+    p.conflict_policy = Some(ConflictPolicy::Rename);
+    let plan = build(&app, &p).await;
+    let reference = Some(PlanRef {
+        plan_id: plan.id,
+        side: PlanSide::Comparison,
+    });
+    let projected = folders(&app, volume, "src", reference, Filter::default()).await;
+    let counts: Vec<_> = projected
+        .folders
+        .iter()
+        .map(|entry| (entry.name.as_str(), entry.count, entry.total))
+        .collect();
+    assert_eq!(
+        counts,
+        [
+            ("2020", 2, 2),
+            ("2020.old", 0, 0),
+            ("2021", 3, 3),
+            ("2022", 1, 1),
+        ]
+    );
+    let filtered = folders(
+        &app,
+        volume,
+        "src",
+        reference,
+        Filter {
+            ratings: vec![5],
+            ..Filter::default()
+        },
+    )
+    .await;
+    let counts: Vec<_> = filtered
+        .folders
+        .iter()
+        .map(|entry| (entry.name.as_str(), entry.count, entry.total))
+        .collect();
+    assert_eq!(
+        counts,
+        [
+            ("2020", 2, 2),
+            ("2020.old", 0, 0),
+            ("2021", 1, 3),
+            ("2022", 1, 1),
+        ]
+    );
+    let nested = folders(&app, volume, "src/2020", reference, Filter::default()).await;
+    assert_eq!(nested.folders[0].name, "nested");
+    assert_eq!((nested.folders[0].count, nested.folders[0].total), (0, 0));
+    for plan in [
+        None,
+        Some(PlanRef {
+            plan_id: plan.id,
+            side: PlanSide::Source,
+        }),
+    ] {
+        let current = folders(&app, volume, "src", plan, Filter::default()).await;
+        assert_eq!(current.folders[0].name, "2020");
+        assert_eq!((current.folders[0].count, current.folders[0].total), (3, 3));
+    }
+}
+
+#[tokio::test]
+async fn formatting_counts_replacements_once_and_ignores_skipped_or_dead_moves() {
+    for policy in [ConflictPolicy::Replace, ConflictPolicy::Skip] {
+        let app = TestApp::new().await;
+        let (volume, _) = app.add_volume("photos").await;
+        let seed = Seed::new(&app.state.db);
+        let source = seed
+            .file(volume, "src", "a.jpg")
+            .capture(1_609_459_200)
+            .rating(5)
+            .insert()
+            .await;
+        seed.file(volume, "out/2021", "a.jpg")
+            .rating(1)
+            .insert()
+            .await;
+        ready(&app).await;
+        let mut p = params(MoveType::Custom, volume, volume);
+        p.pattern = Some("{YYYY}".into());
+        p.conflict_policy = Some(policy);
+        let plan = build(&app, &p).await;
+        let reference = Some(PlanRef {
+            plan_id: plan.id,
+            side: PlanSide::Comparison,
+        });
+        for rating in [1, 5] {
+            let projected = folders(
+                &app,
+                volume,
+                "out",
+                reference,
+                Filter {
+                    ratings: vec![rating],
+                    ..Filter::default()
+                },
+            )
+            .await;
+            let expected = i64::from(if policy == ConflictPolicy::Replace {
+                rating == 5
+            } else {
+                rating == 1
+            });
+            assert_eq!(projected.folders[0].name, "2021");
+            assert_eq!(
+                (projected.folders[0].count, projected.folders[0].total),
+                (expected, 1),
+                "{policy:?}, rating {rating}"
+            );
+        }
+        sqlx::query("DELETE FROM files WHERE id = ?")
+            .bind(source)
+            .execute(app.state.db.write())
+            .await
+            .unwrap();
+        let current = folders(&app, volume, "out", reference, Filter::default()).await;
+        assert_eq!((current.folders[0].count, current.folders[0].total), (1, 1));
+    }
+}
+
 #[tokio::test]
 async fn restart_recovers_a_renamed_owner_and_finishes_its_sidecar_without_moving_it_twice() {
     use opm_server::fsops::{FailAction, Failpoints, Step};

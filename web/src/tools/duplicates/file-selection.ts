@@ -109,31 +109,46 @@ function comparison(rules: readonly SelectionRule[]) {
   const patterns = new Map(
     enabled.filter((rule) => rule.kind === 'regex').map((rule) => [rule, new RegExp(rule.pattern)]),
   );
-  return (a: DuplicateFile, b: DuplicateFile): { order: number; reason: string } => {
-    for (const rule of enabled) {
-      const av = value(a, rule, patterns.get(rule));
-      const bv = value(b, rule, patterns.get(rule));
-      if (av === bv) continue;
-      if (av === null) return { order: 1, reason: `${RULE_LABELS[rule.kind]}: known dates first` };
-      if (bv === null) return { order: -1, reason: `${RULE_LABELS[rule.kind]}: known dates first` };
-      const ascending =
-        ['capture', 'modified', 'created', 'size', 'name_length'].includes(rule.kind) &&
-        rule.direction === 'asc';
-      const order = av < bv ? -1 : 1;
-      const detail =
-        rule.kind === 'regex'
-          ? `: /${rule.pattern}/`
-          : rule.kind === 'name_length'
-            ? `: ${ascending ? 'shorter' : 'longer'} first`
-            : ['capture', 'modified', 'created', 'size'].includes(rule.kind)
-              ? `: ${ascending ? 'ascending' : 'descending'}`
-              : rule.kind === 'tag'
-                ? `: ${rule.tag}`
-                : '';
-      return { order: ascending ? order : -order, reason: `${RULE_LABELS[rule.kind]}${detail}` };
-    }
-    return { order: a.item.id - b.item.id, reason: 'Rules tied: lowest file ID' };
+  const compareRule = (a: DuplicateFile, b: DuplicateFile, rule: SelectionRule) => {
+    const av = value(a, rule, patterns.get(rule));
+    const bv = value(b, rule, patterns.get(rule));
+    if (av === bv) return { order: 0, reason: '' };
+    if (av === null) return { order: 1, reason: `${RULE_LABELS[rule.kind]}: known dates first` };
+    if (bv === null) return { order: -1, reason: `${RULE_LABELS[rule.kind]}: known dates first` };
+    const ascending =
+      ['capture', 'modified', 'created', 'size', 'name_length'].includes(rule.kind) &&
+      rule.direction === 'asc';
+    const order = av < bv ? -1 : 1;
+    const detail =
+      rule.kind === 'regex'
+        ? `: /${rule.pattern}/`
+        : rule.kind === 'name_length'
+          ? `: ${ascending ? 'shorter' : 'longer'} first`
+          : ['capture', 'modified', 'created', 'size'].includes(rule.kind)
+            ? `: ${ascending ? 'ascending' : 'descending'}`
+            : rule.kind === 'tag'
+              ? `: ${rule.tag}`
+              : '';
+    return { order: ascending ? order : -order, reason: `${RULE_LABELS[rule.kind]}${detail}` };
   };
+  const compare = (a: DuplicateFile, b: DuplicateFile) => {
+    for (const rule of enabled) {
+      const result = compareRule(a, b, rule);
+      if (result.order !== 0) return { ...result, rule: rule.kind };
+    }
+    return {
+      order: a.item.id - b.item.id,
+      reason: 'Rules tied: lowest file ID',
+      rule: 'tie' as const,
+    };
+  };
+  return Object.assign(compare, { enabled, compareRule });
+}
+
+export interface SelectionBadge {
+  kind: RuleKind | 'manual' | 'tie' | 'coverage';
+  label: string;
+  detail: string;
 }
 
 /** Greedy direct-match coverage, not transitive deletion. A chain may need several keepers. */
@@ -149,7 +164,7 @@ export function selectWithReasons(
   group: DuplicateFileGroup,
   rules: readonly SelectionRule[],
   preferred?: number,
-): { keep: Set<number>; reasons: Map<number, string> } {
+): { keep: Set<number>; reasons: Map<number, string>; badges: Map<number, SelectionBadge[]> } {
   const neighbours = new Map<number, Set<number>>();
   for (const [a, b] of group.pairs) {
     if (!neighbours.has(a)) neighbours.set(a, new Set());
@@ -167,6 +182,8 @@ export function selectWithReasons(
   const positions = new Map(ordered.map((file, index) => [file.item.id, index]));
   const keep = new Set<number>();
   const reasons = new Map<number, string>();
+  const basis = new Map<number, SelectionBadge['kind']>();
+  const removedBy = new Map<number, number>();
   for (const file of ordered) {
     const id = file.item.id;
     if (covered.has(id)) continue;
@@ -186,16 +203,72 @@ export function selectWithReasons(
           ? compare(file, other).reason
           : 'Additional keeper required for direct-match coverage';
     reasons.set(id, `Keep: ${reason}`);
+    basis.set(id, id === preferred ? 'manual' : other ? compare(file, other).rule : 'coverage');
     keep.add(id);
     covered.add(id);
     for (const other of neighbours.get(id) ?? []) {
       if (!covered.has(other)) {
         covered.add(other);
+        removedBy.set(other, id);
         reasons.set(other, `Remove: directly matches ${file.item.name}. Keeper rule: ${reason}`);
       }
     }
   }
-  return { keep, reasons };
+  const files = new Map(group.files.map((file) => [file.item.id, file]));
+  const badges = new Map<number, SelectionBadge[]>();
+  const names = (matches: DuplicateFile[]) =>
+    matches
+      .slice(0, 3)
+      .map((file) => file.item.name)
+      .join(', ') + (matches.length > 3 ? ` and ${matches.length - 3} more` : '');
+  for (const id of keep) {
+    const file = files.get(id);
+    if (!file) continue;
+    const removals = [...(neighbours.get(id) ?? [])]
+      .filter((other) => !keep.has(other))
+      .map((other) => files.get(other))
+      .filter((other): other is DuplicateFile => other !== undefined);
+    const evidence: SelectionBadge[] = [];
+    const why = basis.get(id);
+    const neutral = {
+      manual: 'Manual selection',
+      tie: 'Lowest file ID',
+      coverage: 'Direct-match coverage',
+    } as const;
+    if (why === 'manual' || why === 'tie' || why === 'coverage') {
+      evidence.push({ kind: why, label: neutral[why], detail: reasons.get(id) ?? neutral[why] });
+    }
+    for (const rule of compare.enabled) {
+      const favorable = removals.filter(
+        (other) => compare.compareRule(file, other, rule).order < 0,
+      );
+      const first = favorable[0];
+      if (!first) continue;
+      const decisive = favorable.filter(
+        (other) =>
+          id !== preferred &&
+          removedBy.get(other.item.id) === id &&
+          compare(file, other).rule === rule.kind,
+      );
+      const decisiveIds = new Set(decisive.map((other) => other.item.id));
+      const supporting = favorable.filter((other) => !decisiveIds.has(other.item.id));
+      const preference = compare.compareRule(file, first, rule).reason;
+      evidence.push({
+        kind: rule.kind,
+        label: RULE_LABELS[rule.kind],
+        detail: `${preference}. ${[
+          decisive.length ? `Decisive against: ${names(decisive)}.` : '',
+          supporting.length
+            ? `Supporting preference over: ${names(supporting)}. This rule did not decide those selections.`
+            : '',
+        ]
+          .filter(Boolean)
+          .join(' ')}`,
+      });
+    }
+    badges.set(id, evidence);
+  }
+  return { keep, reasons, badges };
 }
 
 export function parentFolders(file: DuplicateFile): Scope[] {

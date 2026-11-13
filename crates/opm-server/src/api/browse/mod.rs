@@ -73,7 +73,8 @@
 //!   with no real items preceding them. Folder and footer counts still describe real files.
 //! * **Ids.** Real files only, in the order of `items`. Ghosts are never listed; `plan` is ignored.
 //! * **Folders.** Real rows plus the provider's `ghost_folders`, sorted together by normalised name
-//!   and then name. For a real folder, `count` and `total` add `ghost_count` and `ghost_total`, and
+//!   and then name. For a real folder, `count` and `total` add `ghost_count` and `ghost_total`,
+//!   less `removed_count` and `removed_total` for a formatting destination preview, and
 //!   `matches` and `overlay` come from `per_child` (keyed by folder name); a folder without an
 //!   entry is left as it is. Ghost folders are trusted as returned.
 //! * **Footer counts.** Real counts plus `ghosts`, so `in_folder` equals the `total` of the items

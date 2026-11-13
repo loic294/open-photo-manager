@@ -1,5 +1,6 @@
 import { html, nothing } from 'lit';
 import type { MatchChangeEvent } from '@/components/opm-match-mode';
+import { tooltip } from '@/components/tooltip';
 import '@/components/opm-match-mode';
 import { matchMode, strictPrefix } from '@/tools/duplicates/duplicates-state';
 import { renderPendingNotice } from '@/tools/framework/plan-notices';
@@ -28,7 +29,7 @@ export function duplicateControls(ctx: ToolContext) {
         ? html`<span
             class="text-sm text-base-content/70"
             role="status"
-            title=${`${formatFileSize(stats.comparison_matched_bytes ?? 0)} comparison and ${formatFileSize(stats.source_matched_bytes ?? 0)} source files have a match`}
+            ${tooltip(`${formatFileSize(stats.comparison_matched_bytes ?? 0)} comparison and ${formatFileSize(stats.source_matched_bytes ?? 0)} source files have a match`)}
           >${
             comparison === 0 && source === 0
               ? 'No duplicates found'

@@ -4,6 +4,7 @@ import type { TaskKind } from '@/api/generated/TaskKind';
 import type { TaskState } from '@/api/generated/TaskState';
 import { OpmElement } from '@/base/opm-element';
 import type { IconName } from '@/components/opm-icon';
+import { tooltip } from '@/components/tooltip';
 import '@/components/opm-icon';
 import { taskFraction } from '@/stores/tasks';
 import { formatEta, formatFileSize, formatRate } from '@/util/format';
@@ -176,7 +177,7 @@ export class OpmTaskRow extends OpmElement {
       return html`<button
         type="button"
         class="btn btn-ghost btn-square btn-xs"
-        title="Cancel"
+        ${tooltip('Cancel')}
         aria-label="Cancel ${task.title}"
         ?disabled=${this.cancelling}
         @click=${() => this.emit('task-cancel', task.id)}
@@ -187,7 +188,7 @@ export class OpmTaskRow extends OpmElement {
     return html`<button
       type="button"
       class="btn btn-ghost btn-square btn-xs"
-      title="Dismiss"
+      ${tooltip('Dismiss')}
       aria-label="Dismiss ${task.title}"
       @click=${() => this.emit('task-dismiss', task.id)}
     >
@@ -218,7 +219,7 @@ export class OpmTaskRow extends OpmElement {
           }
           <span
             class="min-w-0 flex-1 truncate font-medium ${compact ? 'text-xs' : 'text-sm'}"
-            title=${task.title}
+            ${tooltip(task.title)}
             >${task.title}</span
           >
           ${this.renderAction(task)}

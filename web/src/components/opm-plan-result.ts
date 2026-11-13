@@ -1,5 +1,6 @@
 import { html, nothing } from 'lit';
 import { OpmElement } from '@/base/opm-element';
+import { tooltip } from '@/components/tooltip';
 import '@/components/opm-modal';
 import type { PlanRun } from '@/stores/plan-runs';
 import { describeFailure } from '@/util/failure-codes';
@@ -97,7 +98,7 @@ export class OpmPlanResult extends OpmElement {
             <tbody>${result.failures.map(
               (failure) => html`<tr>
               <td class="break-all">${failure.path}</td>
-              <td class="whitespace-normal" title=${failure.message}>
+              <td class="whitespace-normal" ${tooltip(failure.message)}>
                 ${describeFailure(failure.code, failure.message)}
               </td>
             </tr>`,

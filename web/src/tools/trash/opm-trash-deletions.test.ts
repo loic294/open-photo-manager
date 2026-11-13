@@ -61,7 +61,7 @@ describe('opm-trash-deletions', () => {
 
   it('puts the exact time of a deletion in a tooltip', async () => {
     const host = await mount('opm-trash-deletions', { batches: [makeTrashBatch()] });
-    expect(host.querySelector('tbody td span')?.getAttribute('title')).toBe(
+    expect(host.querySelector('tbody td span')?.getAttribute('data-tooltip')).toBe(
       formatFileTime(TRASHED_AT),
     );
   });
@@ -127,8 +127,8 @@ describe('opm-trash-deletions', () => {
     const restore = button(host, 'Restore all');
     const why = 'Volume photos is offline: its items cannot be restored until it is back.';
     expect(restore.disabled).toBe(true);
-    expect(restore.getAttribute('title')).toBe(why);
-    expect(restore.parentElement?.getAttribute('title')).toBe(why);
+    expect(restore.getAttribute('data-tooltip')).toBe(why);
+    expect(restore.parentElement?.getAttribute('data-tooltip')).toBe(why);
     const heard = vi.fn();
     host.addEventListener('trash-restore-batch', heard);
     restore.click();
@@ -143,7 +143,7 @@ describe('opm-trash-deletions', () => {
     });
     const restore = button(host, 'Restore all');
     expect(restore.disabled).toBe(true);
-    expect(restore.getAttribute('title')).toBe(
+    expect(restore.getAttribute('data-tooltip')).toBe(
       'Volume photos is read-only: its items cannot be restored.',
     );
   });

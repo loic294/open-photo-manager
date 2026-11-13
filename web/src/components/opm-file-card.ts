@@ -5,6 +5,7 @@ import type { FileItem } from '@/api/generated/FileItem';
 import type { FileKind } from '@/api/generated/FileKind';
 import type { Overlay } from '@/api/generated/Overlay';
 import { OpmElement } from '@/base/opm-element';
+import { tooltip } from '@/components/tooltip';
 import '@/components/opm-icon';
 import type { IconName } from '@/components/opm-icon';
 import { GRID_SIZE } from '@/stores/prefs';
@@ -409,7 +410,7 @@ export class OpmFileCard extends OpmElement {
       data-badge=${badge.id}
       role="img"
       aria-label=${badge.label}
-      title=${badge.label}
+      ${tooltip(badge.label)}
     >${badge.icon ? html`<opm-icon name=${badge.icon} size="xs"></opm-icon>` : nothing}${badge.text ?? nothing}</span>`;
   }
 

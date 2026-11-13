@@ -67,6 +67,97 @@ it('matches filename regexes and explains the winning rule', () => {
   expect(compareFiles(a, b, [rule('regex', { pattern: 'original\\.jpg' })])).toBeLessThan(0);
 });
 
+it('badges all favorable enabled rules, distinguishing supporting evidence from deciding rules', () => {
+  const a = file(1, {
+    item: fileItem({ id: 1, name: 'original.jpg', size: 10, rating: 5, capture_ts: 50 }),
+    has_description: true,
+    tags: ['trip'],
+  });
+  const b = file(2, {
+    item: fileItem({ id: 2, name: 'copy.jpg', size: 20, rating: 0, capture_ts: 10 }),
+  });
+  const group: DuplicateFileGroup = { files: [a, b], pairs: [[1, 2]] };
+  const rules = [
+    rule('size'),
+    rule('rating'),
+    rule('description'),
+    rule('tags'),
+    rule('capture'),
+    rule('tag', { enabled: false, tag: 'trip' }),
+  ];
+  const selected = selectWithReasons(group, rules);
+  expect([...selected.keep]).toEqual([1]);
+  expect(selected.badges.get(1)?.map((badge) => badge.kind)).toEqual([
+    'size',
+    'rating',
+    'description',
+    'tags',
+  ]);
+  expect(selected.badges.get(1)?.[0]?.detail).toContain('Decisive against: copy.jpg');
+  expect(selected.badges.get(1)?.[1]?.detail).toContain('Supporting preference over: copy.jpg');
+  expect(selected.badges.has(2)).toBe(false);
+  const manual = selectWithReasons(group, rules, 2);
+  expect(manual.badges.get(2)?.map((badge) => badge.kind)).toEqual(['manual', 'capture']);
+  expect(manual.badges.get(2)?.[1]?.detail).toContain('did not decide');
+});
+
+it('compares badge evidence only with direct removals, including a rule favoring only some of them', () => {
+  const files = [10, 5, 20, 1, 2].map((size, index) =>
+    file(index + 1, {
+      item: fileItem({
+        id: index + 1,
+        name: `file-${index + 1}.jpg`,
+        size,
+        rating: index === 0 ? 5 : 0,
+      }),
+    }),
+  );
+  const group: DuplicateFileGroup = {
+    files,
+    pairs: [
+      [1, 2],
+      [1, 3],
+      [3, 4],
+      [4, 5],
+    ],
+  };
+  const selected = selectWithReasons(group, [rule('rating'), rule('size')]);
+  expect([...selected.keep]).toEqual([1, 4]);
+  const size = selected.badges.get(1)?.find((badge) => badge.kind === 'size');
+  expect(size).toBeDefined();
+  // File 1 is smaller than removal 3 but larger than removal 2; 5 is not its direct match.
+  expect(size?.detail).toContain(files[2]?.item.name);
+  expect(size?.detail).not.toContain('file-2.jpg');
+  expect(size?.detail).not.toContain('file-5.jpg');
+  const onlyTied = selectWithReasons(
+    {
+      files: [file(1), file(2)],
+      pairs: [[1, 2]],
+    },
+    [rule('size')],
+  );
+  expect(onlyTied.badges.get(1)?.map((badge) => badge.kind)).toEqual(['tie']);
+});
+
+it.each(['asc', 'desc'] as const)(
+  'badges known dates before missing dates in %s order',
+  (direction) => {
+    const group: DuplicateFileGroup = {
+      files: [
+        file(1, { item: fileItem({ id: 1, capture_ts: null }) }),
+        file(2, { item: fileItem({ id: 2, capture_ts: 10 }) }),
+      ],
+      pairs: [[1, 2]],
+    };
+    expect(
+      selectWithReasons(group, [rule('capture', { direction })]).badges.get(2)?.[0],
+    ).toMatchObject({
+      kind: 'capture',
+      detail: expect.stringContaining('known dates first'),
+    });
+  },
+);
+
 it('prefers shorter or longer Unicode filenames and preserves direct-match coverage', () => {
   const a = file(1, { item: fileItem({ id: 1, name: 'long-name.jpg' }) });
   const b = file(2, { item: fileItem({ id: 2, name: '📷.jpg' }) });

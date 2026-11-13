@@ -85,10 +85,10 @@ describe('opm-trash-items rows', () => {
   it('puts the full name and the exact time in tooltips', async () => {
     const host = await mountItems();
     const [first] = rows(host);
-    expect(first?.querySelector('td:nth-child(2) .truncate')?.getAttribute('title')).toBe(
+    expect(first?.querySelector('td:nth-child(2) .truncate')?.getAttribute('data-tooltip')).toBe(
       'IMG_0001.jpg',
     );
-    expect(first?.querySelector('td:nth-child(6) span')?.getAttribute('title')).toBe(
+    expect(first?.querySelector('td:nth-child(6) span')?.getAttribute('data-tooltip')).toBe(
       formatFileTime(TRASHED_AT),
     );
   });
@@ -267,10 +267,10 @@ describe('opm-trash-items on a volume that cannot be changed', () => {
     const box = labelled<HTMLInputElement>(host, 'Select Old.jpg');
     const restore = button(rows(host)[1] as Element, 'Restore');
     expect(box.disabled).toBe(true);
-    expect(box.getAttribute('title')).toBe(why);
+    expect(box.getAttribute('data-tooltip')).toBe(why);
     expect(restore.disabled).toBe(true);
-    expect(restore.getAttribute('title')).toBe(why);
-    expect(restore.parentElement?.getAttribute('title')).toBe(why);
+    expect(restore.getAttribute('data-tooltip')).toBe(why);
+    expect(restore.parentElement?.getAttribute('data-tooltip')).toBe(why);
     expect(labelled<HTMLInputElement>(host, 'Select IMG_0001.jpg').disabled).toBe(false);
   });
 
@@ -281,7 +281,7 @@ describe('opm-trash-items on a volume that cannot be changed', () => {
     });
     const restore = button(rows(host)[0] as Element, 'Restore');
     expect(restore.disabled).toBe(true);
-    expect(restore.getAttribute('title')).toBe(
+    expect(restore.getAttribute('data-tooltip')).toBe(
       'Volume archive is read-only: its items cannot be restored.',
     );
   });
@@ -344,7 +344,7 @@ describe('opm-trash-items toolbar', () => {
     expect(text(host.querySelector('.badge'))).toBe('Deletion of 1 Jan 2025 on photos');
     const heard = record(host, 'trash-clear-batch');
     const close = labelled<HTMLButtonElement>(host, 'Show every deletion');
-    expect(close.getAttribute('title')).toBe('Show every deletion');
+    expect(close.getAttribute('data-tooltip')).toBe('Show every deletion');
     close.click();
     expect(heard).toHaveLength(1);
   });

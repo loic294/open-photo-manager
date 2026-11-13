@@ -791,7 +791,7 @@ describe('opm-filter-bar selection chip', () => {
 
     const chip = required(host, '.badge-info');
     expect(chip.textContent).toContain('Duplicates of IMG_0001');
-    expect(required(chip, '.truncate').getAttribute('title')).toBe('Duplicates of IMG_0001');
+    expect(required(chip, '.truncate').getAttribute('data-tooltip')).toBe('Duplicates of IMG_0001');
   });
 
   it.each([null, ''])('falls back to "Selection" when the label is %j', async (label) => {
@@ -848,12 +848,14 @@ describe('opm-filter-bar hide-unmatched toggle', () => {
     const label = required(host, 'label');
     expect(label.contains(input)).toBe(true);
     expect(label.textContent).toContain('Hide folders without matches');
-    expect(label.getAttribute('title')).toBe('Folders without matching files are hidden');
+    expect(label.getAttribute('data-tooltip')).toBe('Folders without matching files are hidden');
 
     await feed(host, { hideUnmatched: false });
 
     expect(input.checked).toBe(false);
-    expect(label.getAttribute('title')).toBe('Folders without matching files are greyed out');
+    expect(label.getAttribute('data-tooltip')).toBe(
+      'Folders without matching files are greyed out',
+    );
   });
 
   it('reads the hide-unmatched attribute', async () => {
@@ -1642,7 +1644,7 @@ describe('opm-filter-bar failures', () => {
     expect(camerasOf(host).loading).toBe(false);
     const hint = failureHint(host);
     expect(hint?.textContent).toContain('Filter options unavailable');
-    expect(hint?.getAttribute('title')).toBe('The server is down');
+    expect(hint?.getAttribute('data-tooltip')).toBe('The server is down');
     const log = record(host);
     segment(ratingOf(host), '2 stars').click();
     expect(log).toEqual([{ type: 'filter-change', detail: filterWith({ ratings: [2] }) }]);
@@ -1674,7 +1676,9 @@ describe('opm-filter-bar failures', () => {
 
     await fail(nth(calls, 0), {});
 
-    expect(failureHint(host)?.getAttribute('title')).toBe('Could not load the filter options');
+    expect(failureHint(host)?.getAttribute('data-tooltip')).toBe(
+      'Could not load the filter options',
+    );
   });
 
   it('offers a retry that asks at once and clears the hint with the answer', async () => {

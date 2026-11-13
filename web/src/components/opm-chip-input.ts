@@ -1,6 +1,7 @@
 import { html, nothing } from 'lit';
 import { createRef, ref } from 'lit/directives/ref.js';
 import { OpmElement } from '@/base/opm-element';
+import { tooltip } from '@/components/tooltip';
 import '@/components/opm-icon';
 
 export interface ChipValuesDetail {
@@ -258,7 +259,7 @@ export class OpmChipInput extends OpmElement {
                     flagged.has(index) ? 'badge-error' : ''
                   }"
                 >
-                  <span class="truncate" title=${value}>${value}</span>
+                  <span class="truncate" ${tooltip(value)}>${value}</span>
                   <button
                     type="button"
                     class="btn btn-ghost btn-circle btn-xs size-5 min-h-0 shrink-0"

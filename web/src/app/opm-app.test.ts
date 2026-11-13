@@ -10,7 +10,7 @@ import { requestReindex } from '@/app/app-actions';
 import type { AppRoute } from '@/app/routes';
 import { resetIndexStatusForTests } from '@/stores/index-status';
 import { currentPath, navigate } from '@/stores/nav';
-import { theme } from '@/stores/prefs';
+import { lastAction, theme } from '@/stores/prefs';
 import { resetTasksForTests, tasks } from '@/stores/tasks';
 import { clearToasts, toasts } from '@/stores/toasts';
 import { filtersOpen, toolHelpOpen } from '@/stores/tool-chrome';
@@ -31,7 +31,9 @@ const until = (check: () => unknown) => vi.waitFor(check, { interval: 1, timeout
 
 async function mountApp(url: string, props: Partial<App> = {}): Promise<App> {
   window.history.replaceState(null, '', url);
-  return mount('opm-app', props);
+  const app = await mount('opm-app', props);
+  await app.querySelector('opm-split-button')?.updateComplete;
+  return app;
 }
 
 const photos: VolumeDto = {
@@ -118,6 +120,7 @@ function stubRoute(path: string, overrides: Partial<AppRoute> = {}) {
 }
 
 beforeEach(() => {
+  lastAction.value = {};
   FakeEventSource.reset();
   vi.stubGlobal('EventSource', FakeEventSource);
   vi.spyOn(api, 'get').mockImplementation(async (path) =>
@@ -240,22 +243,12 @@ describe('main menu', () => {
       'Empty folder cleanup',
       'Batch rename',
     ]);
-    expect(entriesOf(footer).map(text)).toEqual([
+    expect(entriesOf(footer).map(text)).toEqual(['Trash', 'Settings']);
+    expect(entriesOf(footer).map((item) => item.localName)).toEqual(['a', 'a']);
+    expect(app.querySelector('aside opm-split-button .join > button')?.textContent?.trim()).toBe(
       'Scan current folders for changes',
-      'Scan all assets for changes',
-      'Re-index current folders',
-      'Re-index all assets',
-      'Trash',
-      'Settings',
-    ]);
-    expect(entriesOf(footer).map((item) => item.localName)).toEqual([
-      'button',
-      'button',
-      'button',
-      'button',
-      'a',
-      'a',
-    ]);
+    );
+    expect(app.querySelectorAll('aside [role="menuitemradio"]')).toHaveLength(4);
     expect(tools?.nextElementSibling?.classList.contains('divider')).toBe(true);
     expect(classesOf(tools ?? null)).toEqual(
       expect.arrayContaining(['flex-1', 'flex-nowrap', 'overflow-y-auto']),
@@ -313,7 +306,7 @@ describe('main menu', () => {
     await app.updateComplete;
 
     expect(current()).toEqual(['Asset move']);
-    expect(app.querySelectorAll('aside .menu-active')).toHaveLength(1);
+    expect(app.querySelectorAll('aside a.menu-active')).toHaveLength(1);
     expect(window.location.pathname).toBe('/move');
   });
 
@@ -328,7 +321,7 @@ describe('main menu', () => {
     const app = await mountApp('/nope');
 
     expect(app.querySelector('aside [aria-current]')).toBeNull();
-    expect(app.querySelector('aside .menu-active')).toBeNull();
+    expect(app.querySelector('aside a.menu-active')).toBeNull();
   });
 
   it('builds the menu from the routes it is given and loads a page only when it is visited', async () => {
@@ -341,13 +334,7 @@ describe('main menu', () => {
 
     const [tools, footer] = menuLists(app);
     expect(entriesOf(tools).map(text)).toEqual(['Alpha', 'Beta']);
-    expect(entriesOf(footer).map(text)).toEqual([
-      'Scan current folders for changes',
-      'Scan all assets for changes',
-      'Re-index current folders',
-      'Re-index all assets',
-      'Gamma',
-    ]);
+    expect(entriesOf(footer).map(text)).toEqual(['Gamma']);
     await until(() => expect(app.querySelector(alpha.tag)).not.toBeNull());
     expect(alpha.load).toHaveBeenCalledTimes(1);
     expect(beta.load).not.toHaveBeenCalled();
@@ -400,11 +387,21 @@ describe('re-index actions', () => {
   const queued = makeTask({ id: 7, kind: 'index', state: 'queued' });
   const messages = () => toasts.value.map((t) => [t.kind, t.message]);
   const reindexEntries = (app: App) => [
-    entry(app, 'Scan current folders for changes') as HTMLButtonElement,
-    entry(app, 'Scan all assets for changes') as HTMLButtonElement,
-    entry(app, 'Re-index current folders') as HTMLButtonElement,
-    entry(app, 'Re-index all assets') as HTMLButtonElement,
+    ...app.querySelectorAll<HTMLButtonElement>('aside opm-split-button .join > button'),
   ];
+  async function runIndex(app: App, label: string) {
+    const split =
+      app.querySelector<HTMLElementTagNameMap['opm-split-button']>('aside opm-split-button');
+    split?.querySelector('summary')?.click();
+    await split?.updateComplete;
+    const option = [
+      ...(split?.querySelectorAll<HTMLButtonElement>('[role="menuitemradio"]') ?? []),
+    ].find((button) => text(button) === label);
+    if (!option) throw new Error(`Missing scan option ${label}`);
+    option.click();
+    await split?.updateComplete;
+    reindexEntries(app)[0]?.click();
+  }
 
   let post: MockInstance<typeof api.post>;
   /** What the server answers to the rescan request; a test replaces it to refuse or to wait. */
@@ -436,7 +433,7 @@ describe('re-index actions', () => {
   it('re-indexes the folders of the panes, with their subfolders', async () => {
     const app = await mountConnected('/browse?src=photos/trips&cmp=photos/trips/2024');
 
-    entry(app, 'Re-index current folders').click();
+    await runIndex(app, 'Re-index current folders');
 
     await until(() => expect(rescans()).toHaveLength(1));
     expect(rescans()[0]?.[1]).toMatchObject({
@@ -455,7 +452,7 @@ describe('re-index actions', () => {
   it('asks the user to open a folder first when the panes show none', async () => {
     const app = await mountConnected('/browse');
 
-    entry(app, 'Re-index current folders').click();
+    await runIndex(app, 'Re-index current folders');
 
     await until(() => expect(messages()).toEqual([['info', 'Open a folder first']]));
     expect(rescans()).toEqual([]);
@@ -464,7 +461,7 @@ describe('re-index actions', () => {
   it('scans current folders for changes without forcing reprocessing or removals', async () => {
     const app = await mountConnected('/browse?src=photos/trips&cmp=photos/trips/2024');
 
-    entry(app, 'Scan current folders for changes').click();
+    await runIndex(app, 'Scan current folders for changes');
 
     await until(() => expect(rescans()).toHaveLength(1));
     expect(rescans()[0]?.[1]).toMatchObject({
@@ -483,7 +480,7 @@ describe('re-index actions', () => {
   it('scans all assets for changes only after confirmation', async () => {
     const app = await mountConnected('/browse?src=photos/trips');
 
-    entry(app, 'Scan all assets for changes').click();
+    await runIndex(app, 'Scan all assets for changes');
     const dialog = await shownConfirm();
     expect(dialog.title).toBe('Scan all assets for changes?');
     expect(rescans()).toEqual([]);
@@ -499,7 +496,7 @@ describe('re-index actions', () => {
   it('asks before re-indexing all assets, and sends nothing when the user declines', async () => {
     const app = await mountConnected('/browse');
 
-    entry(app, 'Re-index all assets').click();
+    await runIndex(app, 'Re-index all assets');
     const dialog = await shownConfirm();
     expect(dialog.title).toBe('Re-index all assets?');
     await pressConfirm('Cancel');
@@ -508,7 +505,7 @@ describe('re-index actions', () => {
     expect(rescans()).toEqual([]);
     expect(messages()).toEqual([]);
 
-    entry(app, 'Re-index all assets').click();
+    await runIndex(app, 'Re-index all assets');
     await pressConfirm('Re-index all assets');
 
     await until(() => expect(rescans()).toHaveLength(1));
@@ -525,7 +522,7 @@ describe('re-index actions', () => {
         new ApiError({ status: 409, code: 'volume_offline', message: 'Volume photos is offline' }),
       );
 
-    entry(app, 'Re-index current folders').click();
+    await runIndex(app, 'Re-index current folders');
 
     await until(() => expect(messages()).toEqual([['error', 'Volume photos is offline']]));
   });
@@ -537,23 +534,21 @@ describe('re-index actions', () => {
       const reply = deferred<TaskDto>();
       answer = () => reply.promise;
 
-      entry(app, label).click();
+      await runIndex(app, label);
       await app.updateComplete;
 
       for (const item of reindexEntries(app)) {
         expect(item.disabled).toBe(true);
-        expect(item.closest('li')?.classList.contains('menu-disabled')).toBe(true);
       }
       for (const item of reindexEntries(app)) {
-        expect(item.querySelector('.loading') !== null).toBe(item === entry(app, label));
-        expect(item.querySelector('opm-icon') === null).toBe(item === entry(app, label));
+        expect(item.querySelector('.loading')).not.toBeNull();
+        expect(item.querySelector('opm-icon')).toBeNull();
       }
 
       reply.resolve(queued);
       await until(() => expect(reindexEntries(app).some((item) => item.disabled)).toBe(false));
 
       for (const item of reindexEntries(app)) {
-        expect(item.closest('li')?.classList.contains('menu-disabled')).toBe(false);
         expect(item.querySelector('.loading')).toBeNull();
       }
       expect(rescans()).toHaveLength(1);
@@ -569,7 +564,6 @@ describe('re-index actions', () => {
     expect(events.connection.value).toBe('reconnecting');
     for (const item of reindexEntries(app)) {
       expect(item.disabled).toBe(true);
-      expect(item.closest('li')?.classList.contains('menu-disabled')).toBe(true);
       item.click();
     }
     expect(rescans()).toEqual([]);
@@ -794,6 +788,25 @@ describe('small screens', () => {
     vi.advanceTimersByTime(200);
 
     expect(document.activeElement).toBe(entry(app, 'Browse'));
+  });
+
+  it('preserves focus when a scan menu is opened before the drawer focus delay expires', async () => {
+    const app = await mountApp('/browse');
+    FakeEventSource.last().open();
+    await app.updateComplete;
+    await app.querySelector('opm-split-button')?.updateComplete;
+    vi.useFakeTimers();
+    await openMenu(app);
+    const split = app.querySelector('opm-split-button');
+    const chooser = split?.querySelector<HTMLElement>('summary');
+    chooser?.click();
+    await split?.updateComplete;
+    const selected = split?.querySelector('[role="menuitemradio"][aria-checked="true"]');
+    expect(document.activeElement).toBe(selected);
+    vi.advanceTimersByTime(200);
+    await split?.updateComplete;
+    expect(document.activeElement).toBe(selected);
+    expect(split?.querySelector('details')?.open).toBe(true);
   });
 
   it('does not move the focus into a menu that was closed again in the meantime', async () => {

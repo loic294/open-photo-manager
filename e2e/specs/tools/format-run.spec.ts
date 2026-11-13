@@ -1,7 +1,9 @@
+import { readFile } from 'node:fs/promises';
 import type { PlanDto } from '../../../web/src/api/generated/PlanDto';
 import type { SelectionDto } from '../../../web/src/api/generated/SelectionDto';
 import { formatFileSize } from '../../../web/src/util/format';
-import { diffTrees, snapshotTree, trashEntries } from '../../src/disk';
+import { emptyFilter } from '../../src/api';
+import { diffTrees, snapshotTree, trashEntries, writeFile } from '../../src/disk';
 import { expect, test } from '../../src/test';
 import { expectedDestination } from '../../src/tool-oracles';
 
@@ -18,6 +20,62 @@ async function waitForTask(app: import('../../src/app-instance').AppInstance, id
     .poll(async () => (await app.api.tasks()).find((task) => task.id === id)?.state)
     .toBe('done');
 }
+
+test('existing formatting folders show their final counts before any files move', async ({
+  app,
+  page,
+  formatPage,
+  confirmDialog,
+}) => {
+  const photo = await readFile(app.volumePath('photos/dupes/m1/IMG_0300.jpg'));
+  const base = 'e2e-format-counts';
+  await writeFile(app, 'photos', `${base}/from/a.jpg`, photo);
+  await writeFile(app, 'photos', `${base}/existing/stay.jpg`, photo);
+  const volume = (await app.api.volumes()).find((entry) => entry.name === 'photos');
+  if (!volume) throw new Error('Missing photos volume');
+  await app.rescan([{ volume_id: volume.id, dir: base, recursive: true }]);
+  const request = { volume_id: volume.id, dir: base, filter: emptyFilter, plan: null };
+  const current = await app.api.folders(request);
+  expect(current.folders.map((folder) => [folder.name, folder.count])).toEqual([
+    ['existing', 1],
+    ['from', 1],
+  ]);
+  const before = await snapshotTree(app.volumesDir, { hash: true });
+  const initialPlan = page.waitForResponse(isResponse(/^\/api\/plans$/));
+  await page.goto(`${app.url}/format?src=photos/${base}&cmp=photos/${base}`);
+  await initialPlan;
+  await formatPage.edit();
+  const updatedPlan = page.waitForResponse(
+    (response) =>
+      isResponse(/^\/api\/plans$/)(response) &&
+      response.request().postDataJSON().params.pattern === 'existing',
+  );
+  await formatPage.pattern().fill('existing');
+  expect((await updatedPlan).ok()).toBe(true);
+  await formatPage.done();
+  const count = (name: string) =>
+    formatPage.destinationFolder(name).locator('.badge[aria-hidden="true"]');
+  await expect(count('existing')).toHaveText('2');
+  await expect(count('from')).toHaveText('0');
+  expect(await snapshotTree(app.volumesDir, { hash: true })).toEqual(before);
+  expect((await app.api.folders(request)).folders).toEqual(current.folders);
+
+  await formatPage.actionButton().click();
+  const executed = page.waitForResponse(isResponse(/^\/api\/plans\/\d+\/execute$/));
+  await confirmDialog.confirm('Move and format 1 file');
+  const task = (await (await executed).json()) as { id: number };
+  await waitForTask(app, task.id);
+  expect(
+    (await app.api.folders(request)).folders.map((folder) => [folder.name, folder.count]),
+  ).toEqual([
+    ['existing', 2],
+    ['from', 0],
+  ]);
+  expect((await app.api.listing('photos', `${base}/from`)).items).toHaveLength(0);
+  expect(
+    (await app.api.listing('photos', `${base}/existing`)).items.map((item) => item.name),
+  ).toEqual(['a.jpg', 'stay.jpg']);
+});
 
 test('folder formatting moves to the pattern path shown in its preview', async ({
   app,

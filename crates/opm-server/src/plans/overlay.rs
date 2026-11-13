@@ -46,6 +46,8 @@
 //!   A planner that never changes what a folder holds (batch rename) deliberately returns the
 //!   default folder overlay instead: folder rows and footer counts remain real-only, while the
 //!   comparison items endpoint shows only the rename ghost cards.
+//!   Formatting destination folder rows additionally subtract departing/replaced real files;
+//!   footer and item totals still describe the real-plus-ghost listing.
 //! * **Ghosts are not real.** A ghost never appears in an id list, a selection or a count of real
 //!   files. Its `id` is the id of the real source file (thumbnails work) while `volume_id`, `dir`
 //!   and `name` are the planned location, and `overlay.planned` is `true`.
@@ -106,6 +108,10 @@ pub struct FolderPlanInfo {
     pub ghost_count: i64,
     /// Ghost files in or below the folder, whatever the filter says; added to its `total`.
     pub ghost_total: i64,
+    /// Matching real files leaving or replaced by a formatting plan; subtracted from `count`.
+    pub removed_count: i64,
+    /// Real files leaving or replaced by a formatting plan; subtracted from `total`.
+    pub removed_total: i64,
 }
 
 /// Plan data for the folder list of one directory.

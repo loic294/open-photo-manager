@@ -6,6 +6,7 @@ import type { ExcludedFolder } from '@/api/generated/ExcludedFolder';
 import type { FolderEntry } from '@/api/generated/FolderEntry';
 import { OpmElement } from '@/base/opm-element';
 import type { IconName } from '@/components/opm-icon';
+import { tooltip } from '@/components/tooltip';
 import '@/components/opm-icon';
 import type { PaneId } from '@/stores/nav';
 import { type FolderView, GRID_SIZE } from '@/stores/prefs';
@@ -246,7 +247,7 @@ export class OpmFolderList extends OpmElement {
     const name = html`
       <opm-icon name=${iconFor(entry)} size="sm"
         class=${overlay.will_delete ? 'text-error' : nothing}></opm-icon>
-      <span class="list-col-grow min-w-0 truncate" title=${entry.name}>${entry.name}</span>`;
+      <span class="list-col-grow min-w-0 truncate" ${tooltip(entry.name)}>${entry.name}</span>`;
     return html`
       <li class=${thumbnails ? 'min-w-0' : ITEM_CLASS}>
         <a href=${href} data-name=${entry.name} class="${frame} ${toneClass(entry, state)}">
@@ -256,12 +257,12 @@ export class OpmFolderList extends OpmElement {
             ${overlay.will_delete ? html`<span class="sr-only">will be deleted</span>` : nothing}
             ${
               overlay.planned
-                ? html`<span class="badge badge-info badge-sm" title="Will be created">new</span>`
+                ? html`<span class="badge badge-info badge-sm" ${tooltip('Will be created')}>new</span>`
                 : nothing
             }
             <span class="badge badge-ghost badge-sm" aria-hidden="true">${countText(entry)}</span>
             <span class="sr-only">${countSentence(entry)}</span>
-            ${this.isSoftExcluded(entry) ? html`<span class="badge badge-outline badge-sm" title="Excluded from all tool plans; still indexed and browsable">Soft exclude</span>` : nothing}
+            ${this.isSoftExcluded(entry) ? html`<span class="badge badge-outline badge-sm" ${tooltip('Excluded from all tool plans; still indexed and browsable')}>Soft exclude</span>` : nothing}
             ${this.showMatches && matches !== null ? this.renderMatches(matches) : nothing}
           </span>
         </a>
@@ -278,7 +279,7 @@ export class OpmFolderList extends OpmElement {
     const failed = url !== null && this.failedPreviews.has(url);
     return html`
       <span class="relative flex aspect-4/3 w-full items-center justify-center bg-base-200"
-        title=${failed ? 'Photo preview unavailable' : nothing}>
+        ${tooltip(failed ? 'Photo preview unavailable' : nothing)}>
         <opm-icon name=${failed ? 'image-off' : iconFor(entry)} size="xl"
           class="text-base-content/60"></opm-icon>
         ${
