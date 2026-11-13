@@ -31,6 +31,9 @@ async fn main() -> anyhow::Result<()> {
     state.immich_outbox.start_background(state.shutdown.clone());
     state.immich_sync.start_background(state.shutdown.clone());
     state.index_jobs.start_background();
+    state
+        .statistics
+        .start_background(state.shutdown.clone(), &state.tasks);
     state.watcher.start();
     state.trash.start_background(state.shutdown.clone());
 

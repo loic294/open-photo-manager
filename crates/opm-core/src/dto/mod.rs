@@ -26,6 +26,7 @@ pub mod moves;
 pub mod plans;
 pub mod rename;
 pub mod settings;
+pub mod statistics;
 pub mod tasks;
 pub mod trash;
 
@@ -48,6 +49,7 @@ pub use plans::*;
 pub use rename::*;
 #[allow(unused_imports)]
 pub use settings::*;
+pub use statistics::*;
 pub use tasks::*;
 #[allow(unused_imports)]
 pub use trash::*;

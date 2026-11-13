@@ -243,8 +243,8 @@ describe('main menu', () => {
       'Empty folder cleanup',
       'Batch rename',
     ]);
-    expect(entriesOf(footer).map(text)).toEqual(['Trash', 'Settings']);
-    expect(entriesOf(footer).map((item) => item.localName)).toEqual(['a', 'a']);
+    expect(entriesOf(footer).map(text)).toEqual(['Statistics', 'Trash', 'Settings']);
+    expect(entriesOf(footer).map((item) => item.localName)).toEqual(['a', 'a', 'a']);
     expect(app.querySelector('aside opm-split-button .join > button')?.textContent?.trim()).toBe(
       'Scan current folders for changes',
     );
@@ -266,6 +266,7 @@ describe('main menu', () => {
       '/format',
       '/cleanup',
       '/rename',
+      '/statistics',
       '/trash',
       '/settings',
     ]);

@@ -425,6 +425,19 @@ impl VolumeScan<'_> {
             held_update,
         )
         .await?;
+        if complete {
+            for scope in &plan.scopes {
+                if scope.recursive {
+                    crate::statistics::record::scanned(
+                        self.db,
+                        self.volume_id,
+                        &scope.dir,
+                        self.generation,
+                    )
+                    .await?;
+                }
+            }
+        }
 
         self.summary.volumes_scanned += 1;
         self.summary.held += held;

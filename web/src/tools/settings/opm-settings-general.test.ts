@@ -285,6 +285,7 @@ describe('opm-settings-general', () => {
       expect(legends).toEqual([
         'Files and sidecars',
         'Moving and deleting',
+        'Library statistics',
         'Indexing',
         'Volumes',
         'Excluded folders',

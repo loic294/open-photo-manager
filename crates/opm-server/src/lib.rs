@@ -19,5 +19,6 @@ pub mod query;
 pub mod security;
 pub mod settings;
 pub mod state;
+pub mod statistics;
 pub mod tasks;
 pub mod trash;

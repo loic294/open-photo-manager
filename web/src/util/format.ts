@@ -9,14 +9,16 @@ function dateFormat(
   locale: string | undefined,
   utc: boolean,
   seconds = false,
+  timeZone?: string,
 ): Intl.DateTimeFormat {
-  const key = `${locale ?? ''}|${utc ? 'utc' : 'local'}|${seconds}`;
+  const zone = utc ? 'UTC' : timeZone;
+  const key = `${locale ?? ''}|${zone ?? 'local'}|${seconds}`;
   let format = dateFormats.get(key);
   if (!format) {
     format = new Intl.DateTimeFormat(locale, {
       dateStyle: 'medium',
       timeStyle: seconds ? 'medium' : 'short',
-      ...(utc ? { timeZone: 'UTC' } : {}),
+      ...(zone ? { timeZone: zone } : {}),
     });
     dateFormats.set(key, format);
   }
@@ -28,10 +30,13 @@ function formatSeconds(
   locale: string | undefined,
   utc: boolean,
   seconds = false,
+  timeZone?: string,
 ): string {
   if (typeof ts !== 'number' || !Number.isFinite(ts)) return EM_DASH;
   const date = new Date(ts * 1000);
-  return Number.isNaN(date.getTime()) ? EM_DASH : dateFormat(locale, utc, seconds).format(date);
+  return Number.isNaN(date.getTime())
+    ? EM_DASH
+    : dateFormat(locale, utc, seconds, timeZone).format(date);
 }
 
 function numberFormat(locale: string | undefined, fractionDigits: number): Intl.NumberFormat {
@@ -62,10 +67,15 @@ export function formatCaptureDate(
 
 /**
  * A real instant (`FileItem.mtime`, `FileDetail.btime`: epoch seconds) as "Nov 14, 2023, 10:13 PM"
- * on the browser's own clock, unlike `formatCaptureDate`. An em dash when there is no time.
+ * on the browser's own clock (or the explicit timezone), unlike `formatCaptureDate`.
+ * An em dash when there is no time.
  */
-export function formatFileTime(ts: number | null | undefined, locale?: string): string {
-  return formatSeconds(ts, locale, false);
+export function formatFileTime(
+  ts: number | null | undefined,
+  locale?: string,
+  timeZone?: string,
+): string {
+  return formatSeconds(ts, locale, false, false, timeZone);
 }
 
 const SIZE_UNITS = ['B', 'KB', 'MB', 'GB', 'TB'] as const;

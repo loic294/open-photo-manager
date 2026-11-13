@@ -6,7 +6,7 @@ The five tools operate on the index and show a plan before a confirmed file oper
 ## Tour the screen
 
 1. Use the menu to switch between **Browse**, **Duplicate finder**, **Asset move**,
-   **Folder formatting**, **Empty folder cleanup**, **Trash** and **Settings**. The re-index
+   **Folder formatting**, **Empty folder cleanup**, **Statistics**, **Trash** and **Settings**. The re-index
    commands are also in the menu.
 
    You should see: each tool keeps its own source and comparison pane locations.
@@ -49,6 +49,44 @@ The five tools operate on the index and show a plan before a confirmed file oper
    transcoded. See [media troubleshooting](troubleshooting.md#browsing-and-media).
 
    You should see: the viewer, or an explanation/download path for unsupported media.
+
+## Library statistics
+
+Open **Statistics** to review daily file counts and logical sizes, additions, modifications,
+removals, duplicate cleanup, restores, and permanent trash deletion. Filter by volume and choose
+30 days, 90 days, one year, or a custom window of up to 366 days. Daily summaries are retained
+indefinitely; older history remains available by choosing an earlier window.
+
+Collection runs in the backend without this page open: at startup, every five minutes, at the
+reporting timezone's calendar boundary, and after completed tasks. Inventory charts use the latest
+actual observation in each day, not a reconstructed exact midnight count. The observation time is
+shown. Current-day activity is provisional; an interrupted day can be partial, and missing days
+are gaps, not zeros. The first release cannot recover history from before it was installed.
+Large imports drain their activity queue in bounded follow-up passes; pending changes are shown.
+
+**Settings > General > Library statistics** sets the IANA reporting timezone (initially
+`America/Los_Angeles`). All browsers use that timezone for daily buckets, including daylight-saving
+changes. Historical buckets keep their original timezone and are not rewritten when it changes.
+
+The inventory includes all indexed files, including sidecars and retained offline-volume rows;
+trash and planned ghost files are excluded. The initial index and discoveries before a new volume's
+first successful full scan are its **Initial inventory**, not new additions. Type and index-health
+tables show where bytes live and which metadata, hash, or thumbnail stages need attention.
+
+Added and modified counts are distinct per indexed file per day. Actual size, mtime, or classified
+kind changes count as modifications; metadata processing and unchanged forced rescans do not.
+Internal moves and renames are not additions or removals. A copy adds a file; a restore is counted
+separately. Changes are dated when the index observes them, not by the file's capture date.
+Content edits that preserve all indexed change indicators cannot be detected by these statistics.
+
+Duplicate counts include only successful cleanup operations, with primary files and companion
+sidecars separate. Failed or skipped operations do not count. Duplicate files are a subset of all
+trashed files, and trashing also removes files from the index: these activity columns overlap.
+Restoring or emptying trash does not erase the earlier activity. Bytes moved to trash are **not**
+freed space; permanently purged bytes are logical sizes, not a measurement of physical NAS capacity.
+Folder restore and purge file counts use the recorded index inventory. Legacy or adopted folders
+without that inventory cannot supply file counts, although their bytes can still be reported.
+The daily table provides exact counts and byte totals alongside the charts.
 
 ## Duplicate finder
 

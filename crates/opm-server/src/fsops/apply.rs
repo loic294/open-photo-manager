@@ -995,6 +995,7 @@ impl FsOps {
         rules: &Rules,
         t: &TransferApply<'_>,
     ) -> Result<Indexed, sqlx::Error> {
+        crate::statistics::record::begin(conn, t.journal_id).await?;
         Journal::finish_tx(&mut *conn, t.journal_id).await?;
         let generation = scan_gen(&mut *conn, t.dst.volume_id).await?;
         upsert_dirs(
@@ -1005,6 +1006,11 @@ impl FsOps {
         )
         .await?;
         let (indexed, kind) = index_transfer(&mut *conn, rules, t, generation).await?;
+        if t.mode == Mode::Move
+            && let Some(file) = indexed.file_id
+        {
+            crate::statistics::record::moved_identity(conn, t.journal_id, file).await?;
+        }
         sqlx::query("UPDATE fs_journal SET result_file_id = ?, result_live = 1, result_mtime = ? WHERE id = ?")
             .bind(indexed.file_id).bind(t.dst_stat.mtime).bind(t.journal_id)
             .execute(&mut *conn).await?;
@@ -1060,6 +1066,13 @@ impl FsOps {
         if let Some(op) = op {
             self.run_hooks(&mut *conn, &op).await?;
         }
+        let metrics = match t.mode {
+            Mode::Move => Vec::new(),
+            Mode::Copy if indexed.file_id.is_some() => vec![("added", 1, to_i64(t.dst_stat.size))],
+            Mode::Restore => vec![("restored", 1, to_i64(t.dst_stat.size))],
+            Mode::Copy => Vec::new(),
+        };
+        crate::statistics::record::finish(conn, t.journal_id, t.dst.volume_id, &metrics).await?;
         Ok(indexed)
     }
 
@@ -1076,6 +1089,7 @@ impl FsOps {
         conn: &mut SqliteConnection,
         t: &TrashApply<'_>,
     ) -> Result<Trashed, sqlx::Error> {
+        crate::statistics::record::begin(conn, t.journal_id).await?;
         Journal::finish_tx(&mut *conn, t.journal_id).await?;
         let (ids, meta, size) = if t.is_dir {
             let (files, bytes) = subtree_totals(&mut *conn, t.volume_id, t.orig).await?;
@@ -1152,6 +1166,23 @@ impl FsOps {
             }
             u64::try_from(ids.len()).unwrap_or(0)
         };
+        if t.is_dir {
+            crate::statistics::record::trashed_folder(conn, t.journal_id, trash_item_id).await?;
+        }
+        let count = match &meta {
+            Some(TrashMeta::Dir { files, .. }) => to_i64(*files),
+            _ => 1,
+        };
+        let mut metrics = vec![
+            ("trashed", count, to_i64(size)),
+            ("removed", count, to_i64(size)),
+        ];
+        match t.reason {
+            Some("duplicate") => metrics.push(("duplicates", count, to_i64(size))),
+            Some("duplicate_sidecar") => metrics.push(("duplicate_sidecars", count, to_i64(size))),
+            _ => {}
+        }
+        crate::statistics::record::finish(conn, t.journal_id, t.volume_id, &metrics).await?;
         Ok(Trashed {
             trash_item_id,
             files_removed,
@@ -1179,13 +1210,14 @@ impl FsOps {
         item: &TrashItem,
         bytes: u64,
     ) -> Result<(), sqlx::Error> {
+        crate::statistics::record::begin(conn, journal_id).await?;
         Journal::finish_tx(&mut *conn, journal_id).await?;
         sqlx::query("DELETE FROM trash_items WHERE id = ?")
             .bind(item.id)
             .execute(&mut *conn)
             .await?;
         self.run_hooks(
-            conn,
+            &mut *conn,
             &AppliedOp::Purged {
                 trash_item_id: item.id,
                 volume_id: item.volume_id,
@@ -1193,6 +1225,18 @@ impl FsOps {
                 is_dir: item.is_dir,
                 bytes,
             },
+        )
+        .await?;
+        let count = match TrashMeta::parse(item.meta_json.as_deref()) {
+            Some(TrashMeta::Dir { files, .. }) => to_i64(files),
+            _ if item.is_dir => 0,
+            _ => 1,
+        };
+        crate::statistics::record::finish(
+            conn,
+            journal_id,
+            item.volume_id,
+            &[("purged", count, to_i64(bytes))],
         )
         .await
     }
@@ -1218,15 +1262,28 @@ impl FsOps {
         item: &TrashItem,
         dst: &Loc,
     ) -> Result<(), sqlx::Error> {
+        crate::statistics::record::begin(conn, journal_id).await?;
+        sqlx::query("UPDATE statistics_intents SET subtree=1,scan_generation=(SELECT scan_gen FROM volumes WHERE id=?) WHERE journal_id=?")
+            .bind(dst.volume_id).bind(journal_id)
+            .execute(&mut *conn)
+            .await?;
         Journal::finish_tx(&mut *conn, journal_id).await?;
         let generation = scan_gen(&mut *conn, dst.volume_id).await?;
         upsert_dirs(&mut *conn, dst.volume_id, &dir_chain(&dst.rel), generation).await?;
+        crate::statistics::record::restored_folder(
+            conn,
+            journal_id,
+            item.id,
+            &item.orig_path,
+            &dst.rel,
+        )
+        .await?;
         sqlx::query("DELETE FROM trash_items WHERE id = ?")
             .bind(item.id)
             .execute(&mut *conn)
             .await?;
         self.run_hooks(
-            conn,
+            &mut *conn,
             &AppliedOp::Restored {
                 file_id: None,
                 trash_item_id: item.id,
@@ -1234,6 +1291,17 @@ impl FsOps {
                 to: dst.clone(),
                 is_dir: true,
             },
+        )
+        .await?;
+        let (files, bytes) = match TrashMeta::parse(item.meta_json.as_deref()) {
+            Some(TrashMeta::Dir { files, bytes }) => (to_i64(files), to_i64(bytes)),
+            _ => (0, to_i64(item.size)),
+        };
+        crate::statistics::record::finish(
+            conn,
+            journal_id,
+            dst.volume_id,
+            &[("restored", files, bytes)],
         )
         .await
     }

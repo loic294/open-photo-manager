@@ -53,12 +53,13 @@ type NumberField =
   | 'index.thumbnail_concurrency'
   | 'index.rescan_interval_minutes';
 /** The fields the server can refuse, and so the ones a validation error is mapped onto. */
-type FieldId = ListField | NumberField;
+type FieldId = ListField | NumberField | 'statistics_timezone';
 
 const LIST_FIELDS: readonly ListField[] = ['sidecar_extensions', 'junk_names', 'junk_prefixes'];
 
 /** The fields in page order: after a refused save the first one with a problem gets the focus. */
 const FIELD_ORDER: readonly FieldId[] = [
+  'statistics_timezone',
   ...LIST_FIELDS,
   'name_max_len',
   'trash_retention_days',
@@ -493,7 +494,7 @@ export class OpmSettingsGeneral extends OpmElement {
         @submit=${(event: Event) => event.preventDefault()}
       >
         ${this.renderAlert()} ${this.renderFiles(doc)} ${this.renderMoving(doc)}
-        ${this.renderIndexing(doc)} ${this.renderVolumes()} ${this.renderExcluded()} ${this.renderExcluded(true)}
+        ${this.renderStatistics(doc)} ${this.renderIndexing(doc)} ${this.renderVolumes()} ${this.renderExcluded()} ${this.renderExcluded(true)}
         ${this.dirty ? this.renderActionBar() : nothing}
       </form>
     `;
@@ -506,6 +507,35 @@ export class OpmSettingsGeneral extends OpmElement {
         <div class="skeleton h-72 w-full"></div>
         <div class="skeleton h-72 w-full"></div>
       </div>
+    `;
+  }
+
+  private renderStatistics(doc: SettingsDto) {
+    const problem = this.fieldProblems.get('statistics_timezone')?.message;
+    return html`
+      <fieldset class=${CARD} ?disabled=${this.saving}>
+        <legend class="fieldset-legend text-base">Library statistics</legend>
+        <label class="flex flex-col gap-2" for="statistics-timezone">
+          <span class="font-medium">Reporting timezone</span>
+          <input id="statistics-timezone" data-field="statistics_timezone"
+            class="input w-full max-w-sm" type="text"
+            .value=${live(doc.statistics_timezone)}
+            aria-invalid=${problem ? 'true' : nothing}
+            aria-describedby="statistics-timezone-help"
+            @input=${(event: Event) =>
+              this.change(
+                (current) => ({
+                  ...current,
+                  statistics_timezone: (event.target as HTMLInputElement).value,
+                }),
+                'statistics_timezone',
+              )}
+          />
+        </label>
+        <p id="statistics-timezone-help" class="text-sm">
+          ${problem ?? 'Use an IANA name such as America/Los_Angeles. Historical days keep their original timezone; changing this starts a new reporting segment.'}
+        </p>
+      </fieldset>
     `;
   }
 

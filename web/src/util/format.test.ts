@@ -65,6 +65,14 @@ describe('formatCaptureDate', () => {
 });
 
 describe('formatFileTime', () => {
+  it('uses an explicit reporting timezone without sharing another zone’s cached formatter', () => {
+    const ts = Date.parse('2026-11-13T07:59:00Z') / 1000;
+    expect(formatFileTime(ts, 'en-US', 'America/Los_Angeles').replace(/\s/g, ' ')).toBe(
+      'Nov 12, 2026, 11:59 PM',
+    );
+    expect(formatFileTime(ts, 'en-US', 'UTC').replace(/\s/g, ' ')).toBe('Nov 13, 2026, 7:59 AM');
+  });
+
   // 2023-11-14T22:13:20Z
   const ts = 1_700_000_000;
 

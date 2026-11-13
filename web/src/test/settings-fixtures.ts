@@ -3,6 +3,7 @@ import type { SettingsDto } from '@/api/generated/SettingsDto';
 /** The settings a fresh server answers with: use it as the base of a test's loaded document. */
 export function sampleSettings(overrides: Partial<SettingsDto> = {}): SettingsDto {
   return {
+    statistics_timezone: 'America/Los_Angeles',
     sidecar_extensions: ['xmp', 'json', 'aae', 'dop', 'pp3', 'xml'],
     junk_names: ['@eaDir', '#recycle', '#snapshot', '.DS_Store', 'Thumbs.db', 'desktop.ini'],
     junk_prefixes: ['._'],

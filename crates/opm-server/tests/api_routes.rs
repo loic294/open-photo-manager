@@ -19,6 +19,7 @@ use serde_json::{Value, json};
 const ROUTES: &[(&str, &str)] = &[
     ("GET", "/api/health"),
     ("GET", "/api/settings"),
+    ("GET", "/api/statistics"),
     ("PUT", "/api/settings"),
     ("POST", "/api/settings/excluded-folders"),
     ("POST", "/api/settings/excluded-folders/remove"),

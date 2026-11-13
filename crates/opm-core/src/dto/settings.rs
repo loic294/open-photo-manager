@@ -33,6 +33,9 @@ use crate::names::normalize_name;
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, TS)]
 #[ts(export)]
 pub struct SettingsDto {
+    /// IANA timezone for daily statistics. Historical daily buckets keep their original timezone.
+    #[serde(default = "default_statistics_timezone")]
+    pub statistics_timezone: String,
     /// Extensions (lowercase letters and digits, no dot, 1 to 10 characters, at most 50) of the
     /// files that count as sidecars of the media file next to them, such as `xmp`. Applies to the next
     /// scan.
@@ -196,6 +199,7 @@ impl SettingsDto {
         let hash = usize::from(concurrency / 2).clamp(1, 4);
         let thumbnails = usize::from(concurrency).min(cpus);
         Self {
+            statistics_timezone: default_statistics_timezone(),
             sidecar_extensions: owned(DEFAULT_SIDECAR_EXTENSIONS),
             junk_names: owned(DEFAULT_JUNK_NAMES),
             junk_prefixes: owned(DEFAULT_JUNK_PREFIXES),
@@ -222,6 +226,10 @@ impl SettingsDto {
     /// nothing.
     pub fn normalized(self) -> Result<Self, Vec<FieldError>> {
         let mut errors = Vec::new();
+        let timezone = check_statistics_timezone(&self.statistics_timezone);
+        if let Err(issues) = &timezone {
+            errors.extend(issues.iter().cloned());
+        }
         let sidecar_extensions = keep(normalize_extensions(&self.sidecar_extensions), &mut errors);
         let junk_names = keep(normalize_junk_names(&self.junk_names), &mut errors);
         let junk_prefixes = keep(normalize_junk_prefixes(&self.junk_prefixes), &mut errors);
@@ -280,6 +288,7 @@ impl SettingsDto {
             return Err(errors);
         };
         Ok(Self {
+            statistics_timezone: timezone?,
             sidecar_extensions,
             junk_names,
             junk_prefixes,
@@ -316,6 +325,12 @@ impl SettingsDto {
         };
 
         let top = Loader::new(object, "");
+        top.field(
+            &mut issues,
+            "statistics_timezone",
+            &mut settings.statistics_timezone,
+            |v| check_statistics_timezone(v),
+        );
         top.field(
             &mut issues,
             "sidecar_extensions",
@@ -401,10 +416,26 @@ impl SettingsDto {
                     |v| check_rescan_interval(*v),
                 );
             }
+
             Some(_) => issues.push(FieldError::new("index", "is not a JSON object")),
         }
         LoadedSettings { settings, issues }
     }
+}
+
+fn default_statistics_timezone() -> String {
+    "America/Los_Angeles".to_owned()
+}
+
+fn check_statistics_timezone(value: &str) -> Result<String, Vec<FieldError>> {
+    crate::datetime::parse_tz(value)
+        .map(|tz| tz.name().to_owned())
+        .ok_or_else(|| {
+            vec![FieldError::new(
+                "statistics_timezone",
+                "must be a valid IANA timezone",
+            )]
+        })
 }
 
 /// Reads one key of a stored JSON object into a settings field.
@@ -706,6 +737,28 @@ mod tests {
         SettingsDto::defaults_for(2, 4)
     }
 
+    #[test]
+    fn statistics_timezone_is_validated_and_old_documents_keep_the_default() {
+        let defaults = defaults();
+        let loaded = SettingsDto::from_stored(&json!({}), &defaults);
+        assert_eq!(loaded.settings.statistics_timezone, "America/Los_Angeles");
+        let loaded =
+            SettingsDto::from_stored(&json!({"statistics_timezone":"Not/AZone"}), &defaults);
+        assert_eq!(
+            loaded.settings.statistics_timezone,
+            defaults.statistics_timezone
+        );
+        assert_eq!(fields(&loaded.issues), ["statistics_timezone"]);
+        let mut settings = defaults;
+        settings.statistics_timezone = "Europe/Paris".into();
+        assert!(settings.clone().normalized().is_ok());
+        settings.statistics_timezone = "Not/AZone".into();
+        settings.name_max_len = 0;
+        let errors = settings.normalized().unwrap_err();
+        assert!(fields(&errors).contains(&"statistics_timezone"));
+        assert!(fields(&errors).contains(&"name_max_len"));
+    }
+
     fn strings(values: &[&str]) -> Vec<String> {
         values.iter().map(|value| (*value).to_owned()).collect()
     }
@@ -800,6 +853,7 @@ mod tests {
                 "name_max_len",
                 "sidecar_extensions",
                 "soft_excluded_folders",
+                "statistics_timezone",
                 "trash_retention_days",
             ]
         );

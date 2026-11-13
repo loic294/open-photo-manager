@@ -23,6 +23,7 @@ mod plans;
 mod rename;
 mod selections;
 mod settings;
+mod statistics;
 mod tasks;
 mod trash;
 mod volumes;
@@ -42,6 +43,7 @@ pub fn router() -> Router<AppState> {
         .merge(rename::routes())
         .merge(selections::routes())
         .merge(settings::routes())
+        .merge(statistics::routes())
         .merge(tasks::routes())
         .merge(trash::routes())
         .merge(volumes::routes())
