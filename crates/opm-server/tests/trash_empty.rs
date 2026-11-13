@@ -58,6 +58,57 @@ async fn journal(fx: &TrashFx) -> Vec<(String, String)> {
 }
 
 #[tokio::test]
+async fn restart_continues_a_purge_without_deleting_newer_trash() {
+    let fx = TrashFx::new().await;
+    fx.trash(fx.a, "one.jpg", PAYLOAD).await;
+    let two = fx.trash(fx.a, "two.jpg", OTHER).await;
+    let parking = Parking::new();
+    let service = fx.service_with_hook(parking.clone());
+    let id = service
+        .empty(TrashEmptyRequest {
+            volume_id: None,
+            up_to_id: two.trash_item_id,
+        })
+        .await
+        .unwrap();
+    parking.arrived().await;
+    fx.app.state.tasks.shutdown_token().cancel();
+    parking.release();
+    assert_eq!(
+        within(fx.app.state.tasks.wait_finished(id))
+            .await
+            .unwrap()
+            .state,
+        TaskState::Interrupted
+    );
+    let newer = fx.trash(fx.a, "newer.jpg", b"keep this").await;
+    sqlx::query("DELETE FROM task_checkpoints WHERE task_id = ? AND key = 'purge-progress'")
+        .bind(id)
+        .execute(fx.app.state.db.write())
+        .await
+        .unwrap();
+    fx.app.state.begin_shutdown();
+    fx.app.state.shutdown().await;
+    let recovered = opm_server::state::AppState::new((*fx.app.state.config).clone())
+        .await
+        .unwrap();
+    let task = within(recovered.tasks.wait_finished(id)).await.unwrap();
+    assert_eq!(task.state, TaskState::Done, "{task:?}");
+    assert_eq!((task.items_done, task.items_total), (2, Some(2)));
+    let left: Vec<i64> = sqlx::query_scalar("SELECT id FROM trash_items ORDER BY id")
+        .fetch_all(recovered.db.read())
+        .await
+        .unwrap();
+    assert_eq!(left, vec![newer.trash_item_id]);
+    assert_eq!(
+        std::fs::read(fx.ta.path(newer.trash_path.as_str())).unwrap(),
+        b"keep this"
+    );
+    recovered.begin_shutdown();
+    recovered.shutdown().await;
+}
+
+#[tokio::test]
 async fn emptying_deletes_what_the_user_saw_for_good() {
     let fx = TrashFx::new().await;
     fx.trash(fx.a, "x/IMG_1.jpg", PAYLOAD).await;

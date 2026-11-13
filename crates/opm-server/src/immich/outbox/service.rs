@@ -274,9 +274,18 @@ impl ImmichOutbox {
         inner
             .tasks
             .submit(
-                TaskSpec::new(TaskKind::ImmichCleanup, title),
+                TaskSpec::new(TaskKind::ImmichCleanup, title).resumable(),
                 move |ctx| async move { outbox.run(ctx, task_title).await },
             )
+            .await
+    }
+
+    pub(crate) async fn resume_task(&self, id: TaskId) -> Result<(), AppError> {
+        let title = title(store::summary(&self.inner.db, false).await?.pending);
+        let service = self.clone();
+        self.inner
+            .tasks
+            .resume(id, move |ctx| async move { service.run(ctx, title).await })
             .await
     }
 

@@ -62,6 +62,58 @@ async fn left_in_trash(fx: &TrashFx) -> Vec<String> {
 }
 
 #[tokio::test]
+async fn restart_restores_remaining_items_and_recognizes_a_committed_restore() {
+    let fx = TrashFx::new().await;
+    let one = fx.trash(fx.a, "one.jpg", PAYLOAD).await;
+    let two = fx.trash(fx.a, "two.jpg", OTHER).await;
+    let parking = Parking::new();
+    let service = fx.service_with_hook(parking.clone());
+    let id = service
+        .restore(TrashRestoreRequest {
+            target: TrashTarget::Ids {
+                ids: vec![one.trash_item_id, two.trash_item_id],
+            },
+            conflict_policy: Some(ConflictPolicy::Rename),
+        })
+        .await
+        .unwrap();
+    parking.arrived().await;
+    fx.app.state.tasks.shutdown_token().cancel();
+    parking.release();
+    assert_eq!(
+        within(fx.app.state.tasks.wait_finished(id))
+            .await
+            .unwrap()
+            .state,
+        TaskState::Interrupted
+    );
+    // Model a crash after the journal commit but before the runner's checkpoint.
+    sqlx::query("DELETE FROM task_checkpoints WHERE task_id = ? AND key = 'restore-progress'")
+        .bind(id)
+        .execute(fx.app.state.db.write())
+        .await
+        .unwrap();
+    fx.app.state.begin_shutdown();
+    fx.app.state.shutdown().await;
+    let recovered = opm_server::state::AppState::new((*fx.app.state.config).clone())
+        .await
+        .unwrap();
+    let task = within(recovered.tasks.wait_finished(id)).await.unwrap();
+    assert_eq!(task.state, TaskState::Done, "{task:?}");
+    assert_eq!((task.items_done, task.items_total), (2, Some(2)));
+    assert_eq!(fx.files(fx.a).len(), 2);
+    assert_eq!(fx.files(fx.a)["one.jpg"], PAYLOAD);
+    assert_eq!(fx.files(fx.a)["two.jpg"], OTHER);
+    let left: i64 = sqlx::query_scalar("SELECT COUNT(*) FROM trash_items")
+        .fetch_one(recovered.db.read())
+        .await
+        .unwrap();
+    assert_eq!(left, 0);
+    recovered.begin_shutdown();
+    recovered.shutdown().await;
+}
+
+#[tokio::test]
 async fn ticked_items_come_back_and_the_rest_stays() {
     let fx = TrashFx::new().await;
     let batch = TrashBatch::adhoc();

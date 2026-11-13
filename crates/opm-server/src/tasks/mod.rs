@@ -64,10 +64,11 @@
 //!   never put a secret in them (`Redacted<T>` has no `Serialize`, which keeps a derived params
 //!   struct from holding one by accident).
 //! * Startup recovery ([`TaskEngine::new`]): every row left `queued` or `running` becomes
-//!   `interrupted` with the error `interrupted by restart`. Reconciling the file system from
-//!   `fs_journal` is the job of the file-operation service, not of the engine.
+//!   `interrupted` with the error `interrupted by restart`. After filesystem reconciliation,
+//!   AppState reconstructs resumable service runners with their original task ids and checkpoints.
+//!   Explicitly cancelled tasks are never resumed. Reconciling `fs_journal` belongs to FsOps.
 //! * Retention: finished tasks older than 7 days, or beyond the newest 500, are deleted at startup
-//!   and then hourly.
+//!   and then hourly. Interrupted resumable tasks and their checkpoints are retained until settled.
 //!
 //! # Cancellation
 //!
@@ -113,6 +114,7 @@
 //! marked `interrupted`, and only then is the database closed. After that [`TaskEngine::submit`]
 //! answers 503 `shutting_down`.
 
+mod checkpoint;
 mod events;
 mod lanes;
 mod model;
@@ -130,7 +132,7 @@ use std::time::Duration;
 
 use axum::http::StatusCode;
 use futures_util::FutureExt;
-use opm_core::dto::{ServerEvent, TaskDto, TaskState};
+use opm_core::dto::{ServerEvent, TaskDto, TaskKind, TaskState};
 use opm_core::paths::{TaskId, VolumeId};
 use serde_json::Value;
 use tokio::sync::broadcast;
@@ -138,6 +140,7 @@ use tokio::time::MissedTickBehavior;
 use tokio_util::sync::CancellationToken;
 use tokio_util::task::TaskTracker;
 
+pub(crate) use self::checkpoint::Checkpoint;
 use self::events::{EventBus, FsChanges};
 pub use self::lanes::LaneLimits;
 use self::lanes::Scheduler;
@@ -270,6 +273,111 @@ impl fmt::Debug for TaskEngine {
 }
 
 impl TaskEngine {
+    /// Requests owned by a service that can rebuild its runners. Ordered by original submission.
+    pub(crate) async fn recoverable(&self) -> Result<Vec<(TaskId, TaskKind, Value)>, AppError> {
+        let rows: Vec<(TaskId, String, String)> = sqlx::query_as(
+            "SELECT id, kind, params_json FROM tasks WHERE resumable = 1 AND state = 'interrupted' ORDER BY id",
+        ).fetch_all(self.inner.db.read()).await?;
+        rows.into_iter()
+            .map(|(id, kind, params)| {
+                let kind = model::kind_from_db(&kind).map_err(AppError::internal)?;
+                serde_json::from_str(&params)
+                    .map(|params| (id, kind, params))
+                    .map_err(AppError::internal)
+            })
+            .collect()
+    }
+
+    pub(crate) async fn recover_services(
+        &self,
+        state: &crate::state::AppState,
+    ) -> Result<(), AppError> {
+        for (id, kind, params) in self.recoverable().await? {
+            match kind {
+                TaskKind::Index => state.index_jobs.resume_task(id, params).await?,
+                TaskKind::PlanExecute => state.plans.resume_task(id, params).await?,
+                TaskKind::FsMove | TaskKind::FsTrash | TaskKind::TrashEmpty => {
+                    state.trash.resume_task(id, params).await?
+                }
+                TaskKind::ImmichSync => state.immich_sync.resume_task(id, params).await?,
+                TaskKind::ImmichCleanup => state.immich_outbox.resume_task(id).await?,
+                _ => {
+                    return Err(AppError::internal(anyhow::anyhow!(
+                        "no recovery runner for task {id}"
+                    )));
+                }
+            }
+        }
+        Ok(())
+    }
+
+    pub(crate) async fn update_params(&self, id: TaskId, params: Value) -> Result<(), AppError> {
+        sqlx::query(
+            "UPDATE tasks SET params_json = ? WHERE id = ? AND state IN ('queued', 'running')",
+        )
+        .bind(params.to_string())
+        .bind(id)
+        .execute(self.inner.db.write())
+        .await?;
+        Ok(())
+    }
+
+    /// Requeues the original identity, never creates a second task or revives a user cancellation.
+    pub(crate) async fn resume<F, Fut>(&self, id: TaskId, run: F) -> Result<(), AppError>
+    where
+        F: FnOnce(TaskCtx) -> Fut + Send + 'static,
+        Fut: Future<Output = Result<Value, TaskError>> + Send + 'static,
+    {
+        let inner = &self.inner;
+        if inner.stop.is_cancelled() || inner.core().closed {
+            return Err(shutting_down());
+        }
+        let row: Option<(String, String, String)> = sqlx::query_as(
+            "UPDATE tasks SET state = 'queued', error = NULL, finished_at = NULL \
+             WHERE id = ? AND state = 'interrupted' AND resumable = 1 RETURNING kind, title, lane",
+        )
+        .bind(id)
+        .fetch_optional(inner.db.write())
+        .await?;
+        let Some((kind, title, lane)) = row else {
+            return Ok(());
+        };
+        let kind = model::kind_from_db(&kind).map_err(AppError::internal)?;
+        let lane = match lane.as_str() {
+            "fs" => Lane::Fs,
+            "index" => Lane::Index,
+            "immich" => Lane::Immich,
+            _ => return Err(AppError::internal(anyhow::anyhow!("unknown task lane"))),
+        };
+        let spec = TaskSpec::new(kind, title).with_lane(lane);
+        let live = Arc::new(LiveTask::new(
+            id,
+            &spec,
+            inner.stop.child_token(),
+            inner.options.clock.clone(),
+        ));
+        let job = Job {
+            live: live.clone(),
+            run: Box::new(move |ctx| run(ctx).boxed()),
+        };
+        let accepted = {
+            let mut core = inner.core();
+            if core.closed || inner.stop.is_cancelled() {
+                false
+            } else {
+                core.live.insert(id, live.clone());
+                core.scheduler.enqueue(lane, id, job);
+                inner.bus.publish(ServerEvent::Task { task: live.dto() });
+                true
+            }
+        };
+        if !accepted {
+            inner.abandon(id).await;
+            return Err(shutting_down());
+        }
+        inner.dispatch();
+        Ok(())
+    }
     /// Starts an engine on `db` with the default [`TaskOptions`]. Tasks left `queued` or
     /// `running` by a previous run become `interrupted`, old finished tasks are pruned, and the
     /// background loops start. `shutdown` is the app-wide token: cancelling it stops the engine

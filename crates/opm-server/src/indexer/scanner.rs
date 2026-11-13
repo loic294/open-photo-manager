@@ -52,7 +52,7 @@ const GROUP_ROWS: usize = 1000;
 const OPTIMIZE_AFTER_ROWS: u64 = 100;
 
 /// What a scan did, as counts.
-#[derive(Debug, Clone, Default, PartialEq, Eq, Serialize)]
+#[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, serde::Deserialize)]
 pub struct ScanSummary {
     /// Volumes that were scanned (an offline volume is not).
     pub volumes_scanned: u64,
@@ -134,6 +134,7 @@ fn worse(current: Option<IndexError>, new: IndexError) -> IndexError {
 
 /// What every volume of one scan shares.
 struct Shared {
+    checkpoint: Option<crate::tasks::Checkpoint>,
     indexer: Indexer,
     matcher: SidecarMatcher,
     junk: JunkRules,
@@ -162,6 +163,7 @@ impl Indexer {
     ) -> Result<ScanSummary, IndexError> {
         let settings = self.settings().get();
         let shared = Shared {
+            checkpoint: ctx.checkpoint.clone(),
             indexer: self.clone(),
             matcher: SidecarMatcher::new(&settings.sidecar_extensions),
             junk: JunkRules::new(&settings.junk_names, &settings.junk_prefixes),
@@ -258,6 +260,7 @@ async fn scan_volumes(
     Ok(summary)
 }
 
+#[derive(Serialize, serde::Deserialize)]
 struct VolumeOutcome {
     summary: ScanSummary,
     /// No scan of the whole volume had completed before this one.
@@ -279,10 +282,34 @@ async fn scan_volume(
     };
 
     let db = indexer.db();
-    let Some(generation) = store::begin_generation(db, volume_id).await? else {
-        return Err(IndexError::UnknownVolume(volume_id));
+    let key = format!("scan-volume:{volume_id}");
+    if let Some(checkpoint) = &shared.checkpoint
+        && let Some(outcome) = checkpoint.load::<VolumeOutcome>(&key).await?
+    {
+        return Ok(outcome);
+    }
+    let generation_key = format!("scan-generation:{volume_id}");
+    let saved = match &shared.checkpoint {
+        Some(checkpoint) => checkpoint.load::<(i64, bool, u64)>(&generation_key).await?,
+        None => None,
     };
-    let rows_before = store::count_files(db, volume_id).await?;
+    let (generation, first_scan, rows_before) = match saved {
+        Some(saved) => saved,
+        None => {
+            let Some(generation) = store::begin_generation(db, volume_id).await? else {
+                return Err(IndexError::UnknownVolume(volume_id));
+            };
+            let saved = (
+                generation.value,
+                generation.first_scan,
+                store::count_files(db, volume_id).await?,
+            );
+            if let Some(checkpoint) = &shared.checkpoint {
+                checkpoint.save(&generation_key, &saved).await?;
+            }
+            saved
+        }
+    };
     if shared.estimate_total && rows_before > 0 {
         shared.progress.add_items_total(rows_before);
     }
@@ -298,17 +325,45 @@ async fn scan_volume(
         name,
         root,
         excluded: shared.exclusions.for_volume(volume_id),
-        generation: generation.value,
+        generation,
         rows_before,
         summary: ScanSummary::default(),
         removed_files: Vec::new(),
         vanished: BTreeSet::new(),
+        visited: HashSet::new(),
+        batches: 0,
     };
+    if let Some(checkpoint) = &shared.checkpoint {
+        let mut batches = checkpoint
+            .entries::<ScanBatch>(&format!("scan-batch:{volume_id}:"))
+            .await?;
+        batches.sort_by(|a, b| a.0.cmp(&b.0));
+        scan.batches = batches.len();
+        for (_, batch) in batches {
+            scan.summary = batch.summary;
+            scan.visited.extend(batch.dirs);
+            scan.removed_files.extend(batch.removed);
+            scan.vanished.extend(batch.vanished);
+        }
+        shared.progress.advance(scan.summary.files_seen, 0, None);
+    }
     scan.run(&plan).await?;
-    Ok(VolumeOutcome {
+    let outcome = VolumeOutcome {
         summary: scan.summary,
-        first_scan: generation.first_scan,
-    })
+        first_scan,
+    };
+    if let Some(checkpoint) = &shared.checkpoint {
+        checkpoint.save(&key, &outcome).await?;
+    }
+    Ok(outcome)
+}
+
+#[derive(Serialize, serde::Deserialize)]
+struct ScanBatch {
+    dirs: Vec<RelPath>,
+    summary: ScanSummary,
+    removed: Vec<FileId>,
+    vanished: BTreeSet<RelPath>,
 }
 
 /// How the walk of one scope ended.
@@ -322,6 +377,8 @@ enum ScopeEnd {
 }
 
 struct VolumeScan<'a> {
+    visited: HashSet<RelPath>,
+    batches: usize,
     shared: &'a Shared,
     db: &'a Db,
     volume_id: VolumeId,
@@ -488,6 +545,16 @@ impl VolumeScan<'_> {
         listings: Vec<DirListing>,
         scope: &Scope,
     ) -> Result<(), IndexError> {
+        let listings: Vec<_> = listings
+            .into_iter()
+            .filter(|listing| !self.visited.contains(&listing.dir))
+            .collect();
+        if listings.is_empty() {
+            return Ok(());
+        }
+        let dirs: Vec<_> = listings.iter().map(|listing| listing.dir.clone()).collect();
+        let removed_before = self.removed_files.len();
+        let vanished_before = self.vanished.clone();
         let listed: Vec<&str> = listings
             .iter()
             .map(|listing| listing.dir.as_str())
@@ -519,6 +586,25 @@ impl VolumeScan<'_> {
             units.push(self.plan_dir(listing, &stored, scope));
         }
         self.write_units(units).await?;
+        if let Some(checkpoint) = &self.shared.checkpoint {
+            checkpoint
+                .save(
+                    &format!("scan-batch:{}:{:020}", self.volume_id, self.batches),
+                    &ScanBatch {
+                        dirs: dirs.clone(),
+                        summary: self.summary.clone(),
+                        removed: self.removed_files[removed_before..].to_vec(),
+                        vanished: self
+                            .vanished
+                            .difference(&vanished_before)
+                            .cloned()
+                            .collect(),
+                    },
+                )
+                .await?;
+            self.batches += 1;
+        }
+        self.visited.extend(dirs);
         self.shared
             .progress
             .advance(files, bytes, detail.as_deref());

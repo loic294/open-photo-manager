@@ -628,7 +628,7 @@ async fn cancelled_build_and_item_cap_do_not_leave_materialized_rows() {
 }
 
 #[tokio::test]
-async fn a_failed_operation_does_not_stop_other_folders_and_cancellation_is_partial() {
+async fn failures_continue_and_shutdown_resumes_the_original_cleanup_task() {
     for cancel in [false, true] {
         let app = TestApp::new().await;
         let (v, tree) = app.add_volume("photos").await;
@@ -685,11 +685,32 @@ async fn a_failed_operation_does_not_stop_other_folders_and_cancellation_is_part
         }
         let task = app.state.tasks.wait_finished(task.id).await.unwrap();
         let finished = service.get(plan.id).await.unwrap();
-        let result = finished.result.unwrap();
         if cancel {
-            assert!(result.cancelled);
-            assert!(result.done < 3);
+            assert_eq!(task.state, opm_core::dto::TaskState::Interrupted);
+            assert!(finished.result.is_none());
+            assert_eq!(finished.state, opm_core::dto::PlanState::Executing);
+            service.shutdown().await;
+            app.state.begin_shutdown();
+            app.state.shutdown().await;
+            let restarted = opm_server::state::AppState::new((*app.state.config).clone())
+                .await
+                .unwrap();
+            let recovered = restarted.tasks.wait_finished(task.id).await.unwrap();
+            assert_eq!(
+                recovered.state,
+                opm_core::dto::TaskState::Done,
+                "{:?}",
+                recovered.error
+            );
+            let result = restarted.plans.get(plan.id).await.unwrap().result.unwrap();
+            assert_eq!((result.done, result.failed), (3, 0));
+            for path in ["base/a", "base/b", "base/c"] {
+                assert!(!tree.path(path).exists());
+            }
+            restarted.begin_shutdown();
+            restarted.shutdown().await;
         } else {
+            let result = finished.result.unwrap();
             assert_eq!((result.done, result.failed), (2, 1));
             assert_eq!(task.items_done, 3);
             assert!(tree.path("base/a").exists());

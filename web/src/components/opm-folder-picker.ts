@@ -2,6 +2,7 @@ import { html, nothing, type PropertyValues } from 'lit';
 import { api } from '@/api/client';
 import { errorMessage, isAbortError } from '@/api/errors';
 import type { FoldersResponse } from '@/api/generated/FoldersResponse';
+import type { PlanRef } from '@/api/generated/PlanRef';
 import type { Scope } from '@/api/generated/Scope';
 import { OpmElement } from '@/base/opm-element';
 import type { FolderOpenEvent } from '@/components/opm-folder-list';
@@ -15,6 +16,7 @@ export class OpmFolderPicker extends OpmElement {
     open: { type: Boolean },
     heading: { type: String },
     initial: { attribute: false },
+    plan: { attribute: false },
     location: { state: true },
     listing: { state: true },
     loading: { state: true },
@@ -24,6 +26,7 @@ export class OpmFolderPicker extends OpmElement {
   open = false;
   heading = 'Select folder';
   initial: Scope = { volume_id: null, dir: '', recursive: true };
+  plan: PlanRef | null = null;
   private location: Scope = this.initial;
   private listing: FoldersResponse | null = null;
   private loading = false;
@@ -33,6 +36,8 @@ export class OpmFolderPicker extends OpmElement {
   protected override updated(changed: PropertyValues<this>): void {
     if (changed.has('open') && this.open) {
       this.location = { ...this.initial };
+      void this.load();
+    } else if (changed.has('plan') && this.open) {
       void this.load();
     } else if (changed.has('open')) {
       this.request?.abort();
@@ -57,7 +62,7 @@ export class OpmFolderPicker extends OpmElement {
           volume_id: this.location.volume_id,
           dir: this.location.dir,
           filter: EMPTY_FILTER,
-          plan: null,
+          plan: this.plan,
         },
         signal: request.signal,
       });
@@ -104,9 +109,11 @@ export class OpmFolderPicker extends OpmElement {
         }
         <div class="max-h-72 overflow-auto">
           <opm-folder-list .folders=${this.listing?.folders ?? []} .loading=${this.loading}
+            .showMatches=${this.plan !== null}
             @folder-open=${(event: FolderOpenEvent) => this.move(event.detail.entry.volume_id, event.detail.entry.path)}>
           </opm-folder-list>
         </div>
+        ${this.plan ? html`<p class="mt-2 text-xs text-base-content/70">Matches count files with duplicates in each folder and its subfolders, from the current search.</p>` : nothing}
         ${!this.loading && !this.failure && this.listing?.folders.length === 0 ? html`<p class="py-3 text-sm">No subfolders.</p>` : nothing}
       `}
       .actions=${html`<button class="btn btn-ghost" @click=${() => this.close()}>Cancel</button>

@@ -18,11 +18,13 @@ use crate::tasks::{TaskCtx, TaskError, TaskSpec};
 const ID_CHUNK: usize = 5_000;
 
 /// An item a run has to restore.
-#[derive(Debug, FromRow)]
+#[derive(Debug, FromRow, serde::Serialize, serde::Deserialize)]
 struct Pending {
     id: TrashItemId,
     orig_path: String,
     size: i64,
+    volume_id: VolumeId,
+    trash_path: String,
 }
 
 impl TrashService {
@@ -43,7 +45,7 @@ impl TrashService {
         } = request;
         let policy = conflict_policy.unwrap_or_else(|| self.settings.get().default_conflict_policy);
 
-        let (count, target, params) = match target {
+        let (count, target, mut params) = match target {
             TrashTarget::Ids { ids } => {
                 let ids: Vec<TrashItemId> = ids
                     .into_iter()
@@ -81,9 +83,12 @@ impl TrashService {
                 (count, TrashTarget::Batch { volume_id, batch }, params)
             }
         };
+        params["request"] = json!({ "target": target, "conflict_policy": policy });
 
         let service = self.clone();
-        let spec = TaskSpec::new(TaskKind::FsMove, restoring_title(count)).with_params(params);
+        let spec = TaskSpec::new(TaskKind::FsMove, restoring_title(count))
+            .resumable()
+            .with_params(params);
         let id = self
             .tasks
             .submit(spec, move |ctx| async move {
@@ -139,7 +144,7 @@ impl TrashService {
                 let mut found: Vec<Pending> = Vec::with_capacity(ids.len());
                 for chunk in ids.chunks(ID_CHUNK) {
                     let mut builder = QueryBuilder::<Sqlite>::new(
-                        "SELECT id, orig_path, size FROM trash_items WHERE id IN ",
+                        "SELECT id, orig_path, size, volume_id, trash_path FROM trash_items WHERE id IN ",
                     );
                     push_id_list(&mut builder, chunk);
                     builder.push(" ORDER BY id");
@@ -160,7 +165,7 @@ impl TrashService {
             }
             TrashTarget::Batch { volume_id, batch } => {
                 let found = sqlx::query_as::<_, Pending>(
-                    "SELECT id, orig_path, size FROM trash_items \
+                    "SELECT id, orig_path, size, volume_id, trash_path FROM trash_items \
                      WHERE volume_id = ? AND batch = ? ORDER BY id",
                 )
                 .bind(volume_id)
@@ -172,34 +177,74 @@ impl TrashService {
         }
     }
 
-    async fn run_restore(
+    pub(super) async fn run_restore(
         &self,
         ctx: TaskCtx,
         target: TrashTarget,
         policy: ConflictPolicy,
     ) -> Result<Value, TaskError> {
-        let (items, missing) = self.load_pending(&target).await?;
+        let checkpoint = crate::tasks::Checkpoint::new(&self.db, ctx.id).await?;
+        let (items, missing) = match checkpoint
+            .load::<(Vec<Pending>, Vec<TrashItemId>)>("restore-input")
+            .await?
+        {
+            Some(input) => input,
+            None => {
+                let input = self.load_pending(&target).await?;
+                checkpoint.save("restore-input", &input).await?;
+                input
+            }
+        };
         let total = (items.len() + missing.len()) as u64;
         let bytes: i64 = items.iter().map(|item| item.size.max(0)).sum();
         ctx.progress
             .phase(restoring_title(total), Some(to_i64(total)), Some(bytes));
 
         let cx = self.op_context(&ctx);
-        let mut report = Report::new("left in the trash");
+        let (next, mut report): (usize, Report) = checkpoint
+            .load("restore-progress")
+            .await?
+            .unwrap_or_else(|| (0, Report::new("left in the trash")));
+        ctx.progress.add(
+            (report.done + report.skipped + report.failed()) as i64,
+            report.bytes as i64,
+        );
         for id in missing {
+            if next > 0 {
+                break;
+            }
             report.fail(Failure {
                 id,
                 path: format!("item {id}"),
-                code: "not_in_trash",
+                code: "not_in_trash".to_owned(),
                 message: "the item is not in the trash (any more)".to_owned(),
             });
             ctx.progress.add(1, 0);
         }
-        for item in &items {
+        for (index, item) in items.iter().enumerate().skip(next) {
             if ctx.cancel.is_cancelled() {
                 return Err(TaskError::Cancelled);
             }
-            match self.fsops.restore(item.id, policy, &cx).await {
+            let loc = crate::fsops::Loc::new(
+                item.volume_id,
+                opm_core::paths::RelPath::new(&item.trash_path).map_err(AppError::internal)?,
+            );
+            let previous = self
+                .fsops
+                .completed_bytes(ctx.id, "restore", &loc)
+                .await
+                .map_err(AppError::from)?;
+            let outcome = if let Some(bytes) = previous {
+                Ok(RestoreOutcome::Restored {
+                    dst: loc,
+                    renamed: false,
+                    file_id: None,
+                    bytes,
+                })
+            } else {
+                self.fsops.restore(item.id, policy, &cx).await
+            };
+            match outcome {
                 Ok(RestoreOutcome::Restored { bytes, .. }) => {
                     report.done += 1;
                     report.bytes = report.bytes.saturating_add(bytes);
@@ -216,11 +261,14 @@ impl TrashService {
                 Err(err) => report.fail(Failure {
                     id: item.id,
                     path: item.orig_path.clone(),
-                    code: err.code(),
+                    code: err.code().to_owned(),
                     message: err.to_string(),
                 }),
             }
             ctx.progress.add(1, item.size.max(0));
+            checkpoint
+                .save("restore-progress", &(index + 1, &report))
+                .await?;
         }
 
         tracing::info!(

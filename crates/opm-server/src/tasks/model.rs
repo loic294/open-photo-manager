@@ -72,6 +72,7 @@ impl Lane {
 /// What to run: the identity of a task as the engine records it.
 #[derive(Clone, Debug)]
 pub struct TaskSpec {
+    pub resumable: bool,
     pub kind: TaskKind,
     /// Human-readable summary shown in the task panel ("Move 120 files"). A runner can replace it
     /// while it runs with [`TaskProgress::set_title`] or [`TaskProgress::phase`].
@@ -87,6 +88,7 @@ impl TaskSpec {
     /// A task of `kind` on its default lane ([`Lane::for_kind`]) without parameters.
     pub fn new(kind: TaskKind, title: impl Into<String>) -> Self {
         Self {
+            resumable: false,
             kind,
             title: title.into(),
             lane: Lane::for_kind(kind),
@@ -98,6 +100,13 @@ impl TaskSpec {
     #[must_use]
     pub fn with_params(mut self, params: Value) -> Self {
         self.params = params;
+        self
+    }
+
+    /// The caller can reconstruct this runner from its persisted parameters at startup.
+    #[must_use]
+    pub fn resumable(mut self) -> Self {
+        self.resumable = true;
         self
     }
 

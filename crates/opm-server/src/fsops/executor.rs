@@ -151,6 +151,16 @@ pub(crate) enum Transferred {
     Skipped(SkipReason),
 }
 
+#[derive(sqlx::FromRow)]
+struct TransferReceipt {
+    dst_volume_id: i64,
+    dst_path: String,
+    size: i64,
+    result_file_id: Option<i64>,
+    result_live: bool,
+    result_mtime: Option<i64>,
+}
+
 impl Transferred {
     /// The outcome a caller of `move_file`/`copy_file` sees.
     pub(crate) fn into_outcome(self) -> Result<MoveOutcome, FsOpError> {
@@ -449,6 +459,120 @@ fn is_entry_of(path: &Path, expected: &FileStat) -> bool {
 }
 
 impl FsOps {
+    pub(crate) async fn completed_bytes(
+        &self,
+        task_id: i64,
+        op: &str,
+        src: &Loc,
+    ) -> Result<Option<u64>, FsOpError> {
+        let size: Option<i64> = sqlx::query_scalar(
+            "SELECT COALESCE(j.size, 0) FROM fs_journal j JOIN tasks t ON t.id = j.task_id \
+             WHERE j.task_id = ? AND t.resumable = 1 AND j.op = ? AND j.state = 'done' \
+             AND j.src_volume_id = ? AND j.src_path = ? ORDER BY j.id DESC LIMIT 1",
+        )
+        .bind(task_id)
+        .bind(op)
+        .bind(src.volume_id)
+        .bind(src.rel.as_str())
+        .fetch_optional(self.db.read())
+        .await?;
+        size.map(|size| u64::try_from(size).map_err(|err| FsOpError::internal(err.to_string())))
+            .transpose()
+    }
+    /// The journal commit is atomic with the index update, unlike a caller's next checkpoint.
+    pub(crate) async fn completed_move(
+        &self,
+        task_id: i64,
+        src: &Loc,
+    ) -> Result<Option<MoveOutcome>, FsOpError> {
+        let job = Job {
+            mode: Mode::Move,
+            src: src.clone(),
+            dst: src.clone(),
+            policy: ConflictPolicy::Skip,
+            expect: None,
+            allow_rename: true,
+            companions: Vec::new(),
+            crossing: Crossing::Keep,
+            restore: None,
+        };
+        self.completed_transfer(&job, Some(task_id))
+            .await?
+            .map(Transferred::into_outcome)
+            .transpose()
+    }
+
+    async fn completed_transfer(
+        &self,
+        job: &Job,
+        task_id: Option<i64>,
+    ) -> Result<Option<Transferred>, FsOpError> {
+        let Some(task_id) = task_id else {
+            return Ok(None);
+        };
+        let op = match job.mode {
+            Mode::Move => "move",
+            Mode::Copy => "copy",
+            Mode::Restore => "restore",
+        };
+        let receipt: Option<TransferReceipt> = sqlx::query_as(
+            "SELECT j.dst_volume_id, j.dst_path, COALESCE(j.size, 0) AS size, j.result_file_id, j.result_live, j.result_mtime FROM fs_journal j \
+             JOIN tasks t ON t.id = j.task_id WHERE j.task_id = ? AND t.resumable = 1 \
+             AND j.state = 'done' AND j.op = ? AND j.src_volume_id = ? AND j.src_path = ? \
+             AND (? OR (j.dst_volume_id = ? AND j.dst_path = ?)) ORDER BY j.id DESC LIMIT 1",
+        ).bind(task_id).bind(op).bind(job.src.volume_id).bind(job.src.rel.as_str())
+            .bind(job.mode != Mode::Copy).bind(job.dst.volume_id).bind(job.dst.rel.as_str())
+            .fetch_optional(self.db.read()).await?;
+        let Some(TransferReceipt {
+            dst_volume_id: volume,
+            dst_path: path,
+            size,
+            result_file_id: recorded_id,
+            result_live,
+            result_mtime: mtime,
+        }) = receipt
+        else {
+            return Ok(None);
+        };
+        if !result_live {
+            return Err(FsOpError::SourceChanged);
+        }
+        let dst = Loc::new(
+            volume,
+            RelPath::new(&path).map_err(|err| FsOpError::internal(err.to_string()))?,
+        );
+        let file_id: Option<i64> = sqlx::query_scalar(
+            "SELECT id FROM files WHERE volume_id = ? AND dir_path = ? AND name = ?",
+        )
+        .bind(dst.volume_id)
+        .bind(dst.dir().as_str())
+        .bind(dst.name())
+        .fetch_optional(self.db.read())
+        .await?;
+        let file_id = file_id.ok_or(FsOpError::SourceChanged)?;
+        if Some(file_id) != recorded_id {
+            return Err(FsOpError::SourceChanged);
+        }
+        let stat = self.stat(&dst).await?;
+        if size != to_i64(stat.size) || mtime != Some(stat.mtime) {
+            return Err(FsOpError::SourceChanged);
+        }
+        if let Some(expect) = job.expect
+            && (expect.size != stat.size || expect.mtime != stat.mtime)
+        {
+            return Err(FsOpError::SourceChanged);
+        }
+        Ok(Some(Transferred::Done {
+            renamed: dst != job.dst,
+            cross_device: dst.volume_id != job.src.volume_id,
+            dst,
+            bytes: u64::try_from(size).map_err(|err| FsOpError::internal(err.to_string()))?,
+            indexed: super::apply::Indexed {
+                file_id: Some(file_id),
+                source_file_id: Some(file_id),
+            },
+        }))
+    }
     /// Moves one file. On one file system that is an atomic no-replace rename; across file
     /// systems the file is copied, verified (size and SHA-1 read back from the destination) and
     /// only then deleted from the source (or kept in the trash when the setting says so).
@@ -524,6 +648,9 @@ impl FsOps {
         job: &Job,
         cx: &OpContext,
     ) -> Result<Transferred, FsOpError> {
+        if let Some(done) = self.completed_transfer(job, cx.task_id).await? {
+            return Ok(done);
+        }
         if job.src == job.dst {
             return Ok(Transferred::Skipped(SkipReason::SameLocation));
         }

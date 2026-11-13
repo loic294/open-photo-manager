@@ -1124,6 +1124,84 @@ async fn permission_failure_continues_and_sidecars_of_failed_owner_stay() {
 }
 
 #[tokio::test]
+async fn restart_finishes_duplicate_deletion_and_the_first_owners_sidecar() {
+    let mut app = TestApp::new().await;
+    struct StopOnApply(opm_server::tasks::TaskEngine);
+    impl OpHook for StopOnApply {
+        fn on_applied<'a>(
+            &'a self,
+            _tx: &'a mut sqlx::SqliteConnection,
+            _op: &'a AppliedOp,
+        ) -> futures_util::future::BoxFuture<'a, Result<(), sqlx::Error>> {
+            Box::pin(async move {
+                self.0.shutdown_token().cancel();
+                Ok(())
+            })
+        }
+    }
+    let fsops = app
+        .state
+        .fsops
+        .clone()
+        .with_hook(Arc::new(StopOnApply(app.state.tasks.clone())));
+    app.state.plans = PlanService::new(deps(&app, fsops)).await.unwrap();
+    app.router = opm_server::app::router(app.state.clone());
+    let (volume, _, owner, tree, _) = disk_pair(&app, MatchMode::Hash).await;
+    tree.write("b/sub/one.jpg", b"same");
+    tree.write("b/one.xmp", b"meta");
+    let seed = Seed::new(&app.state.db);
+    seed.file(volume, "b/sub", "one.jpg")
+        .size(4)
+        .hash(sha1_bytes(b"same"))
+        .insert()
+        .await;
+    let xmp = seed.file(volume, "b", "one.xmp").size(4).insert().await;
+    seed.sidecar(owner, xmp, "exact").await;
+    let plan = build(
+        &app,
+        &params(MatchMode::Hash, side(volume, "a"), side(volume, "b")),
+    )
+    .await;
+    let (status, body) = app
+        .call(
+            Method::POST,
+            &format!("/api/plans/{}/execute", plan.id),
+            Some(json!({"options": {"action": "delete_comparison"}, "only": null})),
+        )
+        .await;
+    assert_eq!(status, StatusCode::ACCEPTED, "{body}");
+    let id = body["id"].as_i64().unwrap();
+    assert_eq!(
+        app.state.tasks.wait_finished(id).await.unwrap().state,
+        TaskState::Interrupted
+    );
+    app.state.begin_shutdown();
+    app.state.shutdown().await;
+    let recovered = opm_server::state::AppState::new((*app.state.config).clone())
+        .await
+        .unwrap();
+    let task = recovered.tasks.wait_finished(id).await.unwrap();
+    assert_eq!(task.state, TaskState::Done, "{task:?}");
+    let result = recovered.plans.get(plan.id).await.unwrap().result.unwrap();
+    assert_eq!((result.done, result.failed), (2, 0), "{result:?}");
+    assert_eq!(
+        (task.items_done, task.items_total, task.bytes_total),
+        (2, Some(2), Some(8))
+    );
+    assert!(!tree.path("b/one.jpg").exists());
+    assert!(!tree.path("b/one.xmp").exists());
+    assert!(!tree.path("b/sub/one.jpg").exists());
+    assert!(tree.path("a/one.jpg").exists());
+    let batches: i64 = sqlx::query_scalar("SELECT COUNT(DISTINCT batch) FROM trash_items")
+        .fetch_one(recovered.db.read())
+        .await
+        .unwrap();
+    assert_eq!(batches, 1);
+    recovered.begin_shutdown();
+    recovered.shutdown().await;
+}
+
+#[tokio::test]
 async fn cancellation_after_one_trash_preserves_partial_result() {
     let mut app = TestApp::new().await;
     struct CancelOnApply(opm_server::tasks::TaskEngine);

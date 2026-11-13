@@ -21,7 +21,7 @@ use crate::fsops::{
 };
 use crate::plans::{ExecContext, Plan, PlanError, ResultBuilder, display_path};
 
-#[derive(sqlx::FromRow)]
+#[derive(sqlx::FromRow, serde::Serialize, serde::Deserialize)]
 pub(crate) struct Item {
     pub(crate) file_id: FileId,
     pub(crate) dst_volume_id: i64,
@@ -195,28 +195,57 @@ pub(crate) async fn run(
 ) -> Result<PlanResult, PlanError> {
     let policy = stored.policy;
     let only = ctx.only_ids().await?;
-    let mut qb = QueryBuilder::new(
-        "SELECT m.file_id, m.dst_volume_id, m.dst_dir, m.dst_name, m.wanted_name, m.counterpart_id, m.replaced_id, m.src_volume_id, m.src_dir, m.src_name, m.src_size, m.src_mtime FROM move_items m WHERE m.plan_id = ",
-    );
-    qb.push_bind(ctx.plan_id)
-        .push(" AND m.status = 'move' ORDER BY m.src_volume_id, m.src_dir, m.src_name");
-    let items: Vec<Item> = qb.build_query_as().fetch_all(ctx.db.read()).await?;
-    let items: Vec<_> = items
-        .into_iter()
-        .filter(|i| only.as_ref().is_none_or(|ids| ids.contains(&i.file_id)))
-        .collect();
+    let checkpoint = crate::tasks::Checkpoint::new(&ctx.db, ctx.task.id).await?;
+    let saved = checkpoint
+        .load::<(Vec<Item>, HashMap<FileId, Vec<crate::fsops::SidecarItem>>)>("move-input")
+        .await?;
+    let (items, mut companions) = if let Some(saved) = saved {
+        saved
+    } else {
+        let mut qb = QueryBuilder::new(
+            "SELECT m.file_id, m.dst_volume_id, m.dst_dir, m.dst_name, m.wanted_name, m.counterpart_id, m.replaced_id, m.src_volume_id, m.src_dir, m.src_name, m.src_size, m.src_mtime FROM move_items m WHERE m.plan_id = ",
+        );
+        qb.push_bind(ctx.plan_id)
+            .push(" AND m.status = 'move' ORDER BY m.src_volume_id, m.src_dir, m.src_name");
+        let items: Vec<Item> = qb.build_query_as().fetch_all(ctx.db.read()).await?;
+        let items: Vec<_> = items
+            .into_iter()
+            .filter(|i| only.as_ref().is_none_or(|ids| ids.contains(&i.file_id)))
+            .collect();
+        let mut read = ctx.db.begin_write().await?;
+        let companions = sidecars::carriers(&mut read, &items).await?;
+        let ids = companions
+            .values()
+            .flatten()
+            .filter_map(|sidecar| sidecar.file_id)
+            .collect::<Vec<_>>();
+        crate::plans::file_identity::track(&mut read, ctx.plan_id, &ids).await?;
+        read.commit().await?;
+        checkpoint
+            .save("move-input", &(&items, &companions))
+            .await?;
+        (items, companions)
+    };
     ctx.declare_totals(
         items.len() as u64,
         items.iter().map(|i| i.src_size as u64).sum(),
     );
-    let mut read = ctx.db.read().begin().await?;
-    let mut companions = sidecars::carriers(&mut read, &items).await?;
-    read.commit().await?;
-    let mut result = ResultBuilder::new();
-    let mut failed_sidecars = HashSet::new();
-    let mut retained_count = 0_u64;
-    let mut retained_paths = Vec::new();
-    let mut transferred: HashMap<FileId, crate::fsops::Loc> = HashMap::new();
+    let (next, mut result, mut failed_sidecars, mut retained_count, mut retained_paths): (
+        usize,
+        ResultBuilder,
+        HashSet<FileId>,
+        u64,
+        Vec<String>,
+    ) = checkpoint.load("move-progress").await?.unwrap_or_default();
+    ctx.task
+        .progress
+        .add(next as i64, result.bytes_done() as i64);
+    let mut transferred: HashMap<FileId, crate::fsops::Loc> = checkpoint
+        .entries::<(FileId, crate::fsops::Loc)>("transfer:")
+        .await?
+        .into_iter()
+        .map(|(_, value)| value)
+        .collect();
     let all_sources: HashSet<FileId> =
         sqlx::query_scalar("SELECT file_id FROM move_items WHERE plan_id = ?")
             .bind(ctx.plan_id)
@@ -224,7 +253,7 @@ pub(crate) async fn run(
             .await?
             .into_iter()
             .collect();
-    for item in items {
+    for (index, item) in items.into_iter().enumerate().skip(next) {
         if ctx.cancelled() {
             result.mark_cancelled();
             break;
@@ -233,7 +262,49 @@ pub(crate) async fn run(
             .and_then(|dir| dir.join(&item.src_name))
             .map_err(anyhow::Error::from)?;
         let display = display_path(&ctx.volumes, item.src_volume_id, &source_path);
-        let validation = validate(&ctx, &item, hook, &transferred).await?;
+        let source = crate::fsops::Loc::new(item.src_volume_id, source_path.clone());
+        let completed = match ctx.fsops.completed_move(ctx.task.id, &source).await {
+            Ok(completed) => completed,
+            Err(FsOpError::SourceChanged | FsOpError::SourceMissing) => {
+                result.skip_with_detail(
+                    Some(item.file_id),
+                    display,
+                    "stale_plan",
+                    "The previously moved file was changed or removed; build a fresh plan",
+                );
+                ctx.item_processed();
+                checkpoint
+                    .save(
+                        "move-progress",
+                        &(
+                            index + 1,
+                            &result,
+                            &failed_sidecars,
+                            retained_count,
+                            &retained_paths,
+                        ),
+                    )
+                    .await?;
+                continue;
+            }
+            Err(error) => return Err(error.into()),
+        };
+        let validation = if let Some(MoveOutcome::Moved { file_id, .. }) = &completed {
+            let mut conn = ctx.db.read().acquire().await?;
+            if *file_id == item.file_id
+                && crate::plans::file_identity::is_live(&mut conn, ctx.plan_id, item.file_id)
+                    .await?
+            {
+                drop(conn);
+                Ok(live(&ctx.db, item.file_id).await?.ok_or_else(|| {
+                    PlanError::Internal(anyhow::anyhow!("recovered move lost its index row"))
+                })?)
+            } else {
+                Err("stale_plan")
+            }
+        } else {
+            validate(&ctx, &item, hook, &transferred).await?
+        };
         let row = match validation {
             Ok(row) => row,
             Err(code) => {
@@ -244,6 +315,18 @@ pub(crate) async fn run(
                     "The planned source or match changed; build a fresh plan",
                 );
                 ctx.item_processed();
+                checkpoint
+                    .save(
+                        "move-progress",
+                        &(
+                            index + 1,
+                            &result,
+                            &failed_sidecars,
+                            retained_count,
+                            &retained_paths,
+                        ),
+                    )
+                    .await?;
                 continue;
             }
         };
@@ -262,10 +345,29 @@ pub(crate) async fn run(
                 }
             }
         }
+        let mut safe_sidecars = Vec::with_capacity(sidecars.len());
+        let mut identities = ctx.db.read().acquire().await?;
+        for sidecar in sidecars {
+            if let Some(id) = sidecar.file_id
+                && !crate::plans::file_identity::is_live(&mut identities, ctx.plan_id, id).await?
+            {
+                result.skip_with_detail(
+                    Some(id),
+                    display_path(&ctx.volumes, sidecar.src.volume_id, &sidecar.src.rel),
+                    "sidecar_conflict",
+                    "The original sidecar vanished; a replacement requires a fresh plan",
+                );
+                failed_sidecars.insert(id);
+            } else {
+                safe_sidecars.push(sidecar);
+            }
+        }
+        drop(identities);
+        let sidecars = safe_sidecars;
         // Replace is permitted only for the pre-existing, non-source target recorded by
         // this plan. Newly incoming files and sources are never replace targets.
         let mut effective = policy;
-        if policy == ConflictPolicy::Replace {
+        if completed.is_none() && policy == ConflictPolicy::Replace {
             let target: Option<FileId> = sqlx::query_scalar(
                 "SELECT id FROM files WHERE volume_id = ? AND dir_path = ? AND name_norm = ?",
             )
@@ -289,13 +391,25 @@ pub(crate) async fn run(
                         "The planned replacement was deleted or replaced; build a fresh plan",
                     );
                     ctx.item_processed();
+                    checkpoint
+                        .save(
+                            "move-progress",
+                            &(
+                                index + 1,
+                                &result,
+                                &failed_sidecars,
+                                retained_count,
+                                &retained_paths,
+                            ),
+                        )
+                        .await?;
                     continue;
                 }
             }
         }
         let request = MoveRequest {
             file_id: Some(item.file_id),
-            src: row.loc()?,
+            src: source,
             dst: crate::fsops::Loc::new(
                 item.dst_volume_id,
                 RelPath::new(&item.dst_dir)
@@ -327,6 +441,9 @@ pub(crate) async fn run(
                 match group.owner {
                     MoveOutcome::Moved { dst, bytes, .. } => {
                         result.done(bytes);
+                        checkpoint
+                            .save(&format!("transfer:{}", item.file_id), &(item.file_id, &dst))
+                            .await?;
                         transferred.insert(item.file_id, dst);
                     }
                     MoveOutcome::Skipped(reason) => {
@@ -393,6 +510,22 @@ pub(crate) async fn run(
             Err(err) => result.fail_fs(Some(item.file_id), display, &err),
         }
         ctx.item_processed();
+        if ctx.cancelled() {
+            result.mark_cancelled();
+            break;
+        }
+        checkpoint
+            .save(
+                "move-progress",
+                &(
+                    index + 1,
+                    &result,
+                    &failed_sidecars,
+                    retained_count,
+                    &retained_paths,
+                ),
+            )
+            .await?;
     }
     if ctx.cancelled() {
         result.mark_cancelled();

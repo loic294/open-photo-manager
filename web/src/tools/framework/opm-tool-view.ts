@@ -87,10 +87,12 @@ import { DEFAULT_SCOPE_LABELS } from '@/util/filter';
 export class OpmToolView extends OpmElement {
   static override properties = {
     config: { attribute: false },
+    leadingControls: { attribute: false },
     controlsOpen: { state: true },
   };
 
   declare config: ToolConfig | undefined;
+  declare leadingControls: TemplateResult | undefined;
   private controlsOpen = false;
 
   private ctx: ToolContext | null = null;
@@ -240,6 +242,7 @@ export class OpmToolView extends OpmElement {
 
   private readonly onSizeChange = (event: SizeChangeEvent): void => {
     setGridSize(event.detail.pane, event.detail.size);
+    if (event.detail.pane === 'source') setGridSize('comparison', event.detail.size);
   };
 
   private readonly onPaneScroll = (event: CustomEvent<{ pane: PaneId }>): void => {
@@ -296,6 +299,7 @@ export class OpmToolView extends OpmElement {
       <header
         class="flex min-h-10 flex-none flex-wrap items-center gap-x-3 gap-y-2 border-b border-base-300 bg-base-100 px-3 py-2"
       >
+        ${this.leadingControls}
         ${
           controls
             ? html`<div class="flex min-w-56 flex-1 flex-wrap items-center gap-x-3 gap-y-2">${controls}</div>`

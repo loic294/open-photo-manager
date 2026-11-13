@@ -4,6 +4,37 @@ import './opm-duplicate-selection';
 
 afterEach(() => vi.restoreAllMocks());
 
+it('validates enabled regex rules and keeps name direction beside its title', async () => {
+  const el = await mount('opm-duplicate-selection', { open: true });
+  await settle(el);
+  const regexRow = [...el.querySelectorAll('li')].find((row) =>
+    row.textContent?.includes('Name matches regex'),
+  );
+  const checkbox = regexRow?.querySelector<HTMLInputElement>('input[type="checkbox"]');
+  if (!checkbox) throw new Error('Missing regex toggle');
+  checkbox.checked = true;
+  checkbox.dispatchEvent(new Event('change'));
+  await settle(el);
+  const apply = [...el.querySelectorAll('button')].find(
+    (button) => button.textContent?.trim() === 'Apply to all groups',
+  );
+  expect(apply?.disabled).toBe(true);
+  const pattern = el.querySelector<HTMLInputElement>('[aria-label="Filename regular expression"]');
+  if (!pattern) throw new Error('Missing regex field');
+  pattern.value = '[';
+  pattern.dispatchEvent(new Event('input'));
+  await settle(el);
+  expect(pattern.getAttribute('aria-invalid')).toBe('true');
+  pattern.value = '^IMG_';
+  pattern.dispatchEvent(new Event('input'));
+  await settle(el);
+  expect(apply?.disabled).toBe(false);
+  const lengthRow = [...el.querySelectorAll('li')].find((row) =>
+    row.textContent?.includes('Name length'),
+  );
+  expect(lengthRow?.querySelector('select')?.parentElement?.textContent).toContain('Name length');
+});
+
 async function settle(el: Element) {
   for (let i = 0; i < 6; i++) {
     await Promise.resolve();
@@ -20,14 +51,14 @@ it('edits a draft, reorders by keyboard buttons and drag, and applies enabled ru
   const applied = vi.fn<(event: Event) => void>();
   el.addEventListener('selection-rules', applied);
   await settle(el);
-  el.querySelector<HTMLButtonElement>('[aria-label="Move Modified date up"]')?.click();
+  el.querySelector<HTMLButtonElement>('[aria-label="Move Is in folder or subfolder up"]')?.click();
   await settle(el);
-  expect(el.querySelector('li')?.textContent).toContain('Modified date');
+  expect(el.querySelector('li')?.textContent).toContain('Is in folder or subfolder');
   const rows = [...el.querySelectorAll('li')];
-  rows[2]?.dispatchEvent(new Event('dragstart', { bubbles: true }));
+  rows[3]?.dispatchEvent(new Event('dragstart', { bubbles: true }));
   rows[0]?.dispatchEvent(new Event('drop', { bubbles: true, cancelable: true }));
   await settle(el);
-  expect(el.querySelector('li')?.textContent).toContain('Creation date');
+  expect(el.querySelector('li')?.textContent).toContain('Name length');
   const enabled = el.querySelector<HTMLInputElement>('li input');
   if (!enabled) throw new Error('Missing rule toggle');
   enabled.checked = true;
@@ -40,7 +71,7 @@ it('edits a draft, reorders by keyboard buttons and drag, and applies enabled ru
     ?.click();
   const event = applied.mock.calls[0]?.[0];
   expect(event instanceof CustomEvent && event.detail[0]).toMatchObject({
-    kind: 'created',
+    kind: 'name_length',
     enabled: true,
   });
 });

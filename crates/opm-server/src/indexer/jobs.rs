@@ -174,6 +174,33 @@ impl fmt::Debug for IndexJobs {
 }
 
 impl IndexJobs {
+    pub(crate) async fn resume_task(&self, id: TaskId, params: Value) -> AppResult<()> {
+        let request: ScanRequest =
+            serde_json::from_value(params.clone()).map_err(AppError::internal)?;
+        let origin = match params["origin"].as_str() {
+            Some("user") => IndexOrigin::User,
+            Some("startup") => IndexOrigin::Startup,
+            Some("periodic") => IndexOrigin::Periodic,
+            Some("watcher") => IndexOrigin::Watcher,
+            _ => {
+                return Err(AppError::internal(anyhow::anyhow!(
+                    "unknown saved index origin"
+                )));
+            }
+        };
+        let runner = self.clone();
+        let mut jobs = self.inner.jobs.lock().await;
+        jobs.push(Job {
+            task_id: id,
+            origin,
+            request,
+            taken: false,
+        });
+        self.inner
+            .tasks
+            .resume(id, move |ctx| async move { runner.run_job(ctx).await })
+            .await
+    }
     /// Jobs that run on `indexer` as tasks of `tasks`. `shutdown` stops the scheduler.
     pub fn new(
         indexer: Indexer,
@@ -244,7 +271,13 @@ impl IndexJobs {
                 if let Some(task_id) = self.first_open(ids).await
                     && let Some(job) = jobs.iter_mut().find(|job| job.task_id == task_id)
                 {
-                    job.request.targets = union(&job.request.targets, &request.targets);
+                    let mut merged = job.request.clone();
+                    merged.targets = union(&merged.targets, &request.targets);
+                    self.inner
+                        .tasks
+                        .update_params(task_id, params(&merged, job.origin))
+                        .await?;
+                    job.request = merged;
                     return Ok(SubmitOutcome::joined(task_id));
                 }
             }
@@ -261,6 +294,7 @@ impl IndexJobs {
         }
 
         let spec = TaskSpec::new(TaskKind::Index, title(&request, origin))
+            .resumable()
             .with_params(params(&request, origin));
         let runner = self.clone();
         let task_id = self
@@ -432,14 +466,30 @@ impl IndexJobs {
             tracing::error!(error = %err, "could not read the volumes before indexing");
             TaskError::failed("could not read the list of volumes; see the server log")
         })?;
-        if !request.targets.is_empty() && !rescan.is_empty() {
-            request.targets = union(&request.targets, &rescan);
+        let checkpoint = crate::tasks::Checkpoint::new(self.inner.indexer.db(), ctx.id).await?;
+        if let Some(saved) = checkpoint.load("index-request").await? {
+            *request = saved;
+        } else {
+            if request.targets.is_empty() {
+                request.targets = self
+                    .inner
+                    .indexer
+                    .volumes()
+                    .online()
+                    .into_iter()
+                    .map(|volume| ScanTarget::volume(volume.id))
+                    .collect();
+            } else if !rescan.is_empty() {
+                request.targets = union(&request.targets, &rescan);
+            }
+            checkpoint.save("index-request", request).await?;
         }
-        let run = RunContext::new(
+        let mut run = RunContext::new(
             ctx.cancel.clone(),
             Arc::new(TaskProgressSink::new(ctx.progress.clone())),
             Arc::new(TaskChangeSink::new(self.inner.tasks.clone())),
         );
+        run.checkpoint = Some(checkpoint);
         match self.inner.indexer.run(request, &run).await {
             Ok(summary) => Ok(serde_json::to_value(summary).unwrap_or(Value::Null)),
             Err(IndexError::Cancelled) => Err(TaskError::Cancelled),

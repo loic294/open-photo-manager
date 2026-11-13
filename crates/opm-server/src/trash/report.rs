@@ -13,18 +13,18 @@ const KEPT_FAILURES: usize = 200;
 const NAMED_FAILURES: usize = 3;
 
 /// One item that could not be restored or deleted.
-#[derive(Debug, Clone, PartialEq, Eq)]
+#[derive(Debug, Clone, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
 pub(super) struct Failure {
     pub id: TrashItemId,
     /// Where the item was before it was trashed, relative to the volume root.
     pub path: String,
     /// The `FsOpError::code` of the failure, or `not_in_trash` for an id that has no row.
-    pub code: &'static str,
+    pub code: String,
     pub message: String,
 }
 
 /// The tally of one run.
-#[derive(Debug, Default)]
+#[derive(Debug, Default, serde::Serialize, serde::Deserialize)]
 pub(super) struct Report {
     /// Items brought back or deleted.
     pub done: u64,
@@ -36,13 +36,13 @@ pub(super) struct Report {
     failed: u64,
     failures: Vec<Failure>,
     /// What the title says about the skipped items ("left in the trash"); nothing when empty.
-    skipped_note: &'static str,
+    skipped_note: String,
 }
 
 impl Report {
     pub fn new(skipped_note: &'static str) -> Self {
         Self {
-            skipped_note,
+            skipped_note: skipped_note.to_owned(),
             ..Self::default()
         }
     }
@@ -152,7 +152,7 @@ mod tests {
         Failure {
             id,
             path: format!("a/{id}.jpg"),
-            code: "source_missing",
+            code: "source_missing".to_owned(),
             message: "the source file does not exist".to_owned(),
         }
     }

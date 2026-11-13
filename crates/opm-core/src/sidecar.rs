@@ -148,7 +148,9 @@ pub fn normalise_extensions<S: AsRef<str>>(extensions: &[S]) -> Result<Vec<Strin
 }
 
 /// How a sidecar is tied to its owner. The strings are the `file_sidecars.kind` column values.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, PartialOrd, Ord)]
+#[derive(
+    Debug, Clone, Copy, PartialEq, Eq, Hash, PartialOrd, Ord, serde::Serialize, serde::Deserialize,
+)]
 pub enum LinkKind {
     /// The sidecar is the owner's full name plus the sidecar extension (`IMG_0001.CR3.xmp`).
     Exact,

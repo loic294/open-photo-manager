@@ -5,6 +5,7 @@ import { live } from 'lit/directives/live.js';
 import { createRef, ref } from 'lit/directives/ref.js';
 import { events } from '@/api/sse';
 import { type ReindexScope, requestReindex } from '@/app/app-actions';
+import { registerPwa } from '@/app/pwa';
 import { reindexDisabled, reindexPending, startReindex } from '@/app/reindex';
 import { type AppRouter, createAppRouter } from '@/app/router';
 import { type AppRoute, routes as appRoutes, notFound, redirects, routeAt } from '@/app/routes';
@@ -89,6 +90,7 @@ export class OpmApp extends OpmElement {
       }),
     ];
     events.start();
+    void registerPwa();
     this.router = createAppRouter(this, { routes: this.routes });
   }
 

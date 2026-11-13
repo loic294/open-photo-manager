@@ -100,6 +100,12 @@ pub struct OpContext {
 }
 
 impl OpContext {
+    /// Reuses the original task's batch after a restart.
+    pub(crate) fn with_batch(self, name: String) -> Self {
+        let batch = Arc::new(OnceLock::new());
+        let _ = batch.set(TrashBatch(name));
+        Self { batch, ..self }
+    }
     pub fn new(
         task_id: Option<TaskId>,
         cancel: CancellationToken,

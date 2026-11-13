@@ -146,7 +146,7 @@ impl AppState {
             shutdown: shutdown.clone(),
         });
 
-        Ok(Self {
+        let state = Self {
             config,
             db,
             fsops,
@@ -163,7 +163,9 @@ impl AppState {
             trash,
             volumes,
             watcher,
-        })
+        };
+        state.tasks.recover_services(&state).await?;
+        Ok(state)
     }
 
     /// Called synchronously when a termination signal arrives, before the HTTP

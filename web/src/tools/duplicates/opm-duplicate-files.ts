@@ -1,5 +1,5 @@
 import { effect } from '@preact/signals-core';
-import { html, nothing } from 'lit';
+import { html, nothing, type PropertyValues, type TemplateResult } from 'lit';
 import { repeat } from 'lit/directives/repeat.js';
 import { styleMap } from 'lit/directives/style-map.js';
 import { api } from '@/api/client';
@@ -21,7 +21,6 @@ import type { MatchChangeEvent } from '@/components/opm-match-mode';
 import '@/components/opm-match-mode';
 import '@/components/opm-modal';
 import { openPlanResult } from '@/components/opm-plan-result';
-import { renderFlag, renderRating } from '@/components/viewer-info';
 import { locations } from '@/stores/nav';
 import { lastRun, trackPlanRun } from '@/stores/plan-runs';
 import { volumeIdByName, volumes } from '@/stores/volumes';
@@ -29,9 +28,10 @@ import { matchMode, strictPrefix } from '@/tools/duplicates/duplicates-state';
 import {
   defaultRules,
   differingFields,
+  inFolder,
   parentFolders,
   type SelectionRule,
-  selectKeepers,
+  selectWithReasons,
 } from '@/tools/duplicates/file-selection';
 import '@/tools/duplicates/opm-duplicate-selection';
 import { EMPTY_FILTER } from '@/util/filter';
@@ -42,6 +42,7 @@ const PAGE_SIZE = 20;
 
 export class OpmDuplicateFiles extends OpmElement {
   static override properties = {
+    viewControls: { attribute: false },
     source: { state: true },
     excluded: { state: true },
     groups: { state: true },
@@ -52,7 +53,7 @@ export class OpmDuplicateFiles extends OpmElement {
     searched: { state: true },
     stale: { state: true },
     size: { state: true },
-    page: { state: true },
+    visible: { state: true },
     automatic: { state: true },
     rules: { state: true },
     picking: { state: true },
@@ -61,6 +62,7 @@ export class OpmDuplicateFiles extends OpmElement {
     folderIndex: { state: true },
     folderRecursive: { state: true },
   };
+  declare viewControls: TemplateResult | undefined;
   private source: Scope = { volume_id: null, dir: '', recursive: true };
   private excluded: Scope[] = [];
   private groups: DuplicateFileGroup[] = [];
@@ -71,7 +73,9 @@ export class OpmDuplicateFiles extends OpmElement {
   private searched = false;
   private stale = false;
   private size = 280;
-  private page = 0;
+  private visible = PAGE_SIZE;
+  private reasons = new Map<number, string>();
+  private observer: IntersectionObserver | null = null;
   private automatic = false;
   private rules = defaultRules();
   private picking: 'source' | 'exclude' | null = null;
@@ -110,11 +114,25 @@ export class OpmDuplicateFiles extends OpmElement {
   }
 
   override disconnectedCallback(): void {
+    this.observer?.disconnect();
     this.request?.abort();
     for (const stop of this.stops.splice(0)) stop();
     document.removeEventListener('pointerdown', this.dismissContext);
     document.removeEventListener('keydown', this.contextKey);
     super.disconnectedCallback();
+  }
+
+  protected override updated(_changed: PropertyValues<this>): void {
+    this.observer?.disconnect();
+    const sentinel = this.querySelector('[data-load-more]');
+    if (!sentinel || typeof IntersectionObserver === 'undefined') return;
+    this.observer = new IntersectionObserver(
+      (entries) => {
+        if (entries.some((entry) => entry.isIntersecting)) this.visible += PAGE_SIZE;
+      },
+      { root: this.querySelector('[data-groups]'), rootMargin: '600px' },
+    );
+    this.observer.observe(sentinel);
   }
 
   private readonly dismissContext = (event: Event): void => {
@@ -144,7 +162,7 @@ export class OpmDuplicateFiles extends OpmElement {
     this.failure = '';
     this.groups = [];
     this.keep = new Set();
-    this.page = 0;
+    this.visible = PAGE_SIZE;
     const params: DuplicateFileParams = {
       matching: {
         mode: matchMode.peek(),
@@ -186,13 +204,17 @@ export class OpmDuplicateFiles extends OpmElement {
 
   private applyRules(rules: SelectionRule[]): void {
     this.rules = rules;
-    this.keep = new Set(this.groups.flatMap((group) => [...selectKeepers(group, rules)]));
+    const selections = this.groups.map((group) => selectWithReasons(group, rules));
+    this.reasons = new Map(selections.flatMap((selection) => [...selection.reasons]));
+    this.keep = new Set(selections.flatMap((selection) => [...selection.keep]));
   }
 
   private choose(group: DuplicateFileGroup, id: number): void {
     const keep = new Set(this.keep);
     for (const file of group.files) keep.delete(file.item.id);
-    for (const keeper of selectKeepers(group, this.rules, id)) keep.add(keeper);
+    const selection = selectWithReasons(group, this.rules, id);
+    for (const keeper of selection.keep) keep.add(keeper);
+    this.reasons = new Map([...this.reasons, ...selection.reasons]);
     this.keep = keep;
   }
 
@@ -251,19 +273,21 @@ export class OpmDuplicateFiles extends OpmElement {
             const keep = this.keep.has(file.item.id);
             const path = `${this.folderLabel({ volume_id: file.item.volume_id, dir: file.item.dir })}/${file.item.name}`;
             return html`<div class="min-w-0">
-            <div class="aspect-square" @contextmenu=${(event: MouseEvent) => {
-              event.preventDefault();
-              if (!this.busy && !this.stale) {
-                this.context = {
-                  file,
-                  x: Math.min(event.clientX, window.innerWidth - 260),
-                  y: Math.min(event.clientY, window.innerHeight - 80),
-                };
-                void this.updateComplete.then(() =>
-                  this.querySelector<HTMLButtonElement>('[data-duplicate-menu] button')?.focus(),
-                );
-              }
-            }}>
+            <div style=${styleMap({ aspectRatio: file.item.width !== null && file.item.width > 0 && file.item.height !== null && file.item.height > 0 ? `${file.item.width} / ${file.item.height}` : '1' })}
+              title=${this.reasons.get(file.item.id) ?? ''}
+              @contextmenu=${(event: MouseEvent) => {
+                event.preventDefault();
+                if (!this.busy && !this.stale) {
+                  this.context = {
+                    file,
+                    x: Math.min(event.clientX, window.innerWidth - 260),
+                    y: Math.min(event.clientY, window.innerHeight - 80),
+                  };
+                  void this.updateComplete.then(() =>
+                    this.querySelector<HTMLButtonElement>('[data-duplicate-menu] button')?.focus(),
+                  );
+                }
+              }}>
               <opm-file-card .item=${{ ...file.item, overlay: { matched: keep, will_delete: !keep, planned: false } }}
                 .size=${this.size} .focused=${true} .selected=${keep} .asButton=${true} .highlightSelection=${false} .showCaption=${false}
                 @card-activate=${() => {
@@ -276,15 +300,11 @@ export class OpmDuplicateFiles extends OpmElement {
               <div><dt class="sr-only">Size</dt><dd data-copy-size class=${differences.size ? 'font-bold' : 'font-normal'}
                 title=${`${file.item.size.toLocaleString()} bytes`}>${formatFileSize(file.item.size)}${differences.size ? ` (${file.item.size.toLocaleString()} bytes)` : nothing}</dd></div>
               <div><dt class="sr-only">Capture date</dt><dd data-copy-date class=${differences.capture_ts ? 'font-bold' : 'font-normal'}>${file.item.capture_ts === null ? 'No capture date' : formatCaptureDate(file.item.capture_ts, undefined, true)}</dd></div>
-              <div class="flex flex-wrap items-center gap-2"><dt class="text-base-content/70">Rating</dt><dd data-copy-rating>${renderRating(file.item)}</dd></div>
-              <div class="flex flex-wrap items-center gap-2"><dt class="text-base-content/70">Flag</dt><dd data-copy-flag>${renderFlag(file.item)}</dd></div>
             </dl>
             <div class="mt-2 flex items-center justify-between gap-2 text-sm">
-              <span class="badge badge-sm ${keep ? 'badge-success' : 'badge-error'}">${keep ? 'Keep' : 'Remove'}</span>
+              <span class="badge badge-sm ${keep ? 'badge-success' : 'badge-error'}" title=${this.reasons.get(file.item.id) ?? ''}>${keep ? 'Keep' : 'Remove'}</span>
             </div>
             <p class="mt-2 break-all text-xs text-base-content/70" title=${path}>${this.folderLabel({ volume_id: file.item.volume_id, dir: file.item.dir })}</p>
-            <button class="btn btn-xs btn-ghost mt-1" ?disabled=${this.busy || this.stale}
-              @click=${() => this.preferFolder(file)}>Keep files from this folder</button>
           </div>`;
           },
         )}
@@ -301,11 +321,15 @@ export class OpmDuplicateFiles extends OpmElement {
     const tags = [
       ...new Set(this.groups.flatMap((group) => group.files.flatMap((file) => file.tags))),
     ].sort();
-    const pages = Math.ceil(this.groups.length / PAGE_SIZE);
+    const sourceFiles = this.groups
+      .flatMap((group) => group.files)
+      .filter((file) => inFolder(file, this.source, true));
+    const inFolderCount = sourceFiles.filter((file) => file.item.dir === this.source.dir).length;
     const folderChoices = this.folderFile ? parentFolders(this.folderFile) : [];
     return html`<section class="flex h-full min-h-0 flex-col" aria-label="Duplicate files">
       <div class="flex-none space-y-3 border-b border-base-300 p-3">
         <div class="flex flex-wrap items-center gap-3">
+          ${this.viewControls}
           <opm-match-mode .mode=${matchMode.value} .strict=${strictPrefix.value} .disabled=${this.busy}
             @match-change=${(event: MatchChangeEvent) => {
               if (
@@ -327,6 +351,7 @@ export class OpmDuplicateFiles extends OpmElement {
             this.picking = 'source';
           }}>
             <span class="truncate">${this.folderLabel(this.source)}</span></button>
+          ${this.searched && !this.stale ? html`<span role="status" class="text-base-content/70">${inFolderCount} files with duplicates in folder · ${sourceFiles.length - inFolderCount} in subfolders${!this.source.recursive ? ' (not searched)' : ''}</span>` : nothing}
           <label class="flex items-center gap-2"><input class="checkbox checkbox-sm" type="checkbox" .checked=${this.source.recursive} ?disabled=${this.busy}
             @change=${(event: Event) => {
               this.source = {
@@ -349,7 +374,7 @@ export class OpmDuplicateFiles extends OpmElement {
         </div>
         <p class="text-xs text-base-content/70">The source chooses which files to match. Copies are searched across all volumes. Exclusions include subfolders and hide files on both sides.</p>
       </div>
-      <div class="min-h-0 flex-1 space-y-4 overflow-auto p-3" aria-busy=${this.busy}>
+      <div data-groups class="min-h-0 flex-1 space-y-4 overflow-auto p-3" aria-busy=${this.busy}>
         ${this.failure ? html`<div class="alert alert-error" role="alert">${this.failure}</div>` : nothing}
         ${this.stale && this.plan ? html`<div class="alert alert-warning" role="status">Refresh the search before changing selections or removing files.</div>` : nothing}
         ${this.plan?.warnings
@@ -371,26 +396,22 @@ export class OpmDuplicateFiles extends OpmElement {
             : nothing
         }
         ${repeat(
-          this.groups.slice(this.page * PAGE_SIZE, (this.page + 1) * PAGE_SIZE),
+          this.groups.slice(0, this.visible),
           (group) => group.files[0]?.item.id,
-          (group, index) => this.renderGroup(group, this.page * PAGE_SIZE + index),
+          (group, index) => this.renderGroup(group, index),
         )}
-      </div>
-      <footer class="flex flex-none flex-wrap items-center gap-3 border-t border-base-300 bg-base-100 p-3">
-        <span class="text-sm" role="status">${this.groups.length} groups · ${this.keep.size} to keep · ${total - this.keep.size} to remove</span>
         ${
-          pages > 1
-            ? html`<div class="join" aria-label="Duplicate group pages">
-          <button class="btn btn-sm join-item" ?disabled=${this.page === 0} @click=${() => {
-            this.page--;
-          }}>Previous</button>
-          <span class="btn btn-sm join-item btn-ghost">${this.page + 1} / ${pages}</span>
-          <button class="btn btn-sm join-item" ?disabled=${this.page + 1 >= pages} @click=${() => {
-            this.page++;
-          }}>Next</button>
+          this.visible < this.groups.length
+            ? html`<div data-load-more class="flex justify-center py-4">
+          <button class="btn btn-sm btn-ghost" @click=${() => {
+            this.visible += PAGE_SIZE;
+          }}>Load more groups</button>
         </div>`
             : nothing
         }
+      </div>
+      <footer class="flex flex-none flex-wrap items-center gap-3 border-t border-base-300 bg-base-100 p-3">
+        <span class="text-sm" role="status">${this.groups.length} groups · ${this.keep.size} to keep · ${total - this.keep.size} to remove</span>
         <label class="flex items-center gap-2 text-sm">Thumbnail size
           <input class="range range-xs w-28" type="range" min="160" max="480" step="20" .value=${String(this.size)}
             aria-label="Duplicate thumbnail size" @input=${(event: Event) => {
@@ -406,6 +427,7 @@ export class OpmDuplicateFiles extends OpmElement {
         </div>
       </footer>
       <opm-folder-picker .open=${this.picking !== null} .initial=${this.picking === 'source' ? this.source : { volume_id: null, dir: '', recursive: true }}
+        .plan=${this.picking === 'source' && this.plan && !this.stale ? { plan_id: this.plan.id, side: 'source' } : null}
         .heading=${this.picking === 'source' ? 'Select source folder' : 'Exclude folder and subfolders'}
         @folder-picked=${(event: CustomEvent<Scope>) => {
           if (this.picking === 'source') {

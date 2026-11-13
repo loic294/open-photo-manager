@@ -9,8 +9,10 @@ import {
   inFolder,
   parentFolders,
   type RuleKind,
+  regexIssue,
   type SelectionRule,
   selectKeepers,
+  selectWithReasons,
 } from './file-selection';
 
 const file = (id: number, patch: Partial<DuplicateFile> = {}): DuplicateFile => ({
@@ -44,8 +46,46 @@ const rule = (kind: RuleKind, patch: Partial<SelectionRule> = {}): SelectionRule
   enabled: true,
   direction: 'asc',
   tag: '',
+  pattern: '',
   folders: [],
   ...patch,
+});
+
+it('matches filename regexes and explains the winning rule', () => {
+  const a = file(1, { item: fileItem({ id: 1, name: 'copy.jpg' }) });
+  const b = file(2, { item: fileItem({ id: 2, name: 'original.JPG' }) });
+  const group: DuplicateFileGroup = { files: [a, b], pairs: [[1, 2]] };
+  const rules = [rule('regex', { pattern: '^original\\.JPG$' })];
+  const selected = selectWithReasons(group, rules);
+  expect([...selected.keep]).toEqual([2]);
+  expect(selected.reasons.get(2)).toContain('Name matches regex');
+  expect(selected.reasons.get(1)).toContain('original.JPG');
+  expect(selectWithReasons(group, rules, 1).reasons.get(1)).toBe('Keep: Manual selection');
+  expect(regexIssue('[')).not.toBeNull();
+  expect(regexIssue('')).not.toBeNull();
+  expect(regexIssue('^original\\.JPG$')).toBeNull();
+  expect(compareFiles(a, b, [rule('regex', { pattern: 'original\\.jpg' })])).toBeLessThan(0);
+});
+
+it('prefers shorter or longer Unicode filenames and preserves direct-match coverage', () => {
+  const a = file(1, { item: fileItem({ id: 1, name: 'long-name.jpg' }) });
+  const b = file(2, { item: fileItem({ id: 2, name: '📷.jpg' }) });
+  expect(compareFiles(a, b, [rule('name_length')])).toBeGreaterThan(0);
+  expect(compareFiles(a, b, [rule('name_length', { direction: 'desc' })])).toBeLessThan(0);
+  const c = file(3, { item: fileItem({ id: 3, name: 'c.jpg' }) });
+  expect(compareFiles(b, c, [rule('name_length')])).toBeLessThan(0);
+  const selected = selectWithReasons(
+    {
+      files: [a, b, c],
+      pairs: [
+        [1, 2],
+        [2, 3],
+      ],
+    },
+    [rule('name_length', { direction: 'desc' })],
+  );
+  expect([...selected.keep]).toEqual([1, 3]);
+  expect(selected.reasons.get(3)).toContain('direct-match coverage');
 });
 
 it('uses ordered enabled rules and deterministic ties, with missing dates last in both directions', () => {
@@ -148,5 +188,9 @@ it('honours folder boundaries, volumes, root and exact on-disk Unicode when list
     '',
   ]);
   expect(inFolder(nested, { ...scope, dir: '' }, true)).toBe(true);
-  expect(defaultRules()).toHaveLength(11);
+  expect(
+    defaultRules()
+      .slice(0, 4)
+      .map((rule) => rule.kind),
+  ).toEqual(['folder', 'subtree', 'regex', 'name_length']);
 });

@@ -44,6 +44,96 @@ async fn ready(app: &TestApp) {
         .await
         .unwrap();
 }
+
+#[tokio::test]
+async fn restart_recovers_a_renamed_owner_and_finishes_its_sidecar_without_moving_it_twice() {
+    use opm_server::fsops::{FailAction, Failpoints, Step};
+    use opm_server::plans::{PlanDeps, PlanService};
+    use std::sync::atomic::{AtomicBool, Ordering};
+    let mut app = TestApp::new().await;
+    let (volume, tree) = app.add_volume("photos").await;
+    tree.write("src/a.jpg", b"first photo");
+    tree.write("src/a.jpg.xmp", b"metadata");
+    tree.write("src/b.jpg", b"second photo");
+    tree.write("out/a.jpg", b"incumbent");
+    app.state
+        .indexer
+        .scan(
+            &Default::default(),
+            &opm_server::indexer::RunContext::noop(),
+        )
+        .await
+        .unwrap();
+    ready(&app).await;
+    let token = app.state.tasks.shutdown_token();
+    let fired = AtomicBool::new(false);
+    let fsops = app
+        .state
+        .fsops
+        .clone()
+        .with_failpoints(Failpoints::new(move |step| {
+            if step == Step::BeforeIndexTx && !fired.swap(true, Ordering::SeqCst) {
+                token.cancel();
+                FailAction::Abort
+            } else {
+                FailAction::Continue
+            }
+        }));
+    app.state.plans = PlanService::new(PlanDeps {
+        db: app.state.db.clone(),
+        fsops,
+        settings: app.state.settings.clone(),
+        shutdown: app.state.shutdown.clone(),
+        tasks: app.state.tasks.clone(),
+        volumes: app.state.volumes.clone(),
+    })
+    .await
+    .unwrap();
+    app.router = opm_server::app::router(app.state.clone());
+    let mut p = params(MoveType::Flat, volume, volume);
+    p.conflict_policy = Some(ConflictPolicy::Rename);
+    let plan = build(&app, &p).await;
+    let (status, body) = app
+        .call(
+            Method::POST,
+            &format!("/api/plans/{}/execute", plan.id),
+            Some(json!({"options": {}, "only": null})),
+        )
+        .await;
+    assert_eq!(status, StatusCode::ACCEPTED, "{body}");
+    let id = body["id"].as_i64().unwrap();
+    assert_eq!(
+        app.state.tasks.wait_finished(id).await.unwrap().state,
+        TaskState::Interrupted
+    );
+    app.state.begin_shutdown();
+    app.state.shutdown().await;
+    let recovered = opm_server::state::AppState::new((*app.state.config).clone())
+        .await
+        .unwrap();
+    let task = recovered.tasks.wait_finished(id).await.unwrap();
+    assert_eq!(task.state, TaskState::Done, "{:?}", task.error);
+    let result = recovered.plans.get(plan.id).await.unwrap().result.unwrap();
+    assert_eq!((result.done, result.failed), (2, 0), "{result:?}");
+    assert_eq!(
+        std::fs::read(tree.path("out/a_1.jpg")).unwrap(),
+        b"first photo"
+    );
+    assert_eq!(
+        std::fs::read(tree.path("out/a_1.jpg.xmp")).unwrap(),
+        b"metadata"
+    );
+    assert_eq!(
+        std::fs::read(tree.path("out/b.jpg")).unwrap(),
+        b"second photo"
+    );
+    assert!(!tree.path("src/a.jpg").exists());
+    assert!(!tree.path("src/a.jpg.xmp").exists());
+    let receipts: i64 = sqlx::query_scalar("SELECT COUNT(*) FROM fs_journal WHERE task_id = ? AND op = 'move' AND src_path = 'src/a.jpg' AND state = 'done'").bind(id).fetch_one(recovered.db.read()).await.unwrap();
+    assert_eq!(receipts, 1);
+    recovered.begin_shutdown();
+    recovered.shutdown().await;
+}
 async fn build(app: &TestApp, params: &MoveParams) -> PlanDto {
     let (status, body) = app
         .call(

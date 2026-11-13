@@ -148,6 +148,11 @@ async fn trash_sidecars(
             result.mark_cancelled();
             break;
         }
+        let mut identities = ctx.db.read().acquire().await?;
+        if !crate::plans::file_identity::is_live(&mut identities, ctx.plan_id, id).await? {
+            continue;
+        }
+        drop(identities);
         let owned: bool =
             sqlx::query_scalar("SELECT EXISTS(SELECT 1 FROM file_sidecars WHERE sidecar_id = ?)")
                 .bind(id)
@@ -193,6 +198,7 @@ pub(super) async fn execute(
         Some(PlanSide::Comparison)
     };
     let only = ctx.only_ids().await?;
+    let checkpoint = crate::tasks::Checkpoint::new(&ctx.db, ctx.task.id).await?;
     // Keep vanished ids as work items so they get an explicit file_gone result.
     let selected: Vec<FileId> =
         sqlx::query_scalar("SELECT DISTINCT file_id FROM duplicate_matches WHERE plan_id = ? AND (? IS NULL OR side = ?)")
@@ -212,29 +218,73 @@ pub(super) async fn execute(
         .into_iter()
         .filter(|id| !keep.contains(id) && only.as_ref().is_none_or(|only| only.contains(id)))
         .collect();
-    let mut ordered = Vec::with_capacity(deletion.len());
-    let mut bytes = 0;
-    for id in &deletion {
-        if let Some(row) = live(&ctx.db, *id).await? {
-            bytes += row.expect()?.size;
-            ordered.push((row.volume_id, row.dir_path, row.name, *id));
-        } else {
-            ordered.push((0, String::new(), String::new(), *id));
+    let (ordered, bytes) = match checkpoint.load("duplicate-input").await? {
+        Some(saved) => saved,
+        None => {
+            let mut ordered = Vec::with_capacity(deletion.len());
+            let mut bytes = 0_u64;
+            for id in &deletion {
+                if let Some(row) = live(&ctx.db, *id).await? {
+                    bytes += row.expect()?.size;
+                    ordered.push((row.volume_id, row.dir_path, row.name, *id));
+                } else {
+                    ordered.push((0, String::new(), String::new(), *id));
+                }
+            }
+            ordered.sort();
+            checkpoint
+                .save("duplicate-input", &(&ordered, bytes))
+                .await?;
+            (ordered, bytes)
         }
-    }
-    ordered.sort();
-    ctx.declare_totals(deletion.len() as u64, bytes);
-    let mut result = ResultBuilder::new();
-    for (_, _, _, id) in ordered {
+    };
+    ctx.declare_totals(ordered.len() as u64, bytes);
+    let (next, mut result): (usize, ResultBuilder) = checkpoint
+        .load("duplicate-progress")
+        .await?
+        .unwrap_or_default();
+    ctx.task
+        .progress
+        .add(next as i64, result.bytes_done() as i64);
+    for (index, (volume, dir, name, id)) in ordered.into_iter().enumerate().skip(next) {
         if ctx.cancelled() {
             result.mark_cancelled();
             break;
         }
         let before = result.counted();
-        process(&ctx, plan, &params, side, id, &deletion, &mut result).await?;
+        let previous = if name.is_empty() {
+            None
+        } else {
+            let loc = crate::fsops::Loc::new(
+                volume,
+                RelPath::new(&dir)
+                    .and_then(|dir| dir.join(&name))
+                    .map_err(anyhow::Error::from)?,
+            );
+            ctx.fsops
+                .completed_bytes(ctx.task.id, "trash", &loc)
+                .await?
+        };
+        if let Some(bytes) = previous {
+            result.done(bytes);
+            let companions = checkpoint
+                .load::<Vec<FileId>>(&format!("duplicate-sidecars:{id}"))
+                .await?
+                .unwrap_or_default();
+            trash_sidecars(&ctx, companions, &mut result).await?;
+        } else {
+            process(&ctx, plan, &params, side, id, &deletion, &mut result).await?;
+        }
         if result.counted() > before {
             ctx.item_processed();
         }
+        if ctx.cancelled() {
+            result.mark_cancelled();
+            break;
+        }
+        checkpoint
+            .save("duplicate-progress", &(index + 1, &result))
+            .await?;
     }
     Ok(result.finish())
 }
@@ -357,6 +407,15 @@ async fn process(
         return Ok(());
     }
     let companions = sidecars(&ctx.db, id).await?;
+    let checkpoint = crate::tasks::Checkpoint::new(&ctx.db, ctx.task.id).await?;
+    if !companions.is_empty() {
+        let mut tx = ctx.db.write().begin().await?;
+        crate::plans::file_identity::track(&mut tx, plan.id, &companions).await?;
+        tx.commit().await?;
+    }
+    checkpoint
+        .save(&format!("duplicate-sidecars:{id}"), &companions)
+        .await?;
     if ctx.cancelled() {
         result.mark_cancelled();
         return Ok(());

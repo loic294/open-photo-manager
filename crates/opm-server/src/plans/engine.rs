@@ -16,7 +16,9 @@
 //! * Executing is handed to a tracked job, so a client that drops its request between claiming
 //!   the plan and creating the task cannot leave an `executing` plan without a task. A watcher
 //!   settles the plan if its task ends without the runner having recorded a result (cancelled
-//!   while queued, interrupted, panicked), and startup settles whatever a crash left `executing`.
+//!   while queued or panicked). Shutdown preserves resumable executions; startup reconstructs
+//!   their runners after FsOps recovery, keeping frozen inputs, progress and the original task id.
+//!   Only legacy executions without a recoverable task settle as interrupted at startup.
 //! * Removing a plan (delete, `replaces`, expiry) first hides it (`expires_at = 0`: invisible and
 //!   impossible to claim), then deletes its rows in chunks in the background.
 //!
@@ -224,6 +226,48 @@ impl fmt::Debug for PlanService {
 }
 
 impl PlanService {
+    pub(crate) async fn resume_task(&self, id: TaskId, params: Value) -> AppResult<()> {
+        let plan_id = params
+            .get("plan_id")
+            .and_then(Value::as_i64)
+            .ok_or_else(|| AppError::internal(anyhow::anyhow!("saved execution has no plan id")))?;
+        let row = store::get_visible(self.0.deps.db.read(), plan_id, self.now())
+            .await?
+            .ok_or_else(|| {
+                AppError::internal(anyhow::anyhow!("saved execution plan is missing"))
+            })?;
+        let plan = Arc::new(row.plan()?);
+        let planner = self.planner(plan.kind)?;
+        let options = params.get("options").cloned().unwrap_or_else(|| json!({}));
+        let only = serde_json::from_value(params.get("only").cloned().unwrap_or(Value::Null))
+            .map_err(AppError::internal)?;
+        let prep = planner
+            .prepare_execute(&plan, &options)
+            .map_err(options_error)?;
+        let run = Run {
+            plan,
+            planner,
+            prep,
+            options,
+            only,
+        };
+        let service = self.clone();
+        let result = row.dto()?.result;
+        self.0
+            .deps
+            .tasks
+            .resume(id, move |ctx| async move {
+                if let Some(result) = result {
+                    return serde_json::to_value(result)
+                        .map_err(AppError::internal)
+                        .map_err(Into::into);
+                }
+                service.run_task(ctx, run).await
+            })
+            .await?;
+        self.watch(plan_id, id);
+        Ok(())
+    }
     /// The engine with the planners of the application (`fn planners` in `plans/mod.rs`) and the
     /// production limits.
     pub async fn new(deps: PlanDeps) -> Result<Self, DbError> {
@@ -232,7 +276,7 @@ impl PlanService {
     }
 
     /// The engine with these planners and options (tests inject a fake planner, a clock and small
-    /// limits). Settles the plans a crash left `executing` and starts the sweep.
+    /// limits). Settles non-recoverable executions and starts the sweep.
     pub async fn with_options(
         deps: PlanDeps,
         planners: Vec<Arc<dyn Planner>>,
@@ -314,7 +358,7 @@ impl PlanService {
 
     // ---- startup, sweep ----
 
-    /// A restart killed every task: the plans that were executing end as interrupted.
+    /// Settles legacy executions that have no resumable unfinished task.
     async fn recover(&self) -> Result<(), DbError> {
         let result = PlanResult {
             cancelled: true,
@@ -802,6 +846,10 @@ impl PlanService {
         let inner = &self.0;
         let id = run.plan.id;
         let now = self.now();
+        let only_ids = match run.only {
+            Some(selection) => Some(selections::file_ids(&inner.deps.db, selection).await?),
+            None => None,
+        };
         if !store::claim(&inner.deps.db, id, now, self.plan_deadline(now)).await? {
             return Err(AppError::conflict(
                 "plan_not_ready",
@@ -809,11 +857,13 @@ impl PlanService {
             ));
         }
         self.forget(id);
-        let spec =
-            TaskSpec::new(TaskKind::PlanExecute, run.prep.title.clone()).with_params(json!({
+        let spec = TaskSpec::new(TaskKind::PlanExecute, run.prep.title.clone())
+            .resumable()
+            .with_params(json!({
                 "plan_id": id,
                 "kind": store::kind_to_db(run.plan.kind),
                 "only": run.only,
+                "only_ids": only_ids,
                 "options": run.options,
             }));
         let service = self.clone();
@@ -854,7 +904,16 @@ impl PlanService {
             state: PlanState::Executing,
             ..Plan::clone(&plan)
         };
-        let op = OpContext::from_task(&ctx, &inner.deps.tasks);
+        let checkpoint = crate::tasks::Checkpoint::new(&inner.deps.db, ctx.id).await?;
+        let batch: String = match checkpoint.load("trash-batch").await? {
+            Some(batch) => batch,
+            None => {
+                let batch = crate::fsops::TrashBatch::new(ctx.id).name().to_owned();
+                checkpoint.save("trash-batch", &batch).await?;
+                batch
+            }
+        };
+        let op = OpContext::from_task(&ctx, &inner.deps.tasks).with_batch(batch);
         let batch = op.batch().clone();
         let exec = ExecContext {
             plan_id: plan.id,
@@ -869,6 +928,9 @@ impl PlanService {
         };
         match planner.execute(exec, &plan, options).await {
             Ok(result) => {
+                if inner.deps.tasks.shutdown_token().is_cancelled() {
+                    return Err(TaskError::Cancelled);
+                }
                 let total = ctx.progress.view().items_total;
                 ctx.progress.set_title(summary_title(&prep, &result, total));
                 self.settle_plan(plan.id, ctx.id, &result).await;
@@ -883,6 +945,9 @@ impl PlanService {
                 serde_json::to_value(&result).map_err(|err| TaskError::Failed(err.to_string()))
             }
             Err(PlanError::Cancelled) => {
+                if inner.deps.tasks.shutdown_token().is_cancelled() {
+                    return Err(TaskError::Cancelled);
+                }
                 let result = PlanResult {
                     cancelled: true,
                     ..PlanResult::default()
@@ -906,6 +971,9 @@ impl PlanService {
     /// Records the end of an execution. The first writer wins, so the runner and the watcher can
     /// both call it.
     async fn settle_plan(&self, plan_id: PlanId, task_id: TaskId, result: &PlanResult) {
+        if self.0.deps.tasks.shutdown_token().is_cancelled() {
+            return;
+        }
         let now = self.now();
         let finished = store::finish(
             &self.0.deps.db,

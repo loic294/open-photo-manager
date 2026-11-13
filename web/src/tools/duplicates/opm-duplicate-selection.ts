@@ -5,7 +5,13 @@ import { OpmElement } from '@/base/opm-element';
 import '@/components/opm-folder-picker';
 import '@/components/opm-modal';
 import { volumes } from '@/stores/volumes';
-import { defaultRules, RULE_LABELS, type RuleKind, type SelectionRule } from './file-selection';
+import {
+  defaultRules,
+  RULE_LABELS,
+  type RuleKind,
+  regexIssue,
+  type SelectionRule,
+} from './file-selection';
 
 export class OpmDuplicateSelection extends OpmElement {
   static override properties = {
@@ -61,6 +67,7 @@ export class OpmDuplicateSelection extends OpmElement {
       (rule) =>
         rule.enabled &&
         ((rule.kind === 'tag' && !rule.tag) ||
+          (rule.kind === 'regex' && regexIssue(rule.pattern) !== null) ||
           (['folder', 'subtree'].includes(rule.kind) && rule.folders.length === 0)),
     );
     return html`
@@ -96,6 +103,16 @@ export class OpmDuplicateSelection extends OpmElement {
                       @change=${(event: Event) => this.change(rule.kind, { enabled: (event.target as HTMLInputElement).checked })}>
                     <span>${RULE_LABELS[rule.kind]}</span>
                   </label>
+                  ${
+                    ['capture', 'modified', 'created', 'size', 'name_length'].includes(rule.kind)
+                      ? html`
+                    <select class="select select-sm w-auto" aria-label=${`${RULE_LABELS[rule.kind]} order`}
+                      .value=${rule.direction} @change=${(event: Event) => this.change(rule.kind, { direction: (event.target as HTMLSelectElement).value === 'desc' ? 'desc' : 'asc' })}>
+                      <option value="asc">${rule.kind === 'name_length' ? 'Shorter first' : rule.kind === 'size' ? 'Smaller first' : 'Oldest first (ascending)'}</option>
+                      <option value="desc">${rule.kind === 'name_length' ? 'Longer first' : rule.kind === 'size' ? 'Bigger first' : 'Newest first (descending)'}</option>
+                    </select>`
+                      : nothing
+                  }
                   <div class="join">
                     <button class="btn btn-xs btn-ghost join-item" aria-label=${`Move ${RULE_LABELS[rule.kind]} up`}
                       ?disabled=${index === 0} @click=${() => this.move(rule.kind, index - 1)}>↑</button>
@@ -104,13 +121,19 @@ export class OpmDuplicateSelection extends OpmElement {
                   </div>
                 </div>
                 ${
-                  ['capture', 'modified', 'created', 'size'].includes(rule.kind)
+                  rule.kind === 'regex'
                     ? html`
-                  <select class="select select-sm mt-2 w-full" aria-label=${`${RULE_LABELS[rule.kind]} order`}
-                    .value=${rule.direction} @change=${(event: Event) => this.change(rule.kind, { direction: (event.target as HTMLSelectElement).value === 'desc' ? 'desc' : 'asc' })}>
-                    <option value="asc">${rule.kind === 'size' ? 'Smaller first' : 'Oldest first (ascending)'}</option>
-                    <option value="desc">${rule.kind === 'size' ? 'Bigger first' : 'Newest first (descending)'}</option>
-                  </select>`
+                  <label class="mt-2 block text-sm">Filename regular expression
+                    <input class="input input-sm mt-1 w-full" aria-label="Filename regular expression"
+                      aria-invalid=${rule.enabled && regexIssue(rule.pattern) !== null}
+                      aria-describedby="duplicate-regex-help" .value=${rule.pattern}
+                      @input=${(event: Event) => this.change(rule.kind, { pattern: (event.target as HTMLInputElement).value })}>
+                  </label>
+                  <p id="duplicate-regex-help" class="mt-1 text-xs text-base-content/70">${
+                    rule.enabled && regexIssue(rule.pattern)
+                      ? regexIssue(rule.pattern)
+                      : 'JavaScript regex, case-sensitive, without / delimiters. Matches the full filename including extension.'
+                  }</p>`
                     : nothing
                 }
                 ${
@@ -145,7 +168,7 @@ export class OpmDuplicateSelection extends OpmElement {
             )}
           </ol>
           <p class="sr-only" aria-live="polite">${this.announcement}</p>
-          ${invalid ? html`<p class="mt-3 text-sm text-error" role="status">Choose a tag or folder for each enabled rule that requires one.</p>` : nothing}
+          ${invalid ? html`<p class="mt-3 text-sm text-error" role="status">Complete each enabled rule with a tag, folder, or valid regular expression.</p>` : nothing}
           <p class="mt-3 text-sm text-base-content/70">Some name-based groups need several keepers: every removal must directly match a retained file. Applying rules replaces manual choices in all groups.</p>
         `}
         .actions=${html`<button class="btn btn-ghost" @click=${() => this.close()}>Cancel</button>

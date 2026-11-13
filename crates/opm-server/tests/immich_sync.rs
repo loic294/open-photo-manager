@@ -508,6 +508,52 @@ async fn the_daily_full_pass_deletes_what_immich_no_longer_has() {
 }
 
 #[tokio::test]
+async fn restart_continues_the_same_immich_run_from_its_saved_page() {
+    let (fx, library, _) = setup().await;
+    add_many(&fx, &library, 5);
+    fx.fake.page_cap(Some(2));
+    fx.fake.hold_searches_after(1, HOUR);
+    let id = fx.submit_sync(true).await;
+    tokio::time::timeout(Duration::from_secs(15), async {
+        loop {
+            if fx.fake.search_bodies().len() >= 2 {
+                break;
+            }
+            tokio::task::yield_now().await;
+        }
+    })
+    .await
+    .unwrap();
+    let waiting_page = fx.fake.search_bodies()[1].clone();
+    fx.app.state.begin_shutdown();
+    assert_eq!(fx.finish(id).await.state, TaskState::Interrupted);
+    fx.app.state.shutdown().await;
+    let previous_requests = fx.fake.search_bodies().len();
+    fx.fake.heal();
+    let recovered = opm_server::state::AppState::new((*fx.app.state.config).clone())
+        .await
+        .unwrap();
+    let task = tokio::time::timeout(Duration::from_secs(15), recovered.tasks.wait_finished(id))
+        .await
+        .unwrap()
+        .unwrap();
+    assert_eq!(task.state, TaskState::Done, "{task:?}");
+    assert_eq!(fx.fake.search_bodies()[previous_requests], waiting_page);
+    let runs: Vec<i64> = sqlx::query_scalar("SELECT DISTINCT sync_run FROM immich_assets")
+        .fetch_all(recovered.db.read())
+        .await
+        .unwrap();
+    assert_eq!(runs, vec![1]);
+    let count: i64 = sqlx::query_scalar("SELECT COUNT(*) FROM immich_assets")
+        .fetch_one(recovered.db.read())
+        .await
+        .unwrap();
+    assert_eq!(count, 5);
+    recovered.begin_shutdown();
+    recovered.shutdown().await;
+}
+
+#[tokio::test]
 async fn a_full_sync_that_fails_halfway_deletes_nothing() {
     let (fx, library, _) = setup().await;
     let ids: Vec<String> = (0..5)

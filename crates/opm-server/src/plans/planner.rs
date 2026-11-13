@@ -366,15 +366,33 @@ impl ExecContext {
 
     /// The ids of the files of the `only` selection, `None` when the run is not restricted.
     pub async fn only_ids(&self) -> Result<Option<HashSet<FileId>>, PlanError> {
-        match self.only {
-            Some(selection) => Ok(Some(
+        let checkpoint = crate::tasks::Checkpoint::new(&self.db, self.task.id).await?;
+        if let Some(ids) = checkpoint.load("only-ids").await? {
+            return Ok(ids);
+        }
+        let params: Option<String> =
+            sqlx::query_scalar("SELECT params_json FROM tasks WHERE id = ? AND resumable = 1")
+                .bind(self.task.id)
+                .fetch_optional(self.db.read())
+                .await?;
+        if let Some(params) = params {
+            let params: Value = serde_json::from_str(&params).map_err(anyhow::Error::from)?;
+            if let Some(ids) = params.get("only_ids") {
+                return serde_json::from_value(ids.clone())
+                    .map_err(|error| PlanError::Internal(error.into()));
+            }
+        }
+        let ids = match self.only {
+            Some(selection) => Some(
                 selections::file_ids(&self.db, selection)
                     .await?
                     .into_iter()
                     .collect(),
-            )),
-            None => Ok(None),
-        }
+            ),
+            None => None,
+        };
+        checkpoint.save("only-ids", &ids).await?;
+        Ok(ids)
     }
 }
 

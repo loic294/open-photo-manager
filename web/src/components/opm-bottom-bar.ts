@@ -202,7 +202,7 @@ export class OpmBottomBar extends OpmElement {
         class="@container flex min-h-14 min-w-0 flex-1 flex-wrap items-center gap-x-2 gap-y-1 self-stretch border-t-2 px-2 ${top} ${start}"
       >
         ${this.renderCounts(footer.counts)} ${this.renderSelection(pane, footer)}
-        ${this.renderSelectAll(pane, footer)} ${this.renderSlider(pane, footer)}
+        ${this.renderSelectAll(pane, footer)} ${pane === 'source' ? this.renderSlider(pane, footer) : nothing}
         ${actions ? html`<div class="flex min-w-0 flex-none basis-full items-center justify-end py-1 @lg:basis-auto">${actions}</div>` : nothing}
       </div>
     `;

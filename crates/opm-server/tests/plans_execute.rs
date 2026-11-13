@@ -588,7 +588,7 @@ async fn a_restart_ends_the_runs_it_interrupted() {
 }
 
 #[tokio::test]
-async fn stopping_the_task_engine_ends_a_run_and_records_it() {
+async fn stopping_the_task_engine_preserves_a_run_for_recovery() {
     let h = Harness::new().await;
     let id = h.new_plan(json!({ "matched": [1, 2, 3] })).await;
     let task = h.start(id, json!({ "stop_after": 1 })).await;
@@ -599,14 +599,16 @@ async fn stopping_the_task_engine_ends_a_run_and_records_it() {
     h.app.state.tasks.shutdown().await;
 
     let plan = plan(&h, id).await;
-    assert_eq!(plan["state"], "executed");
-    assert_eq!(plan["result"]["cancelled"], true);
-    assert_eq!(plan["result"]["done"], 1);
+    assert_eq!(plan["state"], "executing");
+    assert_eq!(plan["result"], Value::Null);
     assert_eq!(plan["task_id"], task.id);
+    let task: TaskDto = h.task(task.id).await;
+    assert_eq!(task.state, TaskState::Interrupted);
+    assert_eq!(task.items_done, 1);
 }
 
 #[tokio::test]
-async fn a_queued_run_that_never_started_is_recorded_when_the_task_engine_stops() {
+async fn a_queued_run_that_never_started_is_preserved_when_the_task_engine_stops() {
     let h = Harness::new().await;
     let id = h.new_plan(json!({ "matched": [1] })).await;
     let _block = h.block_lane().await;
@@ -615,9 +617,10 @@ async fn a_queued_run_that_never_started_is_recorded_when_the_task_engine_stops(
 
     h.app.state.tasks.shutdown().await;
 
-    let plan = h.wait_state(id, "executed").await;
-    assert_eq!(plan["result"]["cancelled"], true);
-    assert_eq!(plan["result"]["note"], "interrupted by restart");
+    let plan = plan(&h, id).await;
+    assert_eq!(plan["state"], "executing");
+    assert_eq!(plan["result"], Value::Null);
+    assert_eq!(plan["task_id"], task.id);
     assert!(h.planner().executions().is_empty());
     let ended: TaskDto = h.task(task.id).await;
     assert_eq!(ended.state, TaskState::Interrupted);

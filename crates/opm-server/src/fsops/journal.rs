@@ -293,8 +293,10 @@ impl Journal {
     pub(crate) async fn prune(&self) -> Result<u64, FsOpError> {
         let now = now_secs();
         let result = sqlx::query(
-            "DELETE FROM fs_journal WHERE (state IN ('done', 'failed') AND finished_at < ?) \
-             OR (state = 'abandoned' AND finished_at < ?)",
+            "DELETE FROM fs_journal WHERE ((state IN ('done', 'failed') AND finished_at < ?) \
+             OR (state = 'abandoned' AND finished_at < ?)) AND NOT EXISTS \
+             (SELECT 1 FROM tasks t WHERE t.id = fs_journal.task_id AND t.resumable = 1 \
+              AND t.state IN ('queued', 'running', 'interrupted'))",
         )
         .bind(now - KEEP_FINISHED_SECS)
         .bind(now - KEEP_ABANDONED_SECS)

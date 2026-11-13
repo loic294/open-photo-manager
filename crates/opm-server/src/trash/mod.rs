@@ -102,6 +102,49 @@ pub struct TrashService {
 }
 
 impl TrashService {
+    pub(crate) async fn resume_task(
+        &self,
+        id: opm_core::paths::TaskId,
+        params: serde_json::Value,
+    ) -> Result<(), AppError> {
+        let service = self.clone();
+        match params["op"].as_str() {
+            Some("trash_restore") => {
+                let request: opm_core::dto::TrashRestoreRequest =
+                    serde_json::from_value(params["request"].clone())
+                        .map_err(AppError::internal)?;
+                let policy = request.conflict_policy.ok_or_else(|| {
+                    AppError::internal(anyhow::anyhow!("saved restore has no policy"))
+                })?;
+                self.tasks
+                    .resume(id, move |ctx| async move {
+                        service.run_restore(ctx, request.target, policy).await
+                    })
+                    .await
+            }
+            Some("trash_empty" | "trash_retention") => {
+                let selector = serde_json::from_value(params["selector"].clone())
+                    .map_err(AppError::internal)?;
+                let title = params["title"]
+                    .as_str()
+                    .ok_or_else(|| AppError::internal(anyhow::anyhow!("saved purge has no title")))?
+                    .to_owned();
+                self.tasks
+                    .resume(id, move |ctx| async move {
+                        service.run_purge(ctx, selector, title).await
+                    })
+                    .await
+            }
+            Some("trash_sync") => {
+                self.tasks
+                    .resume(id, move |ctx| async move { service.run_sync(ctx).await })
+                    .await
+            }
+            _ => Err(AppError::internal(anyhow::anyhow!(
+                "unknown saved trash operation"
+            ))),
+        }
+    }
     pub fn new(
         db: Db,
         settings: SettingsService,

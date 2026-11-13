@@ -240,7 +240,7 @@ use crate::settings::{Settings, SettingsService};
 use journal::Journal;
 
 /// A place on a volume: the volume and the path below its root.
-#[derive(Debug, Clone, PartialEq, Eq, Hash)]
+#[derive(Debug, Clone, PartialEq, Eq, Hash, serde::Serialize, serde::Deserialize)]
 pub struct Loc {
     pub volume_id: VolumeId,
     pub rel: RelPath,

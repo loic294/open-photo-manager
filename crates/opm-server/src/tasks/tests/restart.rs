@@ -10,6 +10,53 @@ use super::support::{
 };
 use crate::tasks::{Retention, TaskOptions};
 
+#[tokio::test]
+async fn resumable_tasks_keep_their_id_and_checkpoint_across_repeated_restarts() {
+    let h = Harness::new().await;
+    let id = h.seed_running(&fs().resumable()).await;
+    let checkpoint = crate::tasks::Checkpoint::new(&h.db, id).await.unwrap();
+    checkpoint.save("next", &3_u64).await.unwrap();
+    let second = h.restarted_with(fast()).await;
+    assert_eq!(second.recoverable().await.unwrap()[0].0, id);
+    let db = h.db.handle();
+    second
+        .resume(id, move |ctx| async move {
+            let checkpoint = crate::tasks::Checkpoint::new(&db, ctx.id).await?;
+            assert_eq!(checkpoint.load::<u64>("next").await?, Some(3));
+            checkpoint.save("next", &4_u64).await?;
+            Ok(serde_json::json!({"next": 4}))
+        })
+        .await
+        .unwrap();
+    assert_eq!(finished(&second, id).await.state, TaskState::Done);
+    let third = h.restarted_with(fast()).await;
+    assert!(third.recoverable().await.unwrap().is_empty());
+    assert_eq!(h.stored_ids().await, [id]);
+    assert_eq!(checkpoint.load::<u64>("next").await.unwrap(), Some(4));
+}
+
+#[tokio::test]
+async fn cancelled_resumable_tasks_are_not_recovered_or_run() {
+    let h = Harness::new().await;
+    let mut gate = Gate::new();
+    let running = h.engine.submit(fs(), gate.runner()).await.unwrap();
+    gate.started().await;
+    let cancelled = submit_instant(&h.engine, fs().resumable()).await;
+    h.engine.cancel(cancelled).await.unwrap();
+    gate.release(1);
+    h.finished(running).await;
+    let second = h.restarted_with(fast()).await;
+    assert!(second.recoverable().await.unwrap().is_empty());
+    second
+        .resume(cancelled, |_| async { panic!("cancelled task ran") })
+        .await
+        .unwrap();
+    assert_eq!(
+        second.get(cancelled).await.unwrap().state,
+        TaskState::Cancelled
+    );
+}
+
 const DAY: i64 = 24 * 3600;
 
 fn retention(retention: Retention) -> TaskOptions {

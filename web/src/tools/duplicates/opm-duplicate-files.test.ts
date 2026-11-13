@@ -53,6 +53,72 @@ beforeEach(async () => {
 
 afterEach(() => {
   vi.restoreAllMocks();
+  vi.unstubAllGlobals();
+});
+
+it('preserves image aspect ratios and explains selections on hover', async () => {
+  vi.mocked(api.get).mockResolvedValueOnce({
+    groups: groups.map((group) => ({
+      ...group,
+      files: group.files.map((file) => ({
+        ...file,
+        item: { ...file.item, width: 6000, height: 4000 },
+      })),
+    })),
+  });
+  const el = await searched();
+  const card = el.querySelector('opm-file-card');
+  expect(card?.parentElement?.style.aspectRatio).toBe('6000 / 4000');
+  expect(card?.parentElement?.title).toContain('lowest file ID');
+  card?.dispatchEvent(new CustomEvent('card-activate', { bubbles: true }));
+  await settle(el);
+  expect(card?.parentElement?.title).toBe('Keep: Manual selection');
+  expect(el.textContent).toContain('0 files with duplicates in folder');
+  expect(el.textContent).toContain('1 in subfolders');
+});
+
+it('appends groups when the sentinel enters view and preserves earlier choices', async () => {
+  let intersect = (_entries: { isIntersecting: boolean }[]) => {};
+  const disconnect = vi.fn();
+  vi.stubGlobal(
+    'IntersectionObserver',
+    class {
+      constructor(callback: typeof intersect, options: IntersectionObserverInit) {
+        intersect = callback;
+        expect(options.root instanceof Element && options.root.hasAttribute('data-groups')).toBe(
+          true,
+        );
+      }
+      observe() {}
+      disconnect = disconnect;
+    },
+  );
+  vi.mocked(api.get).mockResolvedValueOnce({
+    groups: Array.from({ length: 45 }, (_, index) => ({
+      files: groups[0].files.map((file) => ({
+        ...file,
+        item: { ...file.item, id: file.item.id + index * 3 },
+      })),
+      pairs: groups[0].pairs.map((pair) => pair.map((id) => id + index * 3)),
+    })),
+  });
+  const el = await searched();
+  const first = el.querySelector('article');
+  expect(el.querySelectorAll('article')).toHaveLength(20);
+  el.querySelectorAll('opm-file-card')[1]?.dispatchEvent(
+    new CustomEvent('card-activate', { bubbles: true }),
+  );
+  await settle(el);
+  intersect([{ isIntersecting: true }]);
+  await settle(el);
+  expect(el.querySelectorAll('article')).toHaveLength(40);
+  expect(el.querySelector('article')).toBe(first);
+  expect(first?.querySelectorAll('opm-file-card')[1]?.selected).toBe(true);
+  button(el, 'Load more groups').click();
+  await settle(el);
+  expect(el.querySelectorAll('article')).toHaveLength(45);
+  expect(el.querySelector('[data-load-more]')).toBeNull();
+  expect(disconnect).toHaveBeenCalled();
 });
 
 async function settle(el: Element) {
@@ -202,7 +268,7 @@ it('bolds differing filenames and capture dates, including missing dates, while 
   expect(dates[1]).not.toBe(dates[2]);
 });
 
-it('groups copies in one card and displays each rating and flag beneath its thumbnail', async () => {
+it('shows rating and flag icon pills on thumbnails without duplicate metadata rows or folder buttons', async () => {
   vi.mocked(api.get).mockResolvedValueOnce({
     groups: groups.map((group) => ({
       ...group,
@@ -219,20 +285,26 @@ it('groups copies in one card and displays each rating and flag beneath its thum
   const el = await searched();
   const group = el.querySelector('article[aria-label="Duplicate group 1"]');
   expect(group?.querySelectorAll('opm-file-card')).toHaveLength(3);
-  const ratings = [...el.querySelectorAll('[data-copy-rating]')];
-  expect(ratings[0]?.textContent?.trim()).toBe('Not rated');
-  for (const [index, count] of [
-    [1, 1],
-    [2, 5],
-  ] as const) {
-    const stars = ratings[index]?.querySelector('[role="img"]');
-    expect(stars?.getAttribute('aria-label')).toBe(`${count} out of 5 stars`);
-    expect(stars?.children).toHaveLength(5);
-    expect(stars?.children[count - 1]?.getAttribute('aria-current')).toBe('true');
-  }
+  const cards = [...el.querySelectorAll('opm-file-card')];
+  expect(cards[0]?.querySelector('[data-badge="rating"]')).toBeNull();
+  expect(cards[1]?.querySelector('[data-badge="rating"]')?.getAttribute('aria-label')).toBe(
+    '1 star',
+  );
+  expect(cards[2]?.querySelector('[data-badge="rating"]')?.getAttribute('aria-label')).toBe(
+    '5 stars',
+  );
+  expect(cards[1]?.querySelector('[data-badge="flag"] opm-icon')?.getAttribute('name')).toBe(
+    'flag',
+  );
+  expect(cards[2]?.querySelector('[data-badge="flag"]')?.getAttribute('aria-label')).toBe(
+    'Flagged rejected',
+  );
+  expect(el.querySelector('[data-copy-rating], [data-copy-flag]')).toBeNull();
   expect(
-    [...el.querySelectorAll('[data-copy-flag]')].map((flag) => flag.textContent?.trim()),
-  ).toEqual(['None', 'Selected', 'Rejected']);
+    [...(group?.querySelectorAll('button') ?? [])].some((button) =>
+      button.textContent?.includes('Keep files from this folder'),
+    ),
+  ).toBe(false);
 });
 
 it('opens the context action with ancestors and applies the selected folder to all groups', async () => {

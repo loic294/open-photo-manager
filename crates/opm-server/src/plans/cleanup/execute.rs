@@ -39,8 +39,12 @@ pub(super) async fn execute(
         .fetch_one(ctx.db.read())
         .await?;
     ctx.declare_totals(total as u64, 0);
-    let mut result = ResultBuilder::new();
-    let mut cursor: Option<(i64, String)> = None;
+    let checkpoint = crate::tasks::Checkpoint::new(&ctx.db, ctx.task.id).await?;
+    let (mut cursor, mut result): (Option<(i64, String)>, ResultBuilder) = checkpoint
+        .load("cleanup-progress")
+        .await?
+        .unwrap_or_default();
+    ctx.task.progress.add(result.counted() as i64, 0);
     loop {
         if ctx.cancelled() {
             result.mark_cancelled();
@@ -82,6 +86,9 @@ pub(super) async fn execute(
                     "Protected system folders cannot be removed",
                 );
                 ctx.item_processed();
+                checkpoint
+                    .save("cleanup-progress", &(&cursor, &result))
+                    .await?;
                 continue;
             }
             if rel.as_str() != path
@@ -97,13 +104,25 @@ pub(super) async fn execute(
                     "The folder is not strictly below the base",
                 );
                 ctx.item_processed();
+                checkpoint
+                    .save("cleanup-progress", &(&cursor, &result))
+                    .await?;
                 continue;
             }
-            match ctx
+            let loc = Loc { volume_id, rel };
+            let outcome = if ctx
                 .fsops
-                .remove_dir_if_removable(Loc { volume_id, rel }, &ctx.batch, &ctx.op)
-                .await
+                .completed_bytes(ctx.task.id, "rmdir", &loc)
+                .await?
+                .is_some()
             {
+                Ok(RmdirOutcome::Removed { junk_trashed: 0 })
+            } else {
+                ctx.fsops
+                    .remove_dir_if_removable(loc, &ctx.batch, &ctx.op)
+                    .await
+            };
+            match outcome {
                 Ok(RmdirOutcome::Removed { .. }) => result.done(0),
                 Ok(RmdirOutcome::AlreadyGone) | Err(FsOpError::SourceMissing) => {
                     result.skip_with_detail(
@@ -133,6 +152,9 @@ pub(super) async fn execute(
                 }
             }
             ctx.item_processed();
+            checkpoint
+                .save("cleanup-progress", &(&cursor, &result))
+                .await?;
         }
     }
     Ok(result.finish())

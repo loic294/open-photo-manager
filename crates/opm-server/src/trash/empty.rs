@@ -17,7 +17,8 @@ use crate::fsops::FsOpError;
 use crate::tasks::{TaskCtx, TaskError, TaskSpec};
 
 /// Which items a purge run deletes.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
+#[serde(rename_all = "snake_case")]
 pub(super) enum PurgeSelector {
     /// What the user saw when they confirmed: the items up to `max_id`, on one volume or on all.
     /// Ids are never reused, so an item trashed afterwards is never covered.
@@ -54,15 +55,18 @@ impl PurgeSelector {
 }
 
 /// An item a run deletes: only what the progress bar needs, so a million items stay at 16 MB.
-#[derive(Debug, FromRow)]
+#[derive(Debug, FromRow, serde::Serialize, serde::Deserialize)]
 struct Doomed {
     id: TrashItemId,
     size: i64,
+    volume_id: VolumeId,
+    trash_path: String,
 }
 
 /// The statement that selects what a run deletes, in the order it deletes it.
 pub(super) fn select_query(selector: PurgeSelector) -> QueryBuilder<Sqlite> {
-    let mut builder = QueryBuilder::<Sqlite>::new("SELECT id, size FROM trash_items");
+    let mut builder =
+        QueryBuilder::<Sqlite>::new("SELECT id, size, volume_id, trash_path FROM trash_items");
     selector.push_where(&mut builder);
     selector.push_order(&mut builder);
     builder
@@ -112,10 +116,14 @@ impl TrashService {
         &self,
         selector: PurgeSelector,
         title: String,
-        params: Value,
+        mut params: Value,
     ) -> Result<TaskId, AppError> {
         let service = self.clone();
-        let spec = TaskSpec::new(TaskKind::TrashEmpty, title.clone()).with_params(params);
+        params["selector"] = serde_json::to_value(selector).map_err(AppError::internal)?;
+        params["title"] = Value::String(title.clone());
+        let spec = TaskSpec::new(TaskKind::TrashEmpty, title.clone())
+            .resumable()
+            .with_params(params);
         self.tasks
             .submit(spec, move |ctx| async move {
                 service.run_purge(ctx, selector, title).await
@@ -133,28 +141,52 @@ impl TrashService {
         Ok(to_u64(count))
     }
 
-    async fn run_purge(
+    pub(super) async fn run_purge(
         &self,
         ctx: TaskCtx,
         selector: PurgeSelector,
         title: String,
     ) -> Result<Value, TaskError> {
-        let items: Vec<Doomed> = select_query(selector)
-            .build_query_as()
-            .fetch_all(self.db.read())
-            .await
-            .map_err(AppError::from)?;
+        let checkpoint = crate::tasks::Checkpoint::new(&self.db, ctx.id).await?;
+        let items = match checkpoint.load::<Vec<Doomed>>("purge-input").await? {
+            Some(items) => items,
+            None => {
+                let items: Vec<Doomed> = select_query(selector)
+                    .build_query_as()
+                    .fetch_all(self.db.read())
+                    .await
+                    .map_err(AppError::from)?;
+                checkpoint.save("purge-input", &items).await?;
+                items
+            }
+        };
         let total = items.len() as u64;
         let bytes: i64 = items.iter().map(|item| item.size.max(0)).sum();
         ctx.progress.phase(title, Some(to_i64(total)), Some(bytes));
 
         let cx = self.op_context(&ctx);
-        let mut report = Report::default();
-        for item in &items {
+        let (next, mut report): (usize, Report) =
+            checkpoint.load("purge-progress").await?.unwrap_or_default();
+        ctx.progress.add(next as i64, report.bytes as i64);
+        for (index, item) in items.iter().enumerate().skip(next) {
             if ctx.cancel.is_cancelled() {
                 return Err(TaskError::Cancelled);
             }
-            match self.fsops.purge(item.id, &cx).await {
+            let loc = crate::fsops::Loc::new(
+                item.volume_id,
+                opm_core::paths::RelPath::new(&item.trash_path).map_err(AppError::internal)?,
+            );
+            let previous = self
+                .fsops
+                .completed_bytes(ctx.id, "delete", &loc)
+                .await
+                .map_err(AppError::from)?;
+            let outcome = if let Some(bytes) = previous {
+                Ok(crate::fsops::PurgeOutcome { bytes, files: 0 })
+            } else {
+                self.fsops.purge(item.id, &cx).await
+            };
+            match outcome {
                 Ok(outcome) => {
                     report.done += 1;
                     report.bytes = report.bytes.saturating_add(outcome.bytes);
@@ -168,12 +200,15 @@ impl TrashService {
                     report.fail(Failure {
                         id: item.id,
                         path,
-                        code: err.code(),
+                        code: err.code().to_owned(),
                         message: err.to_string(),
                     });
                 }
             }
             ctx.progress.add(1, item.size.max(0));
+            checkpoint
+                .save("purge-progress", &(index + 1, &report))
+                .await?;
         }
 
         tracing::info!(

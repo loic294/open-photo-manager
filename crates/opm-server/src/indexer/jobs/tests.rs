@@ -27,6 +27,69 @@ const PATIENCE: Duration = Duration::from_secs(10);
 /// How long a test watches for something that must NOT happen.
 const QUIET: Duration = Duration::from_millis(250);
 
+#[tokio::test]
+async fn a_forced_scan_resumes_directory_batches_without_resetting_completed_metadata() {
+    use crate::indexer::{IndexPhase, IndexProgress, NoopChanges, ProgressSink};
+    struct StopAfterBatch(CancellationToken);
+    impl ProgressSink for StopAfterBatch {
+        fn report(&self, progress: IndexProgress) {
+            if progress.phase == IndexPhase::Walk && progress.items_done > 0 {
+                self.0.cancel();
+            }
+        }
+    }
+    let fx = Fixture::new().await;
+    let volume = fx.volume("photos").await;
+    for n in 0..130 {
+        fx.put("photos", &format!("dir{n:03}/photo.jpg"), b"image");
+    }
+    let id = fx
+        .tasks
+        .submit(
+            TaskSpec::new(TaskKind::Index, "Checkpoint fixture").resumable(),
+            |_| async { Ok(json!({})) },
+        )
+        .await
+        .unwrap();
+    fx.finished(id).await;
+    let checkpoint = crate::tasks::Checkpoint::new(fx.indexer.db(), id)
+        .await
+        .unwrap();
+    let cancel = CancellationToken::new();
+    let mut run = RunContext::new(
+        cancel.clone(),
+        Arc::new(StopAfterBatch(cancel)),
+        Arc::new(NoopChanges),
+    );
+    run.checkpoint = Some(checkpoint.clone());
+    let request = forced(vec![ScanTarget::volume(volume)]);
+    assert!(matches!(
+        fx.indexer.run(&request, &run).await,
+        Err(IndexError::Cancelled)
+    ));
+    let before: i64 = sqlx::query_scalar("SELECT COUNT(*) FROM files")
+        .fetch_one(fx.temp.read())
+        .await
+        .unwrap();
+    assert!(before > 0);
+    sqlx::query("UPDATE files SET meta_state = 1")
+        .execute(fx.temp.write())
+        .await
+        .unwrap();
+    let resumed = Indexer::new(fx.temp.handle(), fx.settings.clone(), fx.volumes.clone())
+        .with_extractor(Arc::new(FakeExtractor::unavailable("tests")));
+    let mut run = RunContext::noop();
+    run.checkpoint = Some(checkpoint);
+    let summary = resumed.run(&request, &run).await.unwrap();
+    assert_eq!(summary.added, 130);
+    let retained: i64 = sqlx::query_scalar("SELECT COUNT(*) FROM files WHERE meta_state = 1")
+        .fetch_one(fx.temp.read())
+        .await
+        .unwrap();
+    assert_eq!(retained, before, "completed batches were not forced again");
+    assert_eq!(fx.indexed().await.len(), 130);
+}
+
 fn rel(path: &str) -> RelPath {
     RelPath::new(path).unwrap()
 }

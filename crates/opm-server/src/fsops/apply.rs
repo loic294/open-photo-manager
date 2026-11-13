@@ -1005,6 +1005,9 @@ impl FsOps {
         )
         .await?;
         let (indexed, kind) = index_transfer(&mut *conn, rules, t, generation).await?;
+        sqlx::query("UPDATE fs_journal SET result_file_id = ?, result_live = 1, result_mtime = ? WHERE id = ?")
+            .bind(indexed.file_id).bind(t.dst_stat.mtime).bind(t.journal_id)
+            .execute(&mut *conn).await?;
         if let Some(file_id) = indexed.file_id {
             let moved_row = t.mode == Mode::Move && indexed.source_file_id.is_some();
             maintain_links(&mut *conn, rules, t, file_id, kind, moved_row).await?;

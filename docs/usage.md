@@ -22,9 +22,9 @@ The five tools operate on the index and show a plan before a confirmed file oper
 
 3. Use **Use this folder** in a pinned pane to change its base and **Go to base** to return.
    The bottom bar shows matching counts, selected counts, **Select all**, **Clear selection** and
-   a thumbnail-size slider for each pane. The top-right task indicator shows background work.
+   one thumbnail-size slider on the left. The top-right task indicator shows background work.
 
-   You should see: selection stays independent, while either thumbnail-size slider scales both panes.
+   You should see: selection stays independent, while the thumbnail-size slider scales both panes.
    **Sync navigation**, beside **Include subfolders**, makes both panes show the exact same folder
    and links their scrolling. Turn it off to browse separately. Tasks continue while you use other tools.
    Long folder paths collapse their middle into **...**; open it to navigate to a hidden parent.
@@ -63,21 +63,21 @@ red borders and **Remove** labels mean move to Trash after confirmation. Click a
 prefer that copy. Filename, size and capture date appear beneath each thumbnail; fields that
 differ between copies are bold. Differing sizes include exact byte counts, and capture dates
 include seconds (a missing date is shown explicitly).
-Star ratings and flag status also appear beneath every thumbnail, including explicit
-**Not rated** and **None** values when those metadata are absent.
-The bottom slider adjusts thumbnail size; paging does not limit selection
+Star ratings and flags appear as icon pills on the thumbnail when set. Thumbnails retain
+the image's aspect ratio. Hover a thumbnail or its Keep/Remove pill to see the selecting rule.
+The bottom slider adjusts thumbnail size; groups load as you scroll, without changing selection
 rules or the final action. Name-based matches are not always transitive, so a group can require
 multiple keepers: every removal must directly match a retained file.
 
-**Automatic Selection** offers capture, modification and creation dates in either order,
+**Automatic Selection** lists folder preferences first, then filename regular expressions,
+shorter/longer filenames, capture, modification and creation dates in either order,
 file size in either order, presence of ratings, descriptions, flags or tags, a specific tag
 among the matching copies, and multiple preferred folders (exact or including descendants).
 Enable rules individually and drag them into priority order; Up/Down buttons also reorder.
 The first enabled rule wins, later rules break ties, missing dates rank last, and exact ties
 use the lowest file ID. Applying rules replaces manual choices in every group.
 
-Right-click a thumbnail and choose **Keep files from this folder** (also available as a button
-under each copy). Choose its folder or any pre-populated ancestor, then exact-folder or
+Right-click a thumbnail and choose **Keep files from this folder**. Choose its folder or any pre-populated ancestor, then exact-folder or
 subfolder matching. Applying makes that preference the first rule for all groups.
 
 **Trash duplicates** confirms the total and warns that copies outside the source can be removed.
@@ -88,6 +88,9 @@ File view is bounded to 20,000 matched files per side and the existing two-milli
 an oversized search is refused rather than truncated. Narrow the source folder if necessary.
 Descriptions are read from embedded EXIF/IPTC/XMP and linked XMP metadata; existing indexed
 images and videos are queued for metadata extraction after the database upgrade.
+
+The source folder shows matching file counts separately for that folder and its subfolders.
+After a search, the source picker also shows matching counts from the current plan.
 
 ### Folder view
 
@@ -399,3 +402,22 @@ minutes use `{min}`. Month names are English. The sample is `IMG_0042.CR3`, capt
 
    You should see: unsaved General settings expose **Save** and **Discard**; Immich settings show
    the connection and sync status without exposing the database secret.
+
+## Install as an app
+
+Open OPM over HTTPS (or localhost during development), then use your browser's **Install app**
+command. On iPhone or iPad, use Safari's **Share > Add to Home Screen**. A NAS accessed through
+a plain HTTP LAN address is not a secure context: configure HTTPS before installing.
+
+The installed app still needs the OPM server. Only an offline notice is cached, never library
+media or API responses; file changes are not queued while offline.
+
+## Interrupted background work
+
+New tasks keep their saved requests and checkpoints across server restarts, including file-changing
+tasks. They resume automatically using the same task ID. Completed file operations are recognized
+from the filesystem journal, rather than applied twice. Scans resume directory batches and pipeline
+stages, Immich resumes committed pages, and plan/trash operations resume completed items.
+An unfinished file copy may be retried from its beginning; byte-offset copy resumption is not supported.
+Explicitly cancelled tasks do not restart. Tasks created by an older version without saved requests
+remain interrupted and must be submitted again.

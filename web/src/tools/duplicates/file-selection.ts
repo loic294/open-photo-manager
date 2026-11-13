@@ -3,6 +3,10 @@ import type { DuplicateFileGroup } from '@/api/generated/DuplicateFileGroup';
 import type { Scope } from '@/api/generated/Scope';
 
 export const RULE_LABELS = {
+  folder: 'Is in specific folder',
+  subtree: 'Is in folder or subfolder',
+  regex: 'Name matches regex',
+  name_length: 'Name length',
   capture: 'Capture date',
   modified: 'Modified date',
   created: 'Creation date',
@@ -12,8 +16,6 @@ export const RULE_LABELS = {
   size: 'File size',
   tags: 'Has tags',
   tag: 'Has specific tag',
-  folder: 'Is in specific folder',
-  subtree: 'Is in folder or subfolder',
 } as const;
 
 export type RuleKind = keyof typeof RULE_LABELS;
@@ -31,6 +33,7 @@ export interface SelectionRule {
   enabled: boolean;
   direction: 'asc' | 'desc';
   tag: string;
+  pattern: string;
   folders: Scope[];
 }
 
@@ -40,6 +43,7 @@ export function defaultRules(): SelectionRule[] {
     enabled: false,
     direction: 'asc',
     tag: '',
+    pattern: '',
     folders: [],
   }));
 }
@@ -52,8 +56,22 @@ export function inFolder(file: DuplicateFile, scope: Scope, recursive: boolean):
   );
 }
 
-function value(file: DuplicateFile, rule: SelectionRule): number | null {
+export function regexIssue(pattern: string): string | null {
+  if (!pattern) return 'Enter a filename regular expression.';
+  try {
+    new RegExp(pattern);
+    return null;
+  } catch (error) {
+    return error instanceof Error ? error.message : 'Invalid regular expression.';
+  }
+}
+
+function value(file: DuplicateFile, rule: SelectionRule, regex?: RegExp): number | null {
   switch (rule.kind) {
+    case 'regex':
+      return Number(regex?.test(file.item.name));
+    case 'name_length':
+      return [...file.item.name].length;
     case 'capture':
       return file.item.capture_ts;
     case 'modified':
@@ -83,19 +101,39 @@ export function compareFiles(
   b: DuplicateFile,
   rules: readonly SelectionRule[],
 ): number {
-  for (const rule of rules) {
-    if (!rule.enabled) continue;
-    const av = value(a, rule);
-    const bv = value(b, rule);
-    if (av === bv) continue;
-    if (av === null) return 1;
-    if (bv === null) return -1;
-    const ascending =
-      ['capture', 'modified', 'created', 'size'].includes(rule.kind) && rule.direction === 'asc';
-    const order = av < bv ? -1 : 1;
-    return ascending ? order : -order;
-  }
-  return a.item.id - b.item.id;
+  return comparison(rules)(a, b).order;
+}
+
+function comparison(rules: readonly SelectionRule[]) {
+  const enabled = rules.filter((rule) => rule.enabled);
+  const patterns = new Map(
+    enabled.filter((rule) => rule.kind === 'regex').map((rule) => [rule, new RegExp(rule.pattern)]),
+  );
+  return (a: DuplicateFile, b: DuplicateFile): { order: number; reason: string } => {
+    for (const rule of enabled) {
+      const av = value(a, rule, patterns.get(rule));
+      const bv = value(b, rule, patterns.get(rule));
+      if (av === bv) continue;
+      if (av === null) return { order: 1, reason: `${RULE_LABELS[rule.kind]}: known dates first` };
+      if (bv === null) return { order: -1, reason: `${RULE_LABELS[rule.kind]}: known dates first` };
+      const ascending =
+        ['capture', 'modified', 'created', 'size', 'name_length'].includes(rule.kind) &&
+        rule.direction === 'asc';
+      const order = av < bv ? -1 : 1;
+      const detail =
+        rule.kind === 'regex'
+          ? `: /${rule.pattern}/`
+          : rule.kind === 'name_length'
+            ? `: ${ascending ? 'shorter' : 'longer'} first`
+            : ['capture', 'modified', 'created', 'size'].includes(rule.kind)
+              ? `: ${ascending ? 'ascending' : 'descending'}`
+              : rule.kind === 'tag'
+                ? `: ${rule.tag}`
+                : '';
+      return { order: ascending ? order : -order, reason: `${RULE_LABELS[rule.kind]}${detail}` };
+    }
+    return { order: a.item.id - b.item.id, reason: 'Rules tied: lowest file ID' };
+  };
 }
 
 /** Greedy direct-match coverage, not transitive deletion. A chain may need several keepers. */
@@ -104,6 +142,14 @@ export function selectKeepers(
   rules: readonly SelectionRule[],
   preferred?: number,
 ): Set<number> {
+  return selectWithReasons(group, rules, preferred).keep;
+}
+
+export function selectWithReasons(
+  group: DuplicateFileGroup,
+  rules: readonly SelectionRule[],
+  preferred?: number,
+): { keep: Set<number>; reasons: Map<number, string> } {
   const neighbours = new Map<number, Set<number>>();
   for (const [a, b] of group.pairs) {
     if (!neighbours.has(a)) neighbours.set(a, new Set());
@@ -111,21 +157,45 @@ export function selectKeepers(
     neighbours.get(a)?.add(b);
     neighbours.get(b)?.add(a);
   }
+  const compare = comparison(rules);
   const ordered = [...group.files].sort((a, b) => {
     if (a.item.id === preferred) return -1;
     if (b.item.id === preferred) return 1;
-    return compareFiles(a, b, rules);
+    return compare(a, b).order;
   });
   const covered = new Set<number>();
+  const positions = new Map(ordered.map((file, index) => [file.item.id, index]));
   const keep = new Set<number>();
+  const reasons = new Map<number, string>();
   for (const file of ordered) {
     const id = file.item.id;
     if (covered.has(id)) continue;
+    let other: DuplicateFile | undefined;
+    let position = ordered.length;
+    for (const neighbour of neighbours.get(id) ?? []) {
+      const index = positions.get(neighbour);
+      if (!covered.has(neighbour) && index !== undefined && index < position) {
+        position = index;
+        other = ordered[index];
+      }
+    }
+    const reason =
+      id === preferred
+        ? 'Manual selection'
+        : other
+          ? compare(file, other).reason
+          : 'Additional keeper required for direct-match coverage';
+    reasons.set(id, `Keep: ${reason}`);
     keep.add(id);
     covered.add(id);
-    for (const other of neighbours.get(id) ?? []) covered.add(other);
+    for (const other of neighbours.get(id) ?? []) {
+      if (!covered.has(other)) {
+        covered.add(other);
+        reasons.set(other, `Remove: directly matches ${file.item.name}. Keeper rule: ${reason}`);
+      }
+    }
   }
-  return keep;
+  return { keep, reasons };
 }
 
 export function parentFolders(file: DuplicateFile): Scope[] {

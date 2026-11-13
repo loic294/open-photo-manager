@@ -573,9 +573,10 @@ describe('the bottom bar', () => {
     expect(bottomBar(view).comparison?.counts).toBeNull();
   });
 
-  it('sets both thumbnail scales when either slider moves', async () => {
+  it('sets both thumbnail scales from the source slider and has no right-pane slider', async () => {
     const view = await mountView();
-    const slider = part<HTMLInputElement>(segment(view, 'comparison'), 'input[type="range"]');
+    expect(segment(view, 'comparison').querySelector('input[type="range"]')).toBeNull();
+    const slider = part<HTMLInputElement>(segment(view, 'source'), 'input[type="range"]');
     slider.value = '224';
     slider.dispatchEvent(new Event('input', { bubbles: true }));
     expect(gridSize.value.comparison).toBe(224);

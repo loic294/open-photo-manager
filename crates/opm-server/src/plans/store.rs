@@ -355,7 +355,9 @@ pub(super) async fn settle_interrupted(
 ) -> Result<u64, DbError> {
     let done = sqlx::query(
         "UPDATE plans SET state = 'executed', result_json = ?1, expires_at = ?2 \
-         WHERE state = 'executing'",
+         WHERE state = 'executing' AND NOT EXISTS \
+         (SELECT 1 FROM tasks t WHERE t.id = plans.task_id AND t.resumable = 1 \
+          AND t.state IN ('queued', 'running', 'interrupted'))",
     )
     .bind(json(result)?)
     .bind(expires_at)
