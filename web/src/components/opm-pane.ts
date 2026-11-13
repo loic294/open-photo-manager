@@ -40,7 +40,15 @@ import {
   sameLocation,
   setLocation,
 } from '@/stores/nav';
-import { gridSize, SORT_KEYS, type SortSpec, setSort, sort } from '@/stores/prefs';
+import {
+  FOLDER_VIEWS,
+  folderView,
+  gridSize,
+  SORT_KEYS,
+  type SortSpec,
+  setSort,
+  sort,
+} from '@/stores/prefs';
 import { selection, selectionContextKey } from '@/stores/selection';
 import { excludeFolder, isExcluded, settings } from '@/stores/settings';
 import { loadVolumes, volumeByName, volumesError, volumesStatus } from '@/stores/volumes';
@@ -738,6 +746,20 @@ export class OpmPane extends OpmElement {
               ></span>`
             : nothing
         }
+        <div class="join flex-none" role="group" aria-label=${`${this.paneName} folder view`}>
+          ${FOLDER_VIEWS.map((view) => {
+            const label = view === 'list' ? 'Folder list' : 'Folder thumbnails';
+            const selected = folderView.value[this.pane] === view;
+            return html`<button type="button"
+              class="btn btn-square btn-xs join-item max-sm:min-h-11 max-sm:min-w-11 ${selected ? 'btn-primary' : 'btn-ghost'}"
+              aria-label=${label} title=${label} aria-pressed=${String(selected)}
+              @click=${() => {
+                folderView.value = { ...folderView.peek(), [this.pane]: view };
+              }}>
+              <opm-icon name=${view === 'list' ? 'list' : 'layout-grid'} size="sm"></opm-icon>
+            </button>`;
+          })}
+        </div>
         ${this.renderSortControls()}
       </header>
     `;
@@ -827,6 +849,8 @@ export class OpmPane extends OpmElement {
       <opm-folder-list
         pane=${this.pane}
         .folders=${this.visibleFolders()}
+        .view=${folderView.value[this.pane]}
+        .size=${gridSize.value[this.pane]}
         ?hide-unmatched=${this.hideUnmatched}
         ?show-matches=${this.showMatches}
         .hrefFor=${this.hrefFor}

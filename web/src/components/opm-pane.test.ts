@@ -23,7 +23,7 @@ import {
   syncFromLocation,
 } from '@/stores/nav';
 import { INVALIDATE_DEBOUNCE_MS } from '@/stores/paged-items';
-import { GRID_SIZE, setGridSize, setSort, sort } from '@/stores/prefs';
+import { folderView, GRID_SIZE, setGridSize, setSort, sort } from '@/stores/prefs';
 import { activePane, resetSelectionForTests, selection } from '@/stores/selection';
 import { includeFolder } from '@/stores/settings';
 import { clearToasts, toasts } from '@/stores/toasts';
@@ -66,6 +66,7 @@ afterEach(() => {
   vi.unstubAllGlobals();
   clearToasts();
   resetSelectionForTests();
+  folderView.value = { source: 'list', comparison: 'list' };
   for (const pane of ['source', 'comparison'] as const) {
     setSort(pane, { key: 'name', order: 'asc' });
     setGridSize(pane, GRID_SIZE.default);
@@ -131,6 +132,25 @@ const upButton = (pane: OpmPane) =>
 const baseRow = (pane: OpmPane) => pane.querySelector('[role="group"][aria-label="Base folder"]');
 const buttonNamed = (root: ParentNode, name: string) =>
   [...root.querySelectorAll('button')].find((button) => text(button) === name);
+
+it('switches folder views with icon-only controls without changing the other pane or location', async () => {
+  const source = await mountPane();
+  const comparison = await mountPane({ pane: 'comparison' });
+  const before = locations.source.value;
+  const toggle = part<HTMLButtonElement>(source, 'button[aria-label="Folder thumbnails"]');
+  expect(toggle.textContent?.trim()).toBe('');
+  expect(toggle.getAttribute('aria-pressed')).toBe('false');
+  toggle.click();
+  await settle(source);
+  expect(toggle.getAttribute('aria-pressed')).toBe('true');
+  expect(toggle.classList.contains('btn-primary')).toBe(true);
+  expect(folderList(source).view).toBe('thumbnails');
+  expect(folderList(comparison).view).toBe('list');
+  expect(locations.source.value).toEqual(before);
+  part<HTMLButtonElement>(source, 'button[aria-label="Folder list"]').click();
+  await settle(source);
+  expect(folderList(source).view).toBe('list');
+});
 
 /**
  * Clicks a link the way a user does and reports whether the page took the click over. The

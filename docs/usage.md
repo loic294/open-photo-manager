@@ -30,6 +30,10 @@ The five tools operate on the index and show a plan before a confirmed file oper
    Long folder paths collapse their middle into **...**; open it to navigate to a hidden parent.
    Hover or focus a path segment to see the full path in a tooltip.
    Hover a filename for its full name, or its capture date for the time, file size and date source.
+   The list/grid icons in each pane's toolbar switch folders between compact rows and photo
+   thumbnails. Each pane remembers its own choice. Previews use a matching indexed photo from
+   the folder or its descendants; folders without photos show a folder icon. Counts and
+   right-click actions work in either view, and the thumbnail-size slider also scales folder tiles.
 
 ## Check the library
 

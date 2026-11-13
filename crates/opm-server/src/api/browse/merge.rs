@@ -100,6 +100,7 @@ mod tests {
             volume_id: 1,
             count,
             total,
+            preview: None,
         }
     }
 
@@ -111,6 +112,7 @@ mod tests {
             count,
             total,
             matches: None,
+            preview: None,
             overlay: Overlay {
                 planned: true,
                 ..Overlay::default()

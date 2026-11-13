@@ -24,6 +24,7 @@ afterEach(() => {
     for (const store of [
       loaded.theme,
       loaded.gridSize,
+      loaded.folderView,
       loaded.hideUnmatchedFolders,
       loaded.lastAction,
       loaded.sort,
@@ -57,6 +58,25 @@ describe('theme', () => {
     prefs.theme.value = 'dark';
 
     expect(stored('theme')).toBe('dark');
+  });
+
+  describe('folderView', () => {
+    it('defaults to lists and persists each pane independently', async () => {
+      const prefs = await loadPrefs();
+      expect(prefs.folderView.value).toEqual({ source: 'list', comparison: 'list' });
+      prefs.folderView.value = { ...prefs.folderView.peek(), source: 'thumbnails' };
+      expect(stored('folderView')).toEqual({ source: 'thumbnails', comparison: 'list' });
+      prefs.folderView.dispose();
+      expect((await loadPrefs()).folderView.value).toEqual({
+        source: 'thumbnails',
+        comparison: 'list',
+      });
+    });
+
+    it('ignores malformed saved folder views', async () => {
+      localStorage.setItem('opm.v1.folderView', '{"source":"unknown","comparison":"list"}');
+      expect((await loadPrefs()).folderView.value).toEqual({ source: 'list', comparison: 'list' });
+    });
   });
 
   it('restores a stored choice', async () => {

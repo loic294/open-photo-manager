@@ -350,6 +350,7 @@ async fn a_folder_row_becomes_a_plain_folder_entry() {
         volume_id: 7,
         count: 3,
         total: 9,
+        preview: None,
     };
     assert_eq!(
         FolderEntry::from(row),
@@ -360,6 +361,7 @@ async fn a_folder_row_becomes_a_plain_folder_entry() {
             count: 3,
             total: 9,
             matches: None,
+            preview: None,
             overlay: Overlay::default(),
         }
     );

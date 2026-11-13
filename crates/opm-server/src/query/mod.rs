@@ -296,6 +296,7 @@ impl From<FolderRow> for FolderEntry {
             count: row.count,
             total: row.total,
             matches: None,
+            preview: row.preview,
             overlay: Overlay::default(),
         }
     }

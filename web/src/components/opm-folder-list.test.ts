@@ -50,6 +50,75 @@ async function mountList(props: Partial<OpmFolderList> = {}): Promise<OpmFolderL
   return mount('opm-folder-list', { folders: [folderEntry({ name: 'trip' })], ...props });
 }
 
+describe('folder thumbnails', () => {
+  it('shows lazy, aspect-preserving previews with counts and the same navigation', async () => {
+    const entry = folderEntry({ name: 'trip', matches: 2, preview: { id: 42, mtime: 123 } });
+    const host = await mountList({
+      folders: [entry],
+      view: 'thumbnails',
+      showMatches: true,
+      hrefFor: () => '/browse?source=photos/trip',
+    });
+    const opened = vi.fn();
+    host.addEventListener('folder-open', opened);
+    const anchor = row(host, 'trip');
+    const image = anchor.querySelector('img');
+    expect(image?.getAttribute('src')).toBe('/api/files/42/thumb?size=sm&v=123');
+    expect(image?.getAttribute('loading')).toBe('lazy');
+    expect(image?.classList.contains('object-contain')).toBe(true);
+    expect(badges(anchor)).toEqual(['3', '2 matches']);
+    expect(anchor.getAttribute('href')).toBe('/browse?source=photos/trip');
+    expect(click(image as HTMLImageElement).defaultPrevented).toBe(true);
+    expect(opened).toHaveBeenCalledOnce();
+    expect(click(anchor, { ctrlKey: true }).defaultPrevented).toBe(false);
+    const menu = vi.fn();
+    host.addEventListener('folder-menu', menu);
+    anchor.dispatchEvent(new MouseEvent('contextmenu', { bubbles: true, cancelable: true }));
+    expect(menu).toHaveBeenCalledOnce();
+    host.view = 'list';
+    await host.updateComplete;
+    expect(host.querySelector('img')).toBeNull();
+    expect(row(host, 'trip').classList.contains('list-row')).toBe(true);
+  });
+
+  it('falls back for empty and planned folders, and reports unavailable previews', async () => {
+    const host = await mountList({
+      view: 'thumbnails',
+      folders: [
+        folderEntry({ name: 'empty', count: 0, total: 0 }),
+        folderEntry({ name: 'planned', overlay: { planned: true } }),
+        folderEntry({ name: 'photo', preview: { id: 7, mtime: 12 } }),
+      ],
+    });
+    expect(iconOf(row(host, 'empty'))).toBe('folder');
+    expect(iconOf(row(host, 'planned'))).toBe('folder-plus');
+    expect(badges(row(host, 'planned'))).toContain('new');
+    row(host, 'photo').querySelector('img')?.dispatchEvent(new Event('error'));
+    await host.updateComplete;
+    expect(row(host, 'photo').querySelector('img')).toBeNull();
+    expect(iconOf(row(host, 'photo'))).toBe('image-off');
+    expect(srText(row(host, 'photo'))).toContain('Photo preview unavailable');
+    host.folders = [folderEntry({ name: 'photo', preview: { id: 7, mtime: 13 } })];
+    await host.updateComplete;
+    expect(row(host, 'photo').querySelector('img')?.getAttribute('src')).toContain('v=13');
+  });
+
+  it('keeps hide-unmatched and plan-state semantics in thumbnail mode', async () => {
+    const host = await mountList({
+      view: 'thumbnails',
+      hideUnmatched: true,
+      folders: [
+        folderEntry({ name: 'unmatched', matches: 0 }),
+        folderEntry({ name: 'deleted', matches: 0, overlay: { will_delete: true } }),
+        folderEntry({ name: 'matched', matches: 1 }),
+      ],
+    });
+    expect(names(host)).toEqual(['deleted', 'matched']);
+    expect(srText(row(host, 'deleted'))).toContain('will be deleted');
+    expect(row(host, 'deleted').classList.contains('border-error')).toBe(true);
+  });
+});
+
 describe('opm-folder-list structure', () => {
   it('is a named list with one row per folder, in order', async () => {
     const host = await mountList({

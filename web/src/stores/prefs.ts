@@ -45,6 +45,15 @@ export const hideUnmatchedFolders = persistedSignal<boolean>(
   isBoolean,
 );
 
+export const FOLDER_VIEWS = ['list', 'thumbnails'] as const;
+export type FolderView = (typeof FOLDER_VIEWS)[number];
+
+export const folderView = persistedSignal<Record<PaneId, FolderView>>(
+  'folderView',
+  { source: 'list', comparison: 'list' },
+  recordOf(PANES, oneOf(FOLDER_VIEWS)),
+);
+
 /** Host warnings dismissed by code; absent codes reappear if the condition returns later. */
 export const dismissedHostWarnings = persistedSignal<Record<string, boolean>>(
   'dismissedHostWarnings',

@@ -279,6 +279,7 @@ pub(super) async fn folders(
                     count,
                     total,
                     matches: None,
+                    preview: None,
                     overlay: Overlay {
                         planned: true,
                         ..Overlay::default()

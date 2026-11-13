@@ -4,7 +4,7 @@
 //! Owned by todo `building-browse-api`. Everything else the browse API reads (folders, items,
 //! counts, facets, details) goes through [`FileQuery`] and [`file_detail`](super::file_detail).
 
-use opm_core::dto::Filter;
+use opm_core::dto::{Filter, FolderPreview};
 use opm_core::names::normalize_name;
 use opm_core::paths::{RelPath, VolumeId};
 use sqlx::{QueryBuilder, Sqlite};
@@ -22,6 +22,17 @@ pub struct VolumeCount {
     pub count: i64,
     /// Assets in the volume, whatever the filter says.
     pub total: i64,
+    pub preview: Option<FolderPreview>,
+}
+
+#[derive(sqlx::FromRow)]
+struct VolumeRow {
+    id: VolumeId,
+    name: String,
+    count: i64,
+    total: i64,
+    preview_id: Option<i64>,
+    preview_mtime: Option<i64>,
 }
 
 /// The order of every list of volumes: normalised name (NFC, lower case), then the name itself,
@@ -40,17 +51,21 @@ pub fn volume_sort_key(name: &str, id: VolumeId) -> (String, String, VolumeId) {
 /// and once without it for `total`, the way [`FileQuery::folders`] counts both in one pass. The
 /// filter is validated like any other (a bad one is [`QueryError::Filter`]).
 pub async fn volume_counts(db: &Db, filter: &Filter) -> Result<Vec<VolumeCount>, QueryError> {
-    let rows: Vec<(VolumeId, String, i64, i64)> = counts_statement(filter)?
+    let rows: Vec<VolumeRow> = counts_statement(filter)?
         .build_query_as()
         .fetch_all(db.read())
         .await?;
     let mut volumes: Vec<VolumeCount> = rows
         .into_iter()
-        .map(|(id, name, count, total)| VolumeCount {
-            id,
-            name,
-            count,
-            total,
+        .map(|row| VolumeCount {
+            id: row.id,
+            name: row.name,
+            count: row.count,
+            total: row.total,
+            preview: row
+                .preview_id
+                .zip(row.preview_mtime)
+                .map(|(id, mtime)| FolderPreview { id, mtime }),
         })
         .collect();
     volumes.sort_by_cached_key(|volume| volume_sort_key(&volume.name, volume.id));
@@ -70,7 +85,7 @@ fn counts_statement(filter: &Filter) -> Result<QueryBuilder<Sqlite>, QueryError>
         "COALESCE(c.total, 0)"
     });
     qb.push(
-        ", COALESCE(c.total, 0) FROM volumes v LEFT JOIN (\
+        " AS count, COALESCE(c.total, 0) AS total, p.id AS preview_id, p.mtime AS preview_mtime FROM volumes v LEFT JOIN (\
          SELECT f.volume_id AS volume_id, SUM(CASE WHEN ",
     );
     unfiltered.push_where(&mut qb, "f");
@@ -80,7 +95,9 @@ fn counts_statement(filter: &Filter) -> Result<QueryBuilder<Sqlite>, QueryError>
         filtered.push_where(&mut qb, "f");
         qb.push(" THEN 1 ELSE 0 END) AS matching");
     }
-    qb.push(" FROM files f GROUP BY f.volume_id) c ON c.volume_id = v.id");
+    qb.push(", MIN(CASE WHEN f.kind = 'image' AND ");
+    filtered.push_where(&mut qb, "f");
+    qb.push(" THEN f.id END) AS preview_id FROM files f GROUP BY f.volume_id) c ON c.volume_id = v.id LEFT JOIN files p ON p.id = c.preview_id");
     Ok(qb)
 }
 

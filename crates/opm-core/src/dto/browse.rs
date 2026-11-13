@@ -58,6 +58,14 @@ impl Default for ItemsRequest {
     }
 }
 
+/// An indexed photo used as a folder preview.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, TS)]
+#[ts(export)]
+pub struct FolderPreview {
+    pub id: FileId,
+    pub mtime: i64,
+}
+
 /// A subfolder row in the folder tree.
 #[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize, TS)]
 #[ts(export)]
@@ -73,6 +81,8 @@ pub struct FolderEntry {
     pub total: i64,
     /// Plan matches below this folder; only present when a plan is active.
     pub matches: Option<i64>,
+    /// A matching image anywhere below this folder, or null when none exists.
+    pub preview: Option<FolderPreview>,
     pub overlay: Overlay,
 }
 
@@ -223,6 +233,7 @@ mod tests {
             count: 12,
             total: 30,
             matches: Some(4),
+            preview: Some(FolderPreview { id: 8, mtime: 123 }),
             overlay: Overlay {
                 matched: true,
                 planned: true,
@@ -237,6 +248,10 @@ mod tests {
             },
         });
         assert_eq!(wire["folders"][0]["matches"], json!(4));
+        assert_eq!(
+            wire["folders"][0]["preview"],
+            json!({"id": 8, "mtime": 123})
+        );
         assert_eq!(wire["counts"]["in_subfolders"], json!(25));
 
         roundtrip(&ItemsResponse {

@@ -200,6 +200,7 @@ pub fn ghost_folder(
         count,
         total,
         matches,
+        preview: None,
         overlay: Overlay {
             planned: true,
             ..Overlay::default()

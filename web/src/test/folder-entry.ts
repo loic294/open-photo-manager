@@ -17,6 +17,7 @@ export function folderEntry(overrides: FolderEntryOverrides = {}): FolderEntry {
     count: 3,
     total: 3,
     matches: null,
+    preview: null,
     overlay: { matched: false, planned: false, will_delete: false, ...overlay },
     ...rest,
   };

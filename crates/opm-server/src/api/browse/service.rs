@@ -193,6 +193,7 @@ fn volume_folder(volume: VolumeCount) -> FolderEntry {
         volume_id: volume.id,
         count: volume.count,
         total: volume.total,
+        preview: volume.preview,
         ..FolderEntry::default()
     }
 }
