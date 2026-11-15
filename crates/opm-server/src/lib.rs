@@ -13,6 +13,7 @@ pub mod fsops;
 pub mod hostfs;
 pub mod immich;
 pub mod indexer;
+pub mod ism;
 pub mod media;
 pub mod plans;
 pub mod query;

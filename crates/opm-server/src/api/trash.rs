@@ -7,6 +7,10 @@
 //! - `POST /api/trash/empty`: deletes for good what the user was looking at (`TrashEmptyRequest`:
 //!   everything with `id <= up_to_id`); answers 202 with the task. The only permanent delete.
 //! - `POST /api/trash/sync`: makes the rows agree with `.opm-trash` on disk; answers 202.
+//! - `GET /api/trash/ism?volume_id=`: the sync manager trash of a bound volume (`IsmTrashDto`).
+//! - `POST /api/trash/ism/restore`: restores ISM trash items (`IsmTrashRestoreRequest`); 202.
+//! - `POST /api/trash/ism/purge`: deletes ISM trash items for good (`IsmTrashPurgeRequest`, with
+//!   `confirm: true` and a token with the `purge` grant); 202.
 //!
 //! The two GET queries are read as `key=value` pairs and parsed by the DTO (`from_pairs`), so a bad
 //! value is a 422 `ValidationErrorBody` that names every rejected field. Invalid fields of a body
@@ -19,8 +23,9 @@ use axum::response::{IntoResponse, Response};
 use axum::routing::{get, post};
 use axum::{Json, Router};
 use opm_core::dto::{
-    FieldError, TaskDto, TrashBatchesQuery, TrashBatchesResponse, TrashEmptyRequest,
-    TrashListQuery, TrashListResponse, TrashRestoreRequest, ValidationErrorBody,
+    FieldError, IsmTrashDto, IsmTrashPurgeRequest, IsmTrashRestoreRequest, TaskDto,
+    TrashBatchesQuery, TrashBatchesResponse, TrashEmptyRequest, TrashListQuery, TrashListResponse,
+    TrashRestoreRequest, ValidationErrorBody,
 };
 use opm_core::paths::TaskId;
 
@@ -36,6 +41,9 @@ pub fn routes() -> Router<AppState> {
         .route("/trash/empty", post(empty))
         .route("/trash/restore", post(restore))
         .route("/trash/sync", post(sync))
+        .route("/trash/ism", get(ism_list))
+        .route("/trash/ism/restore", post(ism_restore))
+        .route("/trash/ism/purge", post(ism_purge))
 }
 
 /// The pairs of a query string, borrowed the way the DTO parsers take them.
@@ -79,6 +87,34 @@ async fn empty(
 
 async fn sync(State(state): State<AppState>) -> Result<(StatusCode, Json<TaskDto>), Rejection> {
     let id = state.trash.sync().await?;
+    accepted(&state, id).await
+}
+
+#[derive(serde::Deserialize)]
+struct IsmTrashQuery {
+    volume_id: opm_core::paths::VolumeId,
+}
+
+async fn ism_list(
+    State(state): State<AppState>,
+    ApiQuery(query): ApiQuery<IsmTrashQuery>,
+) -> Result<Json<IsmTrashDto>, Rejection> {
+    Ok(Json(state.trash.ism_list(query.volume_id).await?))
+}
+
+async fn ism_restore(
+    State(state): State<AppState>,
+    ApiJson(request): ApiJson<IsmTrashRestoreRequest>,
+) -> Result<(StatusCode, Json<TaskDto>), Rejection> {
+    let id = state.trash.ism_restore(request).await?;
+    accepted(&state, id).await
+}
+
+async fn ism_purge(
+    State(state): State<AppState>,
+    ApiJson(request): ApiJson<IsmTrashPurgeRequest>,
+) -> Result<(StatusCode, Json<TaskDto>), Rejection> {
+    let id = state.trash.ism_purge(request).await?;
     accepted(&state, id).await
 }
 

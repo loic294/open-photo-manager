@@ -111,3 +111,14 @@ not delete/recreate.
    or `/data/immich.key`.
 
    You should see: detailed indexing context without changing file permissions or disabling security.
+
+3. For a volume bound to an Immich Sync Manager, OPM logs each ISM operation it sends under
+   `opm_server::ism` (`docker compose logs opm | grep -i ism`): the idempotency key and ISM
+   `operation_id` with each state (`submitted`, `finished`, `refused`, `lost`,
+   `cancelled_before_submission`), `ISM item failed` with the item index and ISM's error code, and
+   `ISM batch failed` for a batch that could not run (connection, `direct_writes_unavailable`,
+   `maintenance_blocked`). For per-item messages and progress set `OPM_LOG` to
+   `info,opm_server::ism=debug,opm_server::fsops=debug`. Match the `operation_id` against ISM's own
+   operation history and logs. The task in OPM's task list keeps each failed item's code and message.
+
+   You should see: one `ISM operation state` line per state change of every operation OPM sent.

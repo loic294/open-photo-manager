@@ -44,4 +44,11 @@ export const settingsSections: readonly SettingsSection[] = [
     tag: 'opm-settings-immich',
     load: () => import('@/tools/settings/opm-settings-immich'),
   },
+  {
+    id: 'ism',
+    label: 'Sync Manager',
+    icon: 'plug',
+    tag: 'opm-settings-ism',
+    load: () => import('@/tools/settings/opm-settings-ism'),
+  },
 ];

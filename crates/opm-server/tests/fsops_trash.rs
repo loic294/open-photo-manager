@@ -66,6 +66,283 @@ async fn trash(fx: &Fx, path: &str) -> TrashOutcome {
     trash_in(fx, path, &TrashBatch::adhoc()).await
 }
 
+#[tokio::test]
+async fn ism_private_files_cannot_be_trashed_or_moved() {
+    let fx = Fx::new().await;
+    fx.ta.write("library/.ism-root", b"photos");
+    fx.ta.write("library/.ism-trash/item/photo.jpg", PAYLOAD);
+    for path in ["library/.ism-root", "library/.ism-trash/item/photo.jpg"] {
+        let source = loc(fx.a, path);
+        assert!(
+            fx.ops
+                .trash_file(request(source.clone(), &TrashBatch::adhoc()), &cx())
+                .await
+                .is_err()
+        );
+        let move_request =
+            common::fsops::request(source, loc(fx.a, "other/photo.jpg"), ConflictPolicy::Smart);
+        assert!(fx.ops.move_file(move_request, &cx()).await.is_err());
+        assert!(fx.ta.path(path).is_file());
+    }
+}
+
+#[tokio::test]
+async fn folders_containing_ism_private_paths_cannot_be_trashed() {
+    let fx = Fx::new().await;
+    fx.ta
+        .write("library/nested/.ism-trash/item/photo.jpg", PAYLOAD);
+    fx.ta.write("library/visible.jpg", OTHER);
+    let result = fx
+        .ops
+        .trash_file(request(loc(fx.a, "library"), &TrashBatch::adhoc()), &cx())
+        .await;
+    assert!(matches!(result, Err(FsOpError::DestinationInvalid(_))));
+    assert_eq!(
+        fs::read(fx.ta.path("library/nested/.ism-trash/item/photo.jpg")).unwrap(),
+        PAYLOAD
+    );
+    assert_eq!(fs::read(fx.ta.path("library/visible.jpg")).unwrap(), OTHER);
+}
+
+#[tokio::test]
+async fn managed_volumes_refuse_local_changes_and_copies() {
+    struct Managed(i64);
+    impl opm_server::fsops::ManagedVolumes for Managed {
+        fn manages(&self, volume_id: i64) -> bool {
+            volume_id == self.0
+        }
+    }
+
+    let fx = Fx::new().await;
+    fx.ta.write("a.jpg", PAYLOAD);
+    fx.tb.write("b.jpg", OTHER);
+    fx.scan().await;
+    let ops = fx.ops.clone().with_managed_volumes(Arc::new(Managed(fx.a)));
+    let source = loc(fx.a, "a.jpg");
+    let dest = loc(fx.b, "moved.jpg");
+    let request = common::fsops::request(source.clone(), dest.clone(), ConflictPolicy::Smart);
+    assert_eq!(
+        ops.move_file(request.clone(), &cx()).await.unwrap_err(),
+        FsOpError::IsmManaged
+    );
+    assert_eq!(
+        ops.copy_file(request, &cx()).await.unwrap_err(),
+        FsOpError::IsmManaged
+    );
+    assert_eq!(
+        ops.trash_file(self::request(source, &TrashBatch::adhoc()), &cx())
+            .await
+            .unwrap_err(),
+        FsOpError::IsmManaged
+    );
+    assert_eq!(
+        ops.mkdir_all(loc(fx.a, "new")).await.unwrap_err(),
+        FsOpError::IsmManaged
+    );
+    assert_eq!(fs::read(fx.ta.path("a.jpg")).unwrap(), PAYLOAD);
+    assert!(!fx.tb.path("moved.jpg").exists());
+    let unbound = common::fsops::request(
+        loc(fx.b, "b.jpg"),
+        loc(fx.b, "renamed.jpg"),
+        ConflictPolicy::Smart,
+    );
+    assert!(ops.move_file(unbound, &cx()).await.is_ok());
+}
+
+#[tokio::test]
+async fn persisted_ism_binding_is_guarded_on_startup() {
+    let app = common::TestApp::new().await;
+    let (volume, tree) = app.add_volume("photos").await;
+    let (other_volume, other_tree) = app.add_volume("other").await;
+    tree.write("a.jpg", PAYLOAD);
+    other_tree.write("b.jpg", OTHER);
+    sqlx::query("INSERT INTO ism_volume_roots (volume_id, root_id, root_name) VALUES (?, 'photos', 'Photos')")
+        .bind(volume)
+        .execute(app.state.db.write())
+        .await
+        .unwrap();
+    let restarted = opm_server::state::AppState::new((*app.state.config).clone())
+        .await
+        .unwrap();
+    let result = restarted
+        .fsops
+        .trash_file(request(loc(volume, "a.jpg"), &TrashBatch::adhoc()), &cx())
+        .await;
+    // Delegated to the sync manager, which is not connected here: never done locally.
+    assert_eq!(result.unwrap_err().code(), "ism_not_connected");
+    assert_eq!(fs::read(tree.path("a.jpg")).unwrap(), PAYLOAD);
+    let move_request = common::fsops::request(
+        loc(other_volume, "b.jpg"),
+        loc(other_volume, "renamed.jpg"),
+        ConflictPolicy::Smart,
+    );
+    restarted
+        .fsops
+        .move_file(move_request, &cx())
+        .await
+        .unwrap();
+    assert_eq!(fs::read(other_tree.path("renamed.jpg")).unwrap(), OTHER);
+    restarted.begin_shutdown();
+    restarted.shutdown().await;
+}
+
+#[tokio::test]
+async fn startup_refuses_legacy_immich_work_for_a_managed_volume() {
+    for (kind, queued, managed_is_source) in [
+        ("outbox", None, true),
+        ("outbox", None, false),
+        ("direct", Some(0), true),
+        ("direct", Some(1), false),
+        ("direct", Some(2), true),
+    ] {
+        let app = common::TestApp::new().await;
+        let (managed, _) = app.add_volume("photos").await;
+        let (other, _) = app.add_volume("other").await;
+        let (source, destination) = if managed_is_source {
+            (managed, other)
+        } else {
+            (other, managed)
+        };
+        sqlx::query("INSERT INTO ism_volume_roots (volume_id, root_id, root_name) VALUES (?, 'photos', 'Photos')")
+            .bind(managed)
+            .execute(app.state.db.write())
+            .await
+            .unwrap();
+        if kind == "outbox" {
+            sqlx::query(
+                "INSERT INTO immich_outbox (file_id, old_volume_id, old_dir, old_name, new_volume_id, new_dir, new_name, next_attempt_at, created_at)
+                 VALUES (1, ?, '', 'a.jpg', ?, '', 'b.jpg', 0, 0)",
+            )
+            .bind(source)
+            .bind(destination)
+            .execute(app.state.db.write())
+            .await
+            .unwrap();
+        } else {
+            sqlx::query(
+                "INSERT INTO immich_direct_move (old_volume_id, old_rel, new_volume_id, new_rel, request_json, file_id, prepared_at, queued)
+                 VALUES (?, 'a.jpg', ?, 'b.jpg', '{}', 1, 0, ?)",
+            )
+            .bind(source)
+            .bind(destination)
+            .bind(queued)
+            .execute(app.state.db.write())
+            .await
+            .unwrap();
+        }
+        let error = match opm_server::state::AppState::new((*app.state.config).clone()).await {
+            Ok(_) => panic!("{kind} work should block startup"),
+            Err(error) => error,
+        };
+        assert!(error.to_string().contains("unresolved legacy work"));
+        let sql = if kind == "outbox" {
+            "SELECT COUNT(*) FROM immich_outbox"
+        } else {
+            "SELECT COUNT(*) FROM immich_direct_move"
+        };
+        let count: i64 = sqlx::query_scalar(sql)
+            .fetch_one(app.state.db.read())
+            .await
+            .unwrap();
+        assert_eq!(count, 1);
+    }
+}
+
+#[tokio::test]
+async fn startup_refuses_pending_journal_entries_for_managed_volumes() {
+    for managed_is_source in [true, false] {
+        let app = common::TestApp::new().await;
+        let (managed, _) = app.add_volume("photos").await;
+        let (other, _) = app.add_volume("other").await;
+        let (source, destination) = if managed_is_source {
+            (managed, other)
+        } else {
+            (other, managed)
+        };
+        sqlx::query("INSERT INTO ism_volume_roots (volume_id, root_id, root_name) VALUES (?, 'photos', 'Photos')")
+            .bind(managed)
+            .execute(app.state.db.write())
+            .await
+            .unwrap();
+        sqlx::query(
+            "INSERT INTO fs_journal (op, state, src_volume_id, src_path, dst_volume_id, dst_path, created_at)
+             VALUES ('move', 'pending', ?, 'old.jpg', ?, 'new.jpg', 0)",
+        )
+        .bind(source)
+        .bind(destination)
+        .execute(app.state.db.write())
+        .await
+        .unwrap();
+
+        let error = match opm_server::state::AppState::new((*app.state.config).clone()).await {
+            Ok(_) => panic!("a pending managed-volume journal should block startup"),
+            Err(error) => error,
+        };
+        assert!(error.to_string().contains("unresolved legacy work"));
+        let count: i64 =
+            sqlx::query_scalar("SELECT COUNT(*) FROM fs_journal WHERE state = 'pending'")
+                .fetch_one(app.state.db.read())
+                .await
+                .unwrap();
+        assert_eq!(count, 1);
+    }
+}
+
+#[tokio::test]
+async fn unrelated_legacy_immich_work_does_not_block_a_managed_volume() {
+    let app = common::TestApp::new().await;
+    let (managed, tree) = app.add_volume("photos").await;
+    let (other, _) = app.add_volume("other").await;
+    tree.write("a.jpg", PAYLOAD);
+    sqlx::query("INSERT INTO ism_volume_roots (volume_id, root_id, root_name) VALUES (?, 'photos', 'Photos')")
+        .bind(managed)
+        .execute(app.state.db.write())
+        .await
+        .unwrap();
+    sqlx::query(
+            "INSERT INTO fs_journal (op, state, src_volume_id, src_path, dst_volume_id, dst_path, created_at)
+             VALUES ('move', 'done', ?, 'old.jpg', ?, 'new.jpg', 0)",
+        )
+        .bind(managed)
+        .bind(managed)
+        .execute(app.state.db.write())
+        .await
+        .unwrap();
+    sqlx::query(
+        "INSERT INTO immich_outbox (file_id, old_volume_id, old_dir, old_name, new_volume_id, new_dir, new_name, next_attempt_at, created_at)
+         VALUES (1, ?, '', 'old.jpg', ?, '', 'new.jpg', 0, 0)",
+    )
+    .bind(other)
+    .bind(other)
+    .execute(app.state.db.write())
+    .await
+    .unwrap();
+    sqlx::query(
+        "INSERT INTO immich_direct_move (old_volume_id, old_rel, new_volume_id, new_rel, request_json, file_id, prepared_at, queued)
+         VALUES (?, 'old.jpg', ?, 'new.jpg', '{}', 1, 0, 1)",
+    )
+    .bind(other)
+    .bind(other)
+    .execute(app.state.db.write())
+    .await
+    .unwrap();
+    let restarted = opm_server::state::AppState::new((*app.state.config).clone())
+        .await
+        .unwrap();
+    assert_eq!(
+        restarted
+            .fsops
+            .trash_file(request(loc(managed, "a.jpg"), &TrashBatch::adhoc()), &cx())
+            .await
+            .unwrap_err()
+            .code(),
+        "ism_not_connected"
+    );
+    assert_eq!(fs::read(tree.path("a.jpg")).unwrap(), PAYLOAD);
+    restarted.begin_shutdown();
+    restarted.shutdown().await;
+}
+
 async fn restore(fx: &Fx, item: i64, policy: ConflictPolicy) -> RestoreOutcome {
     fx.ops.restore(item, policy, &cx()).await.unwrap()
 }

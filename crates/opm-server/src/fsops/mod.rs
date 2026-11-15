@@ -200,6 +200,7 @@ mod failpoints;
 mod groups;
 mod hooks;
 pub mod journal;
+mod managed;
 mod reconcile;
 pub mod rename;
 mod self_writes;
@@ -226,6 +227,11 @@ pub use groups::{
     GroupOutcome, MoveGroup, SidecarAction, SidecarItem, SidecarOutcome, SidecarSkip,
 };
 pub use hooks::{AppliedOp, MoveGuard, OpHook};
+pub(crate) use managed::Delegated;
+pub use managed::{
+    Delegate, IsmAction, IsmBatch, IsmBinding, IsmFile, IsmItem, IsmLocation,
+    ManagedVolumeSnapshot, ManagedVolumes,
+};
 pub use reconcile::ReconcileReport;
 pub use self_writes::SelfWrites;
 pub use stat::{Expect, FileStat};
@@ -328,7 +334,9 @@ pub struct FsOps {
     pub(crate) settings: SettingsService,
     pub(crate) indexer: Indexer,
     pub(crate) journal: Journal,
+    delegate: Option<Arc<dyn Delegate>>,
     hooks: Arc<Vec<Arc<dyn OpHook>>>,
+    managed_volumes: Option<Arc<dyn ManagedVolumes>>,
     move_guard: Option<Arc<dyn MoveGuard>>,
     self_writes: SelfWrites,
     pub(crate) mover: Arc<dyn Mover>,
@@ -360,7 +368,9 @@ impl FsOps {
             volumes,
             settings,
             indexer,
+            delegate: None,
             hooks: Arc::default(),
+            managed_volumes: None,
             move_guard: None,
             self_writes: SelfWrites::new(),
             mover: Arc::new(SystemMover),
@@ -384,6 +394,20 @@ impl FsOps {
     pub fn with_move_guard(mut self, guard: Arc<dyn MoveGuard>) -> Self {
         self.move_guard = Some(guard);
         self
+    }
+
+    /// Installs the immutable binding snapshot before operations and recovery begin.
+    #[must_use]
+    pub fn with_managed_volumes(mut self, managed: Arc<dyn ManagedVolumes>) -> Self {
+        self.managed_volumes = Some(managed);
+        self
+    }
+
+    pub(crate) fn refuse_managed(&self, id: VolumeId) -> Result<(), FsOpError> {
+        if self.managed_volumes.as_ref().is_some_and(|m| m.manages(id)) {
+            return Err(FsOpError::IsmManaged);
+        }
+        Ok(())
     }
 
     pub(crate) async fn guard_move(
@@ -437,6 +461,7 @@ impl FsOps {
 
     /// An online volume's root, refused when the volume is read-only.
     pub(crate) fn writable_volume(&self, id: VolumeId) -> Result<Arc<VolumeRoot>, FsOpError> {
+        self.refuse_managed(id)?;
         let root = self.volume(id)?;
         match self.volumes.volume(id) {
             Some(volume) if volume.writable => Ok(root),

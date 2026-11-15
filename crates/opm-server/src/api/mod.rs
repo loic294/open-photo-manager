@@ -18,6 +18,7 @@ mod format;
 mod health;
 mod immich;
 mod index;
+mod ism;
 mod media;
 mod plans;
 mod rename;
@@ -37,6 +38,7 @@ pub fn router() -> Router<AppState> {
         .merge(health::routes())
         .merge(immich::routes())
         .merge(index::routes())
+        .merge(ism::routes())
         .merge(media::routes())
         .merge(plans::routes())
         .merge(rename::routes())

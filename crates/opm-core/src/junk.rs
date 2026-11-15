@@ -5,10 +5,10 @@
 //! - A *junk* entry is never indexed by the scanner, ignored by the watcher, and does not count as
 //!   content when deciding whether a folder is empty: a folder that holds only junk is empty, its
 //!   junk is trashed first and the folder removed afterwards (plan A16, see
-//!   [`JunkRules::is_empty_after_junk`]).
-//! - Two rules are built in and cannot be switched off by the settings, even when both lists are
-//!   empty: the per-volume trash folder ([`TRASH_DIR`]) and in-flight copies (names ending in
-//!   [`PART_SUFFIX`], files only).
+//!   [`JunkRules::is_empty_after_junk`]). ISM's private paths are an exception: they are excluded
+//!   from indexing but protected from cleanup by the server.
+//! - Built-in rules cannot be switched off by settings: the per-volume trash folder ([`TRASH_DIR`]),
+//!   ISM private paths, and in-flight copies (names ending in [`PART_SUFFIX`], files only).
 //! - The configurable rules are the `junk_names` list (the WHOLE name must equal an entry) and the
 //!   `junk_prefixes` list (the name must START with an entry, e.g. `._` for AppleDouble files). They
 //!   apply to files and directories alike: `@eaDir` and `Thumbs.db` are listed once and work
@@ -25,7 +25,10 @@
 
 use std::collections::HashSet;
 
-use crate::consts::{DEFAULT_JUNK_NAMES, DEFAULT_JUNK_PREFIXES, PART_SUFFIX, TRASH_DIR};
+use crate::consts::{
+    DEFAULT_JUNK_NAMES, DEFAULT_JUNK_PREFIXES, ISM_ROOT_MARKER, ISM_STAGING_DIR, ISM_TRASH_DIR,
+    PART_SUFFIX, TRASH_DIR,
+};
 use crate::names::normalize_name;
 use crate::paths::RelPath;
 
@@ -208,7 +211,7 @@ impl JunkRules {
         }
     }
 
-    /// Only the built-in rules (trash folder and `*.opm-part`): what is left with empty settings.
+    /// Only the built-in rules: what is left with empty settings.
     pub fn reserved_only() -> Self {
         Self {
             names: Vec::new(),
@@ -232,10 +235,13 @@ impl JunkRules {
         }
     }
 
-    /// Whether a directory with this name is junk: the trash folder, a configured name or a
-    /// configured prefix. The `*.opm-part` rule does not apply to directories.
+    /// Whether a directory with this name is excluded: reserved paths or a configured rule.
+    /// The `*.opm-part` rule does not apply to directories.
     pub fn is_junk_dir(&self, name: &str) -> bool {
-        name.eq_ignore_ascii_case(TRASH_DIR) || self.matches_configured(name)
+        [TRASH_DIR, ISM_ROOT_MARKER, ISM_STAGING_DIR, ISM_TRASH_DIR]
+            .iter()
+            .any(|reserved| name.eq_ignore_ascii_case(reserved))
+            || self.matches_configured(name)
     }
 
     /// Whether a file with this name is junk: everything [`is_junk_dir`](Self::is_junk_dir)
@@ -367,6 +373,16 @@ mod tests {
         assert!(!rules.is_junk_name("IMG_0001.jpg"));
         assert!(!rules.is_junk_name("opm-part.jpg"));
         assert_eq!(JunkRules::new(NO_STRINGS, NO_STRINGS), rules);
+    }
+
+    #[test]
+    fn ism_private_paths_are_always_excluded() {
+        let rules = JunkRules::reserved_only();
+        for name in [ISM_ROOT_MARKER, ISM_STAGING_DIR, ISM_TRASH_DIR] {
+            assert!(rules.is_junk_name(name));
+            assert!(rules.is_junk_dir(&name.to_ascii_uppercase()));
+        }
+        assert!(!rules.is_junk_name(".ism-trash-old"));
     }
 
     #[test]

@@ -79,6 +79,47 @@ fn names_in(dir: &Path) -> Vec<String> {
     names
 }
 
+#[tokio::test]
+async fn recovery_does_not_resume_a_copy_from_a_managed_volume() {
+    struct Managed(i64);
+    impl opm_server::fsops::ManagedVolumes for Managed {
+        fn manages(&self, volume_id: i64) -> bool {
+            volume_id == self.0
+        }
+    }
+
+    let trap = Trap::default();
+    let fx = crash_fx(&trap, false).await;
+    fx.ta.write("photo.jpg", PAYLOAD);
+    fx.scan().await;
+    trap.arm(Step::AfterCopy, 1);
+    let result = fx
+        .ops
+        .copy_file(
+            request(
+                loc(fx.a, "photo.jpg"),
+                loc(fx.b, "copy.jpg"),
+                ConflictPolicy::Smart,
+            ),
+            &cx(),
+        )
+        .await;
+    assert_eq!(result, Err(FsOpError::Aborted));
+    let before = names_in(fx.tb.root());
+    let report = fx
+        .restarted()
+        .with_managed_volumes(Arc::new(Managed(fx.a)))
+        .reconcile()
+        .await
+        .unwrap();
+    assert_eq!(report.still_pending, 1);
+    assert_eq!(report.parts_removed, 0);
+    assert_eq!(names_in(fx.tb.root()), before);
+    assert_eq!(fs::read(fx.ta.path("photo.jpg")).unwrap(), PAYLOAD);
+    fx.assert_journal(&[("copy", "pending")], "managed copy recovery")
+        .await;
+}
+
 async fn eventually<F, Fut>(what: &str, mut check: F)
 where
     F: FnMut() -> Fut,

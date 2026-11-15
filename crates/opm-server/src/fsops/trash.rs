@@ -10,7 +10,7 @@ use std::fs;
 use std::io;
 use std::sync::Arc;
 
-use opm_core::consts::TRASH_DIR;
+use opm_core::consts::{ISM_TRASH_DIR, TRASH_DIR};
 use opm_core::dto::ConflictPolicy;
 use opm_core::junk::JunkRules;
 use opm_core::paths::{FileId, RelPath};
@@ -22,11 +22,14 @@ use super::apply::{
 };
 use super::backend::Mover;
 use super::context::{OpContext, TrashBatch};
-use super::dirs::{free_name, in_trash, make_dirs, validate_file_path};
+use super::dirs::{
+    free_name, in_trash, is_ism_private_name, is_ism_private_path, make_dirs, validate_file_path,
+};
 use super::error::FsOpError;
 use super::executor::{ATTEMPTS, Job, RestoreInfo, SkipReason, Transferred};
 use super::failpoints::Step;
 use super::journal::{NewEntry, Op};
+use super::managed::{Delegated, revision};
 use super::{Expect, FileStat, FsOps, Loc, blocking};
 use crate::indexer::{NoopProgress, RunContext, ScanRequest, ScanTarget};
 use crate::security::{FsError, VolumeRoot};
@@ -114,6 +117,7 @@ fn ensure_inside_trash(path: &RelPath) -> Result<(), FsOpError> {
 fn inspect(root: &VolumeRoot, rel: &RelPath, expect: Option<Expect>) -> Result<Item, FsOpError> {
     let meta = root.stat(rel).map_err(FsOpError::from_source)?;
     if meta.is_dir() {
+        refuse_ism_contents(root, rel)?;
         return Ok(Item::Dir);
     }
     if !meta.is_file() {
@@ -124,6 +128,19 @@ fn inspect(root: &VolumeRoot, rel: &RelPath, expect: Option<Expect>) -> Result<I
         return Err(FsOpError::SourceChanged);
     }
     Ok(Item::File(stat))
+}
+
+fn refuse_ism_contents(root: &VolumeRoot, rel: &RelPath) -> Result<(), FsOpError> {
+    let path = root.resolve_dir(rel).map_err(FsOpError::from_source)?;
+    for entry in walkdir::WalkDir::new(path).min_depth(1) {
+        let entry = entry.map_err(|err| FsOpError::from(io::Error::other(err)))?;
+        if entry.file_name().to_str().is_some_and(is_ism_private_name) {
+            return Err(FsOpError::DestinationInvalid(
+                "ISM private paths are protected",
+            ));
+        }
+    }
+    Ok(())
 }
 
 /// A free path in the batch for `orig`: the mirrored original path, or its leaf with a `_N`
@@ -166,6 +183,9 @@ fn rename_once(
     let from = root
         .resolve_existing(orig)
         .map_err(FsOpError::from_source)?;
+    if root.stat(orig).map_err(FsOpError::from_source)?.is_dir() {
+        refuse_ism_contents(root, orig)?;
+    }
     let to = match root.resolve_for_create(target) {
         Ok(path) => path,
         Err(FsError::AlreadyExists(_)) => return taken(),
@@ -399,7 +419,12 @@ impl FsOps {
         cx.ensure_active()?;
         let rules = self.rules();
         let max = rules.name_max_len();
-        let root = self.writable_volume(loc.volume_id)?;
+        let managed = self.is_managed(loc.volume_id);
+        let root = if managed {
+            self.volume(loc.volume_id)?
+        } else {
+            self.writable_volume(loc.volume_id)?
+        };
         if loc.rel.is_root() {
             return Err(FsOpError::DestinationInvalid(
                 "the volume root cannot be trashed",
@@ -410,7 +435,47 @@ impl FsOps {
                 "the item is already in the trash",
             ));
         }
+        if is_ism_private_path(&loc.rel) {
+            return Err(FsOpError::DestinationInvalid(
+                "ISM private paths are protected",
+            ));
+        }
         rules.check_whole_dir_included(loc)?;
+        if managed {
+            let (root, rel) = (Arc::clone(&root), loc.rel.clone());
+            let item = blocking(move || inspect(&root, &rel, expect)).await?;
+            let (action, is_dir, bytes) = match item {
+                Item::File(stat) => {
+                    let revision =
+                        revision(stat.size, stat.mtime, stat.mtime_nanos).ok_or_else(|| {
+                            FsOpError::delegated(
+                                "revision_unavailable",
+                                "The file time cannot be sent to the sync manager exactly",
+                            )
+                        })?;
+                    let action = Delegated::Trash {
+                        loc: loc.clone(),
+                        revision: Some(revision),
+                    };
+                    (action, false, stat.size)
+                }
+                Item::Dir => {
+                    let action = Delegated::TrashFolder {
+                        loc: loc.clone(),
+                        entries: None,
+                    };
+                    (action, true, 0)
+                }
+            };
+            self.delegate_one("Trash", action, cx).await?;
+            return Ok(TrashOutcome {
+                trash_item_id: 0,
+                trash_path: RelPath::new(ISM_TRASH_DIR).map_err(FsOpError::internal)?,
+                is_dir,
+                bytes,
+                files_removed: u64::from(!is_dir),
+            });
+        }
 
         let (item, mut target) = {
             let (root, rel, batch) = (Arc::clone(&root), loc.rel.clone(), batch.clone());

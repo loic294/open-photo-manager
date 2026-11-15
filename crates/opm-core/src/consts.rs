@@ -4,6 +4,11 @@
 /// Always excluded from scanning, listing and empty-folder detection; not user-configurable.
 pub const TRASH_DIR: &str = ".opm-trash";
 
+/// ISM's root sentinel, staging area and recoverable trash.
+pub const ISM_ROOT_MARKER: &str = ".ism-root";
+pub const ISM_STAGING_DIR: &str = ".ism-staging";
+pub const ISM_TRASH_DIR: &str = ".ism-trash";
+
 /// Suffix of in-flight cross-volume copies (`name.opm-part`). Always ignored by the scanner.
 pub const PART_SUFFIX: &str = ".opm-part";
 

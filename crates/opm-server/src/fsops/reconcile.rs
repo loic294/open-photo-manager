@@ -259,6 +259,7 @@ impl FsOps {
                 "the journal row has no source or no destination",
             ));
         };
+        self.refuse_managed(src.volume_id)?;
         // The source of a copy is only read, so a read-only volume is fine for it.
         let src_root = if mode == Mode::Copy {
             self.volume(src.volume_id)?

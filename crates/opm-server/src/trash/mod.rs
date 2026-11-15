@@ -40,6 +40,10 @@
 //! first three with their `FsOpError` code, and the task indicator keeps the task until the user
 //! dismisses it. Skips do not fail a task.
 //!
+//! # Bound volumes
+//! A volume bound to ISM keeps its deletions in the sync manager's trash: `ism.rs` lists them
+//! from ISM and restores or purges them through ISM operations (see `docs/immich.md`).
+//!
 //! # Sync with the disk
 //! [`TrashService::sync`] (`POST /api/trash/sync`) makes the rows agree with `.opm-trash` after
 //! the database was lost or the trash was cleaned by hand: untracked files are adopted, rows whose
@@ -66,6 +70,7 @@
 //! Nobody pages that deep in a trash, and an index per sort would slow every trashing down.
 
 mod empty;
+mod ism;
 mod list;
 mod report;
 mod restore;
@@ -96,6 +101,8 @@ pub struct TrashService {
     tasks: TaskEngine,
     volumes: VolumeRegistry,
     fsops: FsOps,
+    /// The sync manager that keeps the trash of bound volumes.
+    ism: Option<crate::ism::IsmService>,
     clock: Clock,
     /// Held while the retention sweeper decides, so two sweeps never submit two tasks.
     sweeping: Arc<tokio::sync::Mutex<()>>,
@@ -115,9 +122,17 @@ impl TrashService {
             tasks,
             volumes,
             fsops,
+            ism: None,
             clock: Arc::new(crate::db::now_secs),
             sweeping: Arc::new(tokio::sync::Mutex::new(())),
         }
+    }
+
+    /// Installs the sync manager that keeps the trash of bound volumes.
+    #[must_use]
+    pub fn with_ism(mut self, ism: crate::ism::IsmService) -> Self {
+        self.ism = Some(ism);
+        self
     }
 
     /// Replaces the clock the retention sweeper ages the trash with (epoch seconds).

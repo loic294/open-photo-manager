@@ -36,6 +36,7 @@ use super::error::FsOpError;
 use super::failpoints::Step;
 use super::hooks::AppliedOp;
 use super::journal::Journal;
+use super::managed::ExternalChange;
 use super::stat::FileStat;
 use super::{FsOps, Loc, Rules};
 use crate::db::models::{
@@ -877,6 +878,58 @@ async fn delete_subtree(
     Ok(removed)
 }
 
+/// Moves the `files` and `dirs` rows at and below `from` to `to` (same volume), keeping the file
+/// ids. Stale rows already at `to` go first.
+async fn move_subtree(
+    conn: &mut SqliteConnection,
+    from: &Loc,
+    to: &Loc,
+) -> Result<(), sqlx::Error> {
+    if from.rel.is_root() || to.rel.is_root() || from.volume_id != to.volume_id {
+        return Ok(());
+    }
+    delete_subtree(&mut *conn, to.volume_id, &to.rel).await?;
+    let generation = scan_gen(&mut *conn, to.volume_id).await?;
+    let parent = to.rel.parent().unwrap_or_else(RelPath::root);
+    upsert_dirs(&mut *conn, to.volume_id, &dir_chain(&parent), generation).await?;
+    let (old, new) = (from.rel.as_str(), to.rel.as_str());
+    // Characters after the old prefix, 1-based for `substr`.
+    let rest = i64::try_from(old.chars().count()).unwrap_or(i64::MAX) + 1;
+    let subtree = Subtree::new(&from.rel);
+    let mut files = QueryBuilder::<Sqlite>::new("UPDATE files SET dir_path = ");
+    files
+        .push_bind(new)
+        .push(" || substr(dir_path, ")
+        .push_bind(rest)
+        .push(") WHERE volume_id = ")
+        .push_bind(from.volume_id)
+        .push(" AND ");
+    subtree.push_predicate(&mut files, "dir_path");
+    files.build().execute(&mut *conn).await?;
+    let mut dirs = QueryBuilder::<Sqlite>::new("UPDATE dirs SET path = ");
+    dirs.push_bind(new)
+        .push(" || substr(path, ")
+        .push_bind(rest)
+        .push("), parent_path = CASE WHEN path = ")
+        .push_bind(old)
+        .push(" THEN ")
+        .push_bind(parent.as_str().to_owned())
+        .push(" ELSE ")
+        .push_bind(new)
+        .push(" || substr(parent_path, ")
+        .push_bind(rest)
+        .push(") END, name = CASE WHEN path = ")
+        .push_bind(old)
+        .push(" THEN ")
+        .push_bind(to.name().to_owned())
+        .push(" ELSE name END WHERE volume_id = ")
+        .push_bind(from.volume_id)
+        .push(" AND ");
+    subtree.push_predicate(&mut dirs, "path");
+    dirs.build().execute(&mut *conn).await?;
+    Ok(())
+}
+
 /// What the index knows about a file or folder that is about to be trashed: a file's snapshot
 /// (none when it has no row), a folder's totals. Read before the rename; see
 /// [`TrashApply::known`].
@@ -921,6 +974,55 @@ async fn subtree_ids(
     qb.push_bind(volume_id).push(" AND ");
     Subtree::new(dir).push_predicate(&mut qb, "dir_path");
     qb.build_query_scalar().fetch_all(conn).await
+}
+
+async fn record_external_tx(
+    conn: &mut SqliteConnection,
+    rules: &Rules,
+    changes: &[ExternalChange],
+) -> Result<Vec<FileId>, sqlx::Error> {
+    let mut moved = Vec::new();
+    for change in changes {
+        match change {
+            ExternalChange::Moved { from, to } => {
+                let generation = scan_gen(&mut *conn, to.volume_id).await?;
+                upsert_dirs(&mut *conn, to.volume_id, &dir_chain(&to.dir()), generation).await?;
+                let Some(row) = file_at(&mut *conn, from).await? else {
+                    continue;
+                };
+                if let Some(other) = file_at(&mut *conn, to).await?
+                    && other.id != row.id
+                {
+                    sqlx::query("DELETE FROM files WHERE id = ?")
+                        .bind(other.id)
+                        .execute(&mut *conn)
+                        .await?;
+                }
+                let kind = rules.matcher.file_kind(to.name());
+                relocate(&mut *conn, row.id, to, kind, generation).await?;
+                moved.push(row.id);
+            }
+            ExternalChange::Removed(loc) => {
+                sqlx::query("DELETE FROM files WHERE volume_id = ? AND dir_path = ? AND name = ?")
+                    .bind(loc.volume_id)
+                    .bind(loc.dir().as_str().to_owned())
+                    .bind(loc.name().to_owned())
+                    .execute(&mut *conn)
+                    .await?;
+            }
+            ExternalChange::RemovedDir(loc) => {
+                delete_subtree(&mut *conn, loc.volume_id, &loc.rel).await?;
+            }
+            ExternalChange::CreatedDir(loc) => {
+                let generation = scan_gen(&mut *conn, loc.volume_id).await?;
+                upsert_dirs(&mut *conn, loc.volume_id, &dir_chain(&loc.rel), generation).await?;
+            }
+            ExternalChange::MovedDir { from, to } => {
+                move_subtree(&mut *conn, from, to).await?;
+            }
+        }
+    }
+    Ok(moved)
 }
 
 /// Commits the transaction when the body succeeded, rolls it back otherwise.
@@ -1249,6 +1351,19 @@ impl FsOps {
             delete_subtree(&mut tx, volume_id, dir).await.map(|_| ())
         }
         .await;
+        conclude(tx, result).await
+    }
+
+    /// Follows changes the sync manager made on a bound volume: rows move with their files (and
+    /// keep their ids), trashed rows go, new folders get rows. Index only: no journal, and no
+    /// hooks, because ISM owns the Immich side of these roots. Returns the moved row ids.
+    pub(crate) async fn record_external(
+        &self,
+        rules: &Rules,
+        changes: &[ExternalChange],
+    ) -> Result<Vec<FileId>, FsOpError> {
+        let mut tx = self.db.begin_write().await?;
+        let result = record_external_tx(&mut tx, rules, changes).await;
         conclude(tx, result).await
     }
 

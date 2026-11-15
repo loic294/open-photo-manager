@@ -39,7 +39,7 @@ use super::apply::{
 };
 use super::backend::Mover;
 use super::context::OpContext;
-use super::dirs::{free_name_with, in_trash, make_dirs, validate_file_path};
+use super::dirs::{free_name_with, in_trash, is_ism_private_path, make_dirs, validate_file_path};
 use super::error::FsOpError;
 use super::failpoints::Step;
 use super::journal::{Guard, NewEntry, Op};
@@ -242,7 +242,7 @@ pub(crate) enum Resolution {
 }
 
 /// `lstat` of the source with the checks every operation starts with.
-fn stat_source(
+pub(crate) fn stat_source(
     root: &VolumeRoot,
     rel: &RelPath,
     expect: Option<Expect>,
@@ -528,6 +528,7 @@ impl FsOps {
             return Ok(Transferred::Skipped(SkipReason::SameLocation));
         }
         cx.ensure_active()?;
+        self.refuse_managed(job.src.volume_id)?;
         let rules = self.rules();
         let dst_root = self.writable_volume(job.dst.volume_id)?;
         let src_root = match job.mode {
@@ -546,6 +547,11 @@ impl FsOps {
         if job.mode != Mode::Restore && in_trash(&job.src.rel) {
             return Err(FsOpError::DestinationInvalid(
                 "the source is inside the trash: use restore",
+            ));
+        }
+        if is_ism_private_path(&job.src.rel) {
+            return Err(FsOpError::DestinationInvalid(
+                "ISM private paths are protected",
             ));
         }
         let src_stat = {

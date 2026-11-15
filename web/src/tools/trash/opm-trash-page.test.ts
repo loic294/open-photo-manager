@@ -121,6 +121,8 @@ function defaultReply(sent: Sent): unknown {
       });
     case 'POST /api/trash/empty':
       return makeTask({ id: 8, kind: 'trash_empty', state: 'queued', title: 'Emptying the trash' });
+    case 'GET /api/ism/status':
+      return { connection: null, bound_volumes: 0, bindings: [], staged: [] };
     case 'POST /api/trash/sync':
       return makeTask({ id: 9, kind: 'fs_trash', state: 'queued', title: 'Checking the trash' });
     default:
@@ -342,7 +344,10 @@ describe('opm-trash-page opening', () => {
 
   it('loads the deletions and nothing else when it opens', async () => {
     await mountPage();
-    expect(server.sent.map((sent) => `${sent.method} ${sent.path}`)).toEqual([BATCHES]);
+    expect(server.sent.map((sent) => `${sent.method} ${sent.path}`)).toEqual([
+      BATCHES,
+      'GET /api/ism/status',
+    ]);
     expect(last(BATCHES).query).toEqual({ volume_id: null, offset: 0, limit: PAGE_SIZE });
   });
 

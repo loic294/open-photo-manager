@@ -22,6 +22,7 @@ pub mod files;
 pub mod format;
 pub mod immich;
 pub mod index;
+pub mod ism;
 pub mod moves;
 pub mod plans;
 pub mod rename;
@@ -43,6 +44,7 @@ pub use format::*;
 #[allow(unused_imports)]
 pub use immich::*;
 pub use index::*;
+pub use ism::*;
 pub use moves::*;
 pub use plans::*;
 pub use rename::*;

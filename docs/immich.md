@@ -1,5 +1,8 @@
 # Connect and mirror changes to Immich
 
+For volumes bound to an Immich Sync Manager, see
+[Immich Sync Manager (ISM)](#immich-sync-manager-ism).
+
 For an owner who wants to "login into an Immich instance using a username and password",
 "map our docker volumes to Immich external libraries" and reflect moves/deletes in Immich.
 The login identifier is the account email. This guide describes the landed repository code;
@@ -202,3 +205,62 @@ The table quotes OPM's UI messages; upstream validation can also add field-speci
 | `immich_error` | Immich refused the request. Check the connection and try again. | Check connection and upstream compatibility; inspect the last error. |
 
 For outbox error causes and diagnostics, see [troubleshooting](troubleshooting.md#immich).
+
+## Immich Sync Manager (ISM)
+
+**Settings > Sync Manager** verifies an OPM client token, stores it encrypted, lists the roots the
+token can see and their write status, and binds volumes to roots. The encryption key remains in
+OPM's data directory alongside the database, so protect both.
+
+**Bind a volume.** In **Volume bindings**, choose the ISM root for a volume. The root must have an
+OPM path (`opm_prefix`) and the volume must sit inside it; one volume per root. A binding change is
+staged and applied the next time OPM starts, before any file operation can run, so a running task
+never sees a volume change hands. A bind waits (the reason is shown) while the volume still has OPM
+Immich outbox records, direct-move records or pending file-operation journal entries; settle that
+work first. Completed direct-move proof is retained while its journal exists and must not be
+discarded to bypass this check. If such work appears for an already bound volume, OPM refuses to
+start rather than replaying it. Unbinding also applies at the next start. A connection cannot be
+removed or switched to another ISM instance while a volume is bound or a bind is staged.
+
+**What a binding changes.** OPM never mutates files on a bound volume itself:
+
+- Move, folder-format and rename plans send their moves to ISM as one operation per batch of up to
+  500 files. OPM first asks ISM for a preview, then submits with an idempotency key it stores
+  before sending; only a lost answer or a server error is retried, with the same key and body. When
+  ISM advertises the `partial_submit` capability, OPM skips the preview and submits with
+  `allow_partial: true`, so ISM fails blocked items one by one instead of refusing the whole
+  batch. If the outcome of a submit stays unknown, OPM looks the operation up by its key
+  (`GET /api/v1/instances/{id}/operations?idempotency_key=`) and follows it; when nothing is found
+  (404, including servers without the lookup) OPM sends a cancel-by-key, which reserves the key so
+  a late submission cannot run without OPM following it. ISM
+  moves the sidecars with the asset and reports each file; OPM updates its index from ISM's
+  streamed events (`progress`, `item`, `finished`, reconnecting with `Last-Event-ID` and reading the
+  operation again on `resync`), and the task shows each item as ISM settles it.
+- Every move carries the file's revision (`<size>-<mtime in ns>`) read from the index-checked file.
+  If the revision cannot be computed exactly the item fails (`revision_unavailable`) instead of
+  being sent without a guard; ISM answers `revision_changed` when the file changed meanwhile.
+- Trash (including empty-folder cleanup, which trashes folders holding only junk) goes to the ISM
+  trash of the root (`.ism-trash`), not OPM's trash. A trashed file carries its revision; a folder
+  removed by cleanup lists the junk files OPM checked, with their revisions
+  (`expected_entries`), so ISM refuses when anything else appeared in it.
+- **Trash** shows a **Sync manager trash** section per bound volume, read from ISM. Restore sends
+  `restore` actions; **Delete for good…** sends `purge` actions and appears only when the token has
+  the `purge` grant; it is always confirmed. Both run as tasks through the same operations API.
+- Folder moves and renames (`move_folder`) and folder creation (`create_folder`) go to ISM; OPM
+  updates the folder's files and subfolders in its index from the result.
+- Cancelling the task cancels the ISM operation; items ISM had not started end as cancelled.
+- ISM refusals are per-item failures with ISM's code. `direct_writes_unavailable` (OPM checks the
+  root's `direct_writes` state before sending anything: changes run while it is `enabled` or
+  `not_linked`, and are refused while it is `blocked`, with ISM's reason shown in settings and in
+  the failure), `maintenance_blocked`, `root_unavailable` and `forbidden` are final: OPM
+  does not retry them and never falls back to changing the files locally.
+- Refused on bound volumes: copies, moves between a bound and an unbound volume
+  (`ism_cross_boundary`), the **Replace** conflict policy (`ism_replace_unsupported`; use rename or
+  skip), and restoring or purging OPM trash items there (items OPM trashed before the binding).
+
+OPM logs every ISM operation it sends (key, `operation_id`, state changes, item failure codes);
+see [Diagnostics](troubleshooting.md#diagnostics) for how to read and raise those logs.
+
+The `.ism-root`, `.ism-staging` and `.ism-trash` paths of every ISM root are excluded from indexing
+and protected from folder cleanup; OPM refuses to trash a folder that contains them. Volumes that
+are not bound keep OPM's existing Immich integration unchanged.

@@ -13,6 +13,7 @@ use crate::db;
 use crate::fsops;
 use crate::immich;
 use crate::indexer;
+use crate::ism;
 use crate::media;
 use crate::plans;
 use crate::settings;
@@ -31,6 +32,7 @@ pub struct AppState {
     pub immich_sync: immich::ImmichSync,
     pub index_jobs: indexer::IndexJobs,
     pub indexer: indexer::Indexer,
+    pub ism: ism::IsmService,
     pub media: media::MediaService,
     pub plans: plans::PlanService,
     pub settings: settings::SettingsService,
@@ -51,9 +53,15 @@ impl AppState {
 
         let (db, volume_capabilities) = db::Db::from_config_with_capabilities(&config).await?;
 
+        ism::apply_staged_bindings(&db).await?;
+
+        let managed_volumes = fsops::ManagedVolumeSnapshot::load(&db).await?;
+
         let settings = settings::SettingsService::load(db.clone(), &config).await?;
 
         let shutdown = CancellationToken::new();
+
+        let ism = ism::IsmService::new(db.clone(), config.data_dir.clone());
 
         let tasks = tasks::TaskEngine::new(db.clone(), shutdown.clone()).await?;
 
@@ -106,6 +114,8 @@ impl AppState {
             settings.clone(),
             indexer.clone(),
         )
+        .with_delegate(Arc::new(ism.clone()))
+        .with_managed_volumes(Arc::new(managed_volumes))
         .with_hook(Arc::new(immich::outbox::OutboxHook::new(
             outbox_signal.clone(),
         )))
@@ -134,7 +144,8 @@ impl AppState {
             tasks.clone(),
             volumes.clone(),
             fsops.clone(),
-        );
+        )
+        .with_ism(ism.clone());
 
         let watcher = indexer::watcher::Watcher::new(indexer::watcher::WatcherDeps {
             db: db.clone(),
@@ -155,6 +166,7 @@ impl AppState {
             immich_sync,
             index_jobs,
             indexer,
+            ism,
             media,
             plans,
             settings,

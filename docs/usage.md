@@ -214,7 +214,13 @@ not accepted by **Folder formatting**. The examples use the generated sample fil
    You should see: a choice of **Smart**, **Skip**, **Rename** and **Replace**.
    Replacement sends the existing destination to trash rather than overwriting it in place.
 
-3. **Indexing** controls scans, hashing, thumbnails, watches and periodic repair.
+3. **Sync Manager** connects an Immich Sync Manager and binds volumes to its roots; bindings apply
+   at the next start. On a bound volume OPM never changes files itself: plan moves, folder moves,
+   new folders and trash are sent to ISM in batches and the task shows each item as ISM reports it. **Replace**, copies and
+   moves between bound and unbound volumes are refused there, and changes fail while ISM refuses
+   writes to the root (the settings show each root's state and ISM's reason). See [Immich Sync Manager](immich.md#immich-sync-manager-ism).
+
+4. **Indexing** controls scans, hashing, thumbnails, watches and periodic repair.
    The top-right task indicator lets background work proceed without locking the rest of the app.
    Failed and interrupted tasks remain visible until dismissed; dismissing history is not a retry.
    See [watcher fallback](synology.md#watcher-and-rescan-fallback) and
@@ -223,7 +229,7 @@ not accepted by **Folder formatting**. The examples use the generated sample fil
    You should see: progress as indexing fills the library, with held-removal warnings if a mount
    unexpectedly loses files.
 
-4. **Scan current folders for changes** checks the folders shown by both panes, including
+5. **Scan current folders for changes** checks the folders shown by both panes, including
    subfolders, for new files, removed files and files whose size or modification time changed.
    **Scan all assets for changes** does the same across every volume, after confirmation.
    Unchanged files are not re-processed. Large unexpected disappearances still require confirmation
@@ -238,7 +244,7 @@ not accepted by **Folder formatting**. The examples use the generated sample fil
    You should see: a background task while the app stays usable. Use current folders after local
    metadata/sidecar changes; use all assets for library-wide rule changes or repair.
 
-5. To leave a folder out of the library, right-click it in a pane and choose
+6. To leave a folder out of the library, right-click it in a pane and choose
    **Exclude folder…**, then confirm. The folder and everything below it leave the index and every
    tool: duplicates, moves, formatting, renames and cleanup never plan or touch its files, and a
    move into it is refused. Its files stay on disk, untouched. Volume rows cannot be excluded.
@@ -256,6 +262,10 @@ not accepted by **Folder formatting**. The examples use the generated sample fil
    Back up photos and [app state](synology.md#backups-updates-and-removal).
 
    You should see: deleted content in **Trash**, retaining its original path and deletion batch.
+   On a volume bound to an Immich Sync Manager, deleted content goes to the ISM trash of the root
+   instead. The **Deletions** tab then shows a **Sync manager trash** section for that volume:
+   select items and **Restore** them, or **Delete for good…** (shown only when the ISM token may
+   purge, and always confirmed). Both run as tasks through ISM.
 
 2. Use **Restore selected** for selected items, **Restore** for one item or **Restore all** for a batch.
    Restore runs as background file work and resolves destination conflicts; it cannot recover

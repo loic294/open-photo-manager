@@ -52,6 +52,9 @@ const ROUTES: &[(&str, &str)] = &[
     ("POST", "/api/trash/restore"),
     ("POST", "/api/trash/empty"),
     ("POST", "/api/trash/sync"),
+    ("GET", "/api/trash/ism"),
+    ("POST", "/api/trash/ism/restore"),
+    ("POST", "/api/trash/ism/purge"),
     ("POST", "/api/immich/connect"),
     ("DELETE", "/api/immich/connection"),
     ("GET", "/api/immich/libraries"),
@@ -63,6 +66,11 @@ const ROUTES: &[(&str, &str)] = &[
     ("GET", "/api/immich/outbox"),
     ("POST", "/api/immich/outbox/retry"),
     ("POST", "/api/immich/outbox/dismiss"),
+    ("PUT", "/api/ism/connection"),
+    ("DELETE", "/api/ism/connection"),
+    ("GET", "/api/ism/status"),
+    ("POST", "/api/ism/test"),
+    ("PUT", "/api/ism/bindings"),
 ];
 
 fn error_code(body: &Value) -> &Value {

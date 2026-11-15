@@ -136,6 +136,14 @@ impl SecretBox {
 
     /// Encrypts `plaintext` into the stored text form.
     pub fn encrypt(&self, plaintext: &str) -> Result<String, CryptoError> {
+        self.encrypt_for(plaintext, PURPOSE)
+    }
+
+    pub(crate) fn encrypt_for(
+        &self,
+        plaintext: &str,
+        purpose: &[u8],
+    ) -> Result<String, CryptoError> {
         let mut nonce = [0u8; NONCE_LEN];
         rand::fill(&mut nonce);
         let ciphertext = self
@@ -144,7 +152,7 @@ impl SecretBox {
                 &XNonce::from(nonce),
                 Payload {
                     msg: plaintext.as_bytes(),
-                    aad: PURPOSE,
+                    aad: purpose,
                 },
             )
             .map_err(|_| CryptoError::Decrypt)?;
@@ -156,6 +164,14 @@ impl SecretBox {
 
     /// Decrypts a text produced by [`SecretBox::encrypt`].
     pub fn decrypt(&self, stored: &str) -> Result<Redacted<String>, CryptoError> {
+        self.decrypt_for(stored, PURPOSE)
+    }
+
+    pub(crate) fn decrypt_for(
+        &self,
+        stored: &str,
+        purpose: &[u8],
+    ) -> Result<Redacted<String>, CryptoError> {
         let encoded = stored
             .strip_prefix(VERSION_PREFIX)
             .ok_or(CryptoError::Malformed)?;
@@ -173,7 +189,7 @@ impl SecretBox {
                 &XNonce::from(nonce),
                 Payload {
                     msg: ciphertext,
-                    aad: PURPOSE,
+                    aad: purpose,
                 },
             )
             .map_err(|_| CryptoError::Decrypt)?;
@@ -247,6 +263,24 @@ mod tests {
 
         let reopened = SecretBox::load(dir.path()).unwrap();
         assert_eq!(reopened.decrypt(&stored).unwrap().expose(), SECRET);
+    }
+
+    #[test]
+    fn secrets_are_bound_to_their_purpose() {
+        let dir = dir();
+        let secrets = SecretBox::load_or_create(dir.path()).unwrap();
+        let purpose = b"open-photo-manager/ism-client-token/v1";
+        let stored = secrets.encrypt_for(SECRET, purpose).unwrap();
+        assert_eq!(
+            secrets.decrypt_for(&stored, purpose).unwrap().expose(),
+            SECRET
+        );
+        assert!(secrets.decrypt(&stored).is_err());
+        assert!(
+            secrets
+                .decrypt_for(&secrets.encrypt(SECRET).unwrap(), purpose)
+                .is_err()
+        );
     }
 
     #[test]

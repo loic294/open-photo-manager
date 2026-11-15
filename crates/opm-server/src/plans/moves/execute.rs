@@ -16,8 +16,8 @@ use super::{COLUMNS, Source, Wanted};
 use super::{params, sidecars};
 use crate::db::Db;
 use crate::fsops::{
-    Expect, FsOpError, MoveGroup, MoveOutcome, MoveRequest, SidecarAction, SidecarOutcome,
-    SidecarSkip, SkipReason,
+    Delegated, Expect, FsOpError, Loc, MoveGroup, MoveOutcome, MoveRequest, SidecarAction,
+    SidecarOutcome, SidecarSkip, SkipReason,
 };
 use crate::plans::{ExecContext, Plan, PlanError, ResultBuilder, display_path};
 
@@ -64,7 +64,7 @@ pub(crate) trait Revalidate: Sync {
         ctx: &'a ExecContext,
         item: &'a Item,
         row: &'a Source,
-        transferred: &'a HashMap<FileId, crate::fsops::Loc>,
+        transferred: &'a HashMap<FileId, Loc>,
     ) -> BoxFuture<'a, Result<Result<Wanted, &'static str>, PlanError>>;
 }
 
@@ -81,7 +81,7 @@ async fn validate(
     ctx: &ExecContext,
     item: &Item,
     hook: &dyn Revalidate,
-    transferred: &HashMap<FileId, crate::fsops::Loc>,
+    transferred: &HashMap<FileId, Loc>,
 ) -> Result<Result<Source, &'static str>, PlanError> {
     let Some(row) = live(&ctx.db, item.file_id).await? else {
         return Ok(Err("file_gone"));
@@ -123,7 +123,7 @@ impl super::Revalidate for MovesHook {
         ctx: &'a ExecContext,
         item: &'a Item,
         row: &'a Source,
-        transferred: &'a HashMap<FileId, crate::fsops::Loc>,
+        transferred: &'a HashMap<FileId, Loc>,
     ) -> BoxFuture<'a, Result<Result<Wanted, &'static str>, PlanError>> {
         Box::pin(async move {
             let mut identities = ctx.db.read().acquire().await?;
@@ -188,6 +188,177 @@ pub(super) async fn execute(ctx: ExecContext, plan: &Plan) -> Result<PlanResult,
     super::run(ctx, stored, &MovesHook { params: p, rules }).await
 }
 
+/// How many moves go to the sync manager in one operation.
+const ISM_BATCH: usize = 500;
+
+/// A move of a bound volume, queued for the sync manager.
+struct Queued {
+    file_id: FileId,
+    display: String,
+    src: Loc,
+    dst: Loc,
+    bytes: u64,
+    revision: String,
+}
+
+/// Moves on bound volumes, sent to the sync manager in batches. OPM resolves the conflict policy
+/// beforehand and never touches these files itself.
+#[derive(Default)]
+struct IsmQueue {
+    items: Vec<Queued>,
+    /// Destinations claimed by queued moves.
+    claimed: HashSet<Loc>,
+}
+
+impl IsmQueue {
+    fn holds(&self, id: FileId) -> bool {
+        self.items.iter().any(|queued| queued.file_id == id)
+    }
+
+    /// Sends the queued moves as one ISM operation and records each outcome as ISM reports it.
+    /// Returns true when the run was cancelled.
+    async fn flush(
+        &mut self,
+        ctx: &ExecContext,
+        result: &mut ResultBuilder,
+        transferred: &mut HashMap<FileId, Loc>,
+    ) -> bool {
+        let queued = std::mem::take(&mut self.items);
+        self.claimed.clear();
+        if queued.is_empty() {
+            return false;
+        }
+        let actions: Vec<Delegated> = queued
+            .iter()
+            .map(|item| Delegated::Move {
+                src: item.src.clone(),
+                dst: item.dst.clone(),
+                revision: item.revision.clone(),
+            })
+            .collect();
+        let mut cancelled = false;
+        let key = format!("opm:plan:{}", ctx.plan_id);
+        ctx.fsops
+            .delegate(
+                "Move files",
+                &key,
+                &actions,
+                &ctx.op,
+                &mut |index, outcome| {
+                    let Some(item) = queued.get(index) else {
+                        return;
+                    };
+                    match outcome {
+                        Ok(done) => {
+                            result.done(item.bytes);
+                            transferred
+                                .insert(item.file_id, done.moved_to.unwrap_or(item.dst.clone()));
+                        }
+                        Err(FsOpError::Cancelled) => cancelled = true,
+                        Err(err) => result.fail_fs(Some(item.file_id), item.display.clone(), &err),
+                    }
+                    ctx.item_processed();
+                },
+            )
+            .await;
+        if cancelled {
+            result.mark_cancelled();
+        }
+        cancelled
+    }
+}
+
+enum Planned {
+    Queue(Queued),
+    Skip(&'static str, &'static str),
+    Fail(FsOpError),
+}
+
+/// Settles the conflict policy of a move between bound volumes read-only, the way the local
+/// executor would, and reads the revision ISM checks before it moves the file.
+async fn plan_delegated(
+    ctx: &ExecContext,
+    queue: &IsmQueue,
+    request: &MoveRequest,
+    item: &Item,
+    display: &str,
+) -> Planned {
+    if !(ctx.fsops.is_managed(request.src.volume_id) && ctx.fsops.is_managed(request.dst.volume_id))
+    {
+        return Planned::Fail(FsOpError::delegated(
+            "ism_cross_boundary",
+            "Files cannot move between a volume the sync manager manages and one it does not",
+        ));
+    }
+    if request.src == request.dst {
+        return Planned::Skip(
+            "already_in_place",
+            "The file is already where the plan puts it",
+        );
+    }
+    let Some(expect) = request.expect else {
+        return Planned::Fail(FsOpError::delegated(
+            "revision_unavailable",
+            "The planned file facts are missing",
+        ));
+    };
+    let revision = match ctx.fsops.revision_of(&request.src, expect).await {
+        Ok(revision) => revision,
+        Err(err) => return Planned::Fail(err),
+    };
+    let mut dst = request.dst.clone();
+    let taken = queue.claimed.contains(&dst)
+        || match ctx.fsops.exists(&dst).await {
+            Ok(taken) => taken,
+            Err(err) => return Planned::Fail(err),
+        };
+    if taken {
+        match request.policy {
+            ConflictPolicy::Skip => {
+                return Planned::Skip(
+                    "skipped_by_policy",
+                    "Something is already at the destination",
+                );
+            }
+            ConflictPolicy::Replace => {
+                return Planned::Fail(FsOpError::delegated(
+                    "ism_replace_unsupported",
+                    "The sync manager does not replace files; choose rename or skip",
+                ));
+            }
+            ConflictPolicy::Smart if !queue.claimed.contains(&dst) => {
+                match ctx
+                    .fsops
+                    .identical(&request.src, &dst, &ctx.op.cancel)
+                    .await
+                {
+                    Ok(true) => {
+                        return Planned::Skip(
+                            "identical_at_destination",
+                            "An identical file is already at the destination",
+                        );
+                    }
+                    Ok(false) => {}
+                    Err(err) => return Planned::Fail(err),
+                }
+            }
+            _ => {}
+        }
+        dst = match ctx.fsops.free_loc(&dst, &queue.claimed).await {
+            Ok(free) => free,
+            Err(err) => return Planned::Fail(err),
+        };
+    }
+    Planned::Queue(Queued {
+        file_id: item.file_id,
+        display: display.to_owned(),
+        src: request.src.clone(),
+        dst,
+        bytes: expect.size,
+        revision,
+    })
+}
+
 pub(crate) async fn run(
     ctx: ExecContext,
     stored: Stored,
@@ -216,7 +387,7 @@ pub(crate) async fn run(
     let mut failed_sidecars = HashSet::new();
     let mut retained_count = 0_u64;
     let mut retained_paths = Vec::new();
-    let mut transferred: HashMap<FileId, crate::fsops::Loc> = HashMap::new();
+    let mut transferred: HashMap<FileId, Loc> = HashMap::new();
     let all_sources: HashSet<FileId> =
         sqlx::query_scalar("SELECT file_id FROM move_items WHERE plan_id = ?")
             .bind(ctx.plan_id)
@@ -224,9 +395,18 @@ pub(crate) async fn run(
             .await?
             .into_iter()
             .collect();
+    let mut queue = IsmQueue::default();
     for item in items {
         if ctx.cancelled() {
             result.mark_cancelled();
+            break;
+        }
+        let delegated =
+            ctx.fsops.is_managed(item.src_volume_id) || ctx.fsops.is_managed(item.dst_volume_id);
+        // Later items may depend on where earlier ones went: send the queue first.
+        if (!delegated || item.counterpart_id.is_some_and(|id| queue.holds(id)))
+            && queue.flush(&ctx, &mut result, &mut transferred).await
+        {
             break;
         }
         let source_path = RelPath::new(&item.src_dir)
@@ -296,7 +476,7 @@ pub(crate) async fn run(
         let request = MoveRequest {
             file_id: Some(item.file_id),
             src: row.loc()?,
-            dst: crate::fsops::Loc::new(
+            dst: Loc::new(
                 item.dst_volume_id,
                 RelPath::new(&item.dst_dir)
                     .and_then(|dir| dir.join(&item.dst_name))
@@ -308,6 +488,29 @@ pub(crate) async fn run(
                 mtime: row.mtime,
             }),
         };
+        if delegated {
+            // ISM moves the sidecars of the asset with it and reports them.
+            match plan_delegated(&ctx, &queue, &request, &item, &display).await {
+                Planned::Queue(queued) => {
+                    queue.claimed.insert(queued.dst.clone());
+                    queue.items.push(queued);
+                    if queue.items.len() >= ISM_BATCH
+                        && queue.flush(&ctx, &mut result, &mut transferred).await
+                    {
+                        break;
+                    }
+                }
+                Planned::Skip(code, detail) => {
+                    result.skip_with_detail(Some(item.file_id), display, code, detail);
+                    ctx.item_processed();
+                }
+                Planned::Fail(err) => {
+                    result.fail_fs(Some(item.file_id), display, &err);
+                    ctx.item_processed();
+                }
+            }
+            continue;
+        }
         let companion_ids: Vec<_> = sidecars
             .iter()
             .map(|s| (s.file_id, s.src.clone(), s.action))
@@ -393,6 +596,9 @@ pub(crate) async fn run(
             Err(err) => result.fail_fs(Some(item.file_id), display, &err),
         }
         ctx.item_processed();
+    }
+    if !ctx.cancelled() {
+        queue.flush(&ctx, &mut result, &mut transferred).await;
     }
     if ctx.cancelled() {
         result.mark_cancelled();

@@ -9,7 +9,7 @@ use std::fs;
 use std::io;
 
 use opm_core::conflict::unique_within;
-use opm_core::consts::TRASH_DIR;
+use opm_core::consts::{ISM_ROOT_MARKER, ISM_STAGING_DIR, ISM_TRASH_DIR, TRASH_DIR};
 use opm_core::junk::{Entry, JunkRules};
 use opm_core::paths::RelPath;
 
@@ -17,6 +17,7 @@ use super::context::{OpContext, TrashBatch};
 use super::error::FsOpError;
 use super::failpoints::Step;
 use super::journal::{NewEntry, Op};
+use super::managed::{Delegated, ExpectedEntry, revision};
 use super::trash::TrashSpec;
 use super::{FsOps, Loc, Rules, blocking};
 use crate::db::volumes::PROBE_PREFIX;
@@ -31,17 +32,26 @@ pub enum RmdirOutcome {
     AlreadyGone,
 }
 
-/// Synology's own folders: the scanner skips them, but they are somebody's data, so a folder that
-/// holds one is never removable.
+pub(crate) fn is_ism_private_name(name: &str) -> bool {
+    name.eq_ignore_ascii_case(ISM_ROOT_MARKER)
+        || name.eq_ignore_ascii_case(ISM_STAGING_DIR)
+        || name.eq_ignore_ascii_case(ISM_TRASH_DIR)
+}
+
+pub(crate) fn is_ism_private_path(rel: &RelPath) -> bool {
+    rel.components().any(is_ism_private_name)
+}
+
+/// Reserved paths may be skipped by the scanner but must never be treated as removable junk.
 fn is_protected_name(name: &str) -> bool {
     name.eq_ignore_ascii_case("#recycle")
         || name.eq_ignore_ascii_case("#snapshot")
         || name.eq_ignore_ascii_case("$RECYCLE.BIN")
         || name.eq_ignore_ascii_case("System Volume Information")
+        || is_ism_private_name(name)
 }
 
-/// Synology's data directories and their descendants are never cleanup targets,
-/// regardless of the configurable junk rules.
+/// Protected paths and their descendants are never cleanup targets.
 pub fn is_protected_path(rel: &RelPath) -> bool {
     rel.components().any(is_protected_name)
 }
@@ -138,6 +148,27 @@ pub(crate) fn make_dirs(root: &VolumeRoot, rel: &RelPath) -> Result<Vec<RelPath>
     Ok(created)
 }
 
+/// The folders of `rel` that do not exist yet, shallowest first, without creating anything.
+pub(crate) fn missing_dirs(root: &VolumeRoot, rel: &RelPath) -> Result<Vec<RelPath>, FsOpError> {
+    let mut missing = Vec::new();
+    let mut current = RelPath::root();
+    for name in rel.components() {
+        current = current
+            .join(name)
+            .map_err(|_| FsOpError::DestinationInvalid("not a valid folder name"))?;
+        if !missing.is_empty() {
+            missing.push(current.clone());
+            continue;
+        }
+        match root.resolve_for_create(&current) {
+            Ok(_) | Err(FsError::NotFound(_)) => missing.push(current.clone()),
+            Err(FsError::AlreadyExists(_)) => verify_dir(root, &current)?,
+            Err(err) => return Err(FsOpError::from_destination(err)),
+        }
+    }
+    Ok(missing)
+}
+
 fn verify_dir(root: &VolumeRoot, rel: &RelPath) -> Result<(), FsOpError> {
     match root.resolve_dir(rel) {
         Ok(_) => Ok(()),
@@ -195,7 +226,7 @@ pub(crate) fn free_name_with(
 }
 
 /// Whether `name` is used in `dir`: by anything at all, a link included.
-fn is_taken(root: &VolumeRoot, dir: &RelPath, name: &str) -> Result<bool, FsOpError> {
+pub(crate) fn is_taken(root: &VolumeRoot, dir: &RelPath, name: &str) -> Result<bool, FsOpError> {
     let rel = dir
         .join(name)
         .map_err(|_| FsOpError::DestinationInvalid("not a valid file name"))?;
@@ -205,6 +236,56 @@ fn is_taken(root: &VolumeRoot, dir: &RelPath, name: &str) -> Result<bool, FsOpEr
         Err(FsError::SymlinkRejected(at)) if at == rel => Ok(true),
         Err(err) => Err(FsOpError::from_destination(err)),
     }
+}
+
+/// [`is_taken`] for a destination whose folders may not exist yet (the sync manager creates them).
+pub(crate) fn is_taken_or_absent(
+    root: &VolumeRoot,
+    dir: &RelPath,
+    name: &str,
+) -> Result<bool, FsOpError> {
+    let rel = dir
+        .join(name)
+        .map_err(|_| FsOpError::DestinationInvalid("not a valid file name"))?;
+    match root.resolve_for_create(&rel) {
+        Ok(_) | Err(FsError::NotFound(_)) => Ok(false),
+        Err(FsError::AlreadyExists(_)) => Ok(true),
+        Err(FsError::SymlinkRejected(at)) if at == rel => Ok(true),
+        Err(err) => Err(FsOpError::from_destination(err)),
+    }
+}
+
+/// Every file under the `names` of `rel`, with its revision, for ISM to check before it trashes
+/// the folder. Anything that cannot be described exactly (a link, an unreadable name, a time
+/// that cannot be written) keeps the folder: `not_empty`.
+fn expected_entries(
+    root: &VolumeRoot,
+    rel: &RelPath,
+    names: &[String],
+) -> Result<Vec<ExpectedEntry>, FsOpError> {
+    use std::os::unix::fs::MetadataExt;
+
+    let base = root.resolve_dir(rel).map_err(FsOpError::from_source)?;
+    let mut entries = Vec::new();
+    let mut pending: Vec<String> = names.to_vec();
+    while let Some(path) = pending.pop() {
+        let meta = fs::symlink_metadata(base.join(&path))?;
+        if meta.is_dir() {
+            for child in fs::read_dir(base.join(&path))? {
+                let name = child?.file_name();
+                let name = name.to_str().ok_or(FsOpError::NotEmpty)?;
+                pending.push(format!("{path}/{name}"));
+            }
+        } else if meta.is_file() {
+            let revision =
+                revision(meta.len(), meta.mtime(), meta.mtime_nsec()).ok_or(FsOpError::NotEmpty)?;
+            entries.push(ExpectedEntry { path, revision });
+        } else {
+            return Err(FsOpError::NotEmpty);
+        }
+    }
+    entries.sort_by(|a, b| a.path.cmp(&b.path));
+    Ok(entries)
 }
 
 /// What a folder holds, as far as removing it is concerned.
@@ -273,12 +354,31 @@ impl FsOps {
     /// `name_too_long`, `symlink_rejected`, `volume_read_only`, `volume_offline`.
     pub async fn mkdir_all(&self, loc: Loc) -> Result<Vec<RelPath>, FsOpError> {
         let rules = self.rules();
-        let root = self.writable_volume(loc.volume_id)?;
+        let managed = self.is_managed(loc.volume_id);
+        let root = if managed {
+            self.volume(loc.volume_id)?
+        } else {
+            self.writable_volume(loc.volume_id)?
+        };
         if loc.rel.is_root() {
             return Ok(Vec::new());
         }
         validate_dir_path(&rules, &loc.rel)?;
         rules.check_included(&loc)?;
+        if managed {
+            let rel = loc.rel.clone();
+            let missing = blocking(move || missing_dirs(&root, &rel)).await?;
+            if !missing.is_empty() {
+                // ISM creates the missing parents with the folder.
+                self.delegate_one(
+                    "Create folder",
+                    Delegated::CreateFolder(loc.clone()),
+                    &OpContext::detached(),
+                )
+                .await?;
+            }
+            return Ok(missing);
+        }
         let rel = loc.rel.clone();
         let created = blocking(move || make_dirs(&root, &rel)).await?;
         self.apply_mkdir(loc.volume_id, &loc.rel).await?;
@@ -289,6 +389,59 @@ impl FsOps {
         }
         self.note_dirs(loc.volume_id, &touched);
         Ok(created)
+    }
+
+    /// Moves or renames a folder with everything in it. Only volumes bound to ISM support it: the
+    /// sync manager moves the folder (and keeps Immich in step) and the index follows; a local
+    /// volume refuses with `unsupported`.
+    ///
+    /// # Errors
+    /// `destination_invalid` (the root, the trash, a folder into itself), `destination_exists`,
+    /// `source_missing`, `ism_cross_volume_folder`, the sync manager's refusals, `cancelled`.
+    pub async fn move_folder(&self, src: Loc, dst: Loc, cx: &OpContext) -> Result<(), FsOpError> {
+        cx.ensure_active()?;
+        if !self.is_managed(src.volume_id) || !self.is_managed(dst.volume_id) {
+            return Err(FsOpError::Delegated {
+                code: "unsupported",
+                message: "Folders can only be moved on volumes bound to the sync manager".into(),
+            });
+        }
+        let rules = self.rules();
+        if src.rel.is_root() || dst.rel.is_root() {
+            return Err(FsOpError::DestinationInvalid(
+                "the volume root cannot be moved",
+            ));
+        }
+        if in_trash(&src.rel) || in_trash(&dst.rel) || is_protected_path(&src.rel) {
+            return Err(FsOpError::DestinationInvalid("the trash cannot be moved"));
+        }
+        if src.volume_id == dst.volume_id
+            && crate::db::subtree::Subtree::new(&src.rel).contains(dst.rel.as_str())
+        {
+            return Err(FsOpError::DestinationInvalid(
+                "a folder cannot move into itself",
+            ));
+        }
+        validate_dir_path(&rules, &dst.rel)?;
+        rules.check_included(&src)?;
+        rules.check_included(&dst)?;
+        let root = self.volume(src.volume_id)?;
+        let rel = src.rel.clone();
+        blocking(move || {
+            root.resolve_dir(&rel)
+                .map(drop)
+                .map_err(FsOpError::from_source)
+        })
+        .await?;
+        if self.exists(&dst).await? {
+            return Err(FsOpError::delegated(
+                "destination_exists",
+                "Something already has that name",
+            ));
+        }
+        self.delegate_one("Move folder", Delegated::MoveFolder { src, dst }, cx)
+            .await
+            .map(drop)
     }
 
     /// Removes the folder when everything in it is junk (`.DS_Store`, `@eaDir`, `Thumbs.db`, ...
@@ -308,7 +461,12 @@ impl FsOps {
     ) -> Result<RmdirOutcome, FsOpError> {
         cx.ensure_active()?;
         let rules = self.rules();
-        let root = self.writable_volume(loc.volume_id)?;
+        let managed = self.is_managed(loc.volume_id);
+        let root = if managed {
+            self.volume(loc.volume_id)?
+        } else {
+            self.writable_volume(loc.volume_id)?
+        };
         if loc.rel.is_root() {
             return Err(FsOpError::DestinationInvalid(
                 "the volume root cannot be removed",
@@ -331,6 +489,22 @@ impl FsOps {
             Contents::Content => return Err(FsOpError::NotEmpty),
             Contents::OnlyJunk(names) => names,
         };
+        if managed {
+            // ISM trashes the folder with its junk in one action, and only if every file it
+            // holds is still the one checked here.
+            let entries = {
+                let (root, rel, names) = (root.clone(), loc.rel.clone(), names.clone());
+                blocking(move || expected_entries(&root, &rel, &names)).await?
+            };
+            let action = Delegated::TrashFolder {
+                loc,
+                entries: Some(entries),
+            };
+            self.delegate_one("Remove folder", action, cx).await?;
+            return Ok(RmdirOutcome::Removed {
+                junk_trashed: names.len() as u64,
+            });
+        }
 
         let mut junk_trashed = 0;
         for name in &names {

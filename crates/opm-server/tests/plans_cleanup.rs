@@ -450,6 +450,30 @@ async fn fsops_protects_targets_and_descendants_even_without_default_junk_names(
     );
 }
 
+#[tokio::test]
+async fn cleanup_preserves_ism_private_paths_and_their_parent() {
+    let app = TestApp::new().await;
+    let (v, tree) = app.add_volume("photos").await;
+    tree.mkdir("library/.ism-trash");
+    tree.mkdir("library/.ism-staging");
+    std::fs::write(tree.path("library/.ism-root"), b"photos\n").unwrap();
+    let batch = TrashBatch::adhoc();
+    let op = OpContext::detached();
+    for path in ["library", "library/.ism-trash", "library/.ism-staging"] {
+        let rel = RelPath::new(path).unwrap();
+        assert!(matches!(
+            app.state
+                .fsops
+                .remove_dir_if_removable(Loc::new(v, rel), &batch, &op)
+                .await,
+            Err(FsOpError::NotEmpty)
+        ));
+    }
+    assert!(tree.path("library/.ism-trash").is_dir());
+    assert!(tree.path("library/.ism-staging").is_dir());
+    assert!(tree.path("library/.ism-root").is_file());
+}
+
 fn deps(app: &TestApp) -> PlanDeps {
     PlanDeps {
         db: app.state.db.clone(),

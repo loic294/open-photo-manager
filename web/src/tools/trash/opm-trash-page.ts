@@ -49,6 +49,7 @@ import { EM_DASH, formatFileSize, formatFileTime } from '@/util/format';
 import { formatCount } from '@/util/format-count';
 import '@/components/opm-icon';
 import type { IconName } from '@/components/opm-icon';
+import '@/tools/trash/opm-ism-trash';
 import '@/tools/trash/opm-trash-deletions';
 import '@/tools/trash/opm-trash-items';
 
@@ -809,7 +810,9 @@ export class OpmTrashPage extends OpmElement {
       <div class="flex flex-wrap items-center gap-2 py-3">
         ${renderVolumeSelect(volumes, this.volumeId, (volumeId) => this.setVolume(volumeId))}
       </div>
-      ${this.renderError('Could not load the deletions', 'deletions')} ${body}
+      ${this.renderError('Could not load the deletions', 'deletions')}
+      <opm-ism-trash></opm-ism-trash>
+      ${body}
     `;
   }
 

@@ -40,6 +40,14 @@ pub enum FsOpError {
     VolumeReadOnly,
     #[error("{0}")]
     ImmichMoveRefused(String),
+    /// The location is on a root the Immich Sync Manager owns: only the sync manager may change
+    /// it, so OPM refuses before touching the disk.
+    #[error("this folder is managed by the sync manager; local changes are disabled")]
+    IsmManaged,
+    /// The sync manager refused or failed the change. `code` is one of [`ISM_CODES`] (or
+    /// `ism_error`); nothing was changed locally.
+    #[error("{message}")]
+    Delegated { code: &'static str, message: String },
     /// The location is not allowed: the volume root, the trash, a directory or link where a
     /// regular file must go, a name the scanner would ignore.
     #[error("invalid location: {0}")]
@@ -94,6 +102,8 @@ impl FsOpError {
             Self::UnknownVolume => "unknown_volume",
             Self::VolumeReadOnly => "volume_read_only",
             Self::ImmichMoveRefused(_) => "immich_move_refused",
+            Self::IsmManaged => "ism_managed",
+            Self::Delegated { code, .. } => code,
             Self::DestinationInvalid(_) => "destination_invalid",
             Self::NameTooLong => "name_too_long",
             Self::NoSpace => "no_space",
@@ -133,6 +143,14 @@ impl FsOpError {
         }
     }
 
+    /// A failure reported by the sync manager, with its code mapped onto a stable static one.
+    pub fn delegated(code: &str, message: impl Into<String>) -> Self {
+        Self::Delegated {
+            code: ism_code(code),
+            message: message.into(),
+        }
+    }
+
     pub(crate) fn internal(cause: impl std::fmt::Display) -> Self {
         Self::Internal(cause.to_string())
     }
@@ -141,6 +159,42 @@ impl FsOpError {
     pub(crate) fn is_abort(&self) -> bool {
         matches!(self, Self::Aborted)
     }
+}
+
+/// The codes a sync manager failure keeps as they are: the contract's error table plus the ones
+/// OPM adds for a sync manager it cannot reach or a batch it cannot send.
+pub const ISM_CODES: &[&str] = &[
+    "unauthorized",
+    "forbidden",
+    "invalid_location",
+    "not_found",
+    "not_an_original",
+    "wrong_kind",
+    "no_change",
+    "root_unavailable",
+    "revision_changed",
+    "destination_exists",
+    "direct_writes_unavailable",
+    "owner_transfer_required",
+    "owner_transfer_blocked",
+    "maintenance_blocked",
+    "recovery_required",
+    "idempotency_key_conflict",
+    "operation_key_cancelled",
+    "revision_unavailable",
+    "ism_unreachable",
+    "ism_cross_boundary",
+    "ism_replace_unsupported",
+    "ism_not_connected",
+    "ism_error",
+];
+
+fn ism_code(code: &str) -> &'static str {
+    ISM_CODES
+        .iter()
+        .find(|known| **known == code)
+        .copied()
+        .unwrap_or("ism_error")
 }
 
 impl From<FsError> for FsOpError {
@@ -205,7 +259,9 @@ impl From<FsOpError> for AppError {
             | FsOpError::NotEmpty
             | FsOpError::FolderExcluded
             | FsOpError::FileInUse => Self::new(StatusCode::CONFLICT, code, message),
-            FsOpError::ImmichMoveRefused(_) => Self::new(StatusCode::CONFLICT, code, message),
+            FsOpError::ImmichMoveRefused(_)
+            | FsOpError::IsmManaged
+            | FsOpError::Delegated { .. } => Self::new(StatusCode::CONFLICT, code, message),
             FsOpError::NoSpace => Self::new(StatusCode::INSUFFICIENT_STORAGE, code, message),
             FsOpError::VerifyFailed | FsOpError::Io(_) | FsOpError::Aborted => {
                 Self::new(StatusCode::INTERNAL_SERVER_ERROR, code, message)
@@ -245,10 +301,29 @@ mod tests {
             FsOpError::Io(io::ErrorKind::Other),
             FsOpError::Internal("x".into()),
             FsOpError::Aborted,
+            FsOpError::IsmManaged,
+            FsOpError::delegated("ism_unreachable", "x"),
         ];
         let codes: std::collections::BTreeSet<_> = all.iter().map(FsOpError::code).collect();
         assert_eq!(codes.len(), all.len());
         assert!(codes.contains("source_missing") && codes.contains("io_error"));
+    }
+
+    #[test]
+    fn unknown_sync_manager_codes_become_ism_error() {
+        for code in [
+            "maintenance_blocked",
+            "not_found",
+            "not_an_original",
+            "wrong_kind",
+            "no_change",
+        ] {
+            assert_eq!(FsOpError::delegated(code, "x").code(), code);
+        }
+        assert_eq!(
+            FsOpError::delegated("something_new", "x").code(),
+            "ism_error"
+        );
     }
 
     #[test]
