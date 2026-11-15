@@ -1,6 +1,7 @@
 import { afterEach, beforeEach, expect, it, vi } from 'vitest';
 import { api } from '@/api/client';
 import { events } from '@/api/sse';
+import * as viewer from '@/components/opm-viewer';
 import { setLocation } from '@/stores/nav';
 import { saveSettings } from '@/stores/settings';
 import { loadVolumes, resetVolumesForTests } from '@/stores/volumes';
@@ -122,6 +123,105 @@ it('appends groups when the sentinel enters view and preserves earlier choices',
   expect(el.querySelectorAll('article')).toHaveLength(45);
   expect(el.querySelector('[data-load-more]')).toBeNull();
   expect(disconnect).toHaveBeenCalled();
+});
+
+it('toggles additional keepers with Cmd, Ctrl and checkboxes, while a plain click replaces them', async () => {
+  const el = await searched();
+  const cards = [...el.querySelectorAll('opm-file-card')];
+  const activate = async (index: number, options: MouseEventInit = {}, checkbox = false) => {
+    cards[index]
+      ?.querySelector(checkbox ? '[data-checkbox]' : '[role="button"]')
+      ?.dispatchEvent(new MouseEvent('click', { bubbles: true, cancelable: true, ...options }));
+    await settle(el);
+  };
+  const selected = () => cards.map((card) => card.selected);
+  await activate(1, { metaKey: true });
+  expect(selected()).toEqual([true, true, false]);
+  await activate(2, { ctrlKey: true });
+  expect(selected()).toEqual([true, true, true]);
+  await activate(1, {}, true);
+  expect(selected()).toEqual([true, false, true]);
+  await activate(2);
+  expect(selected()).toEqual([false, false, true]);
+  await activate(2, {}, true);
+  expect(selected().some(Boolean)).toBe(true);
+});
+
+it('opens a copy in the shared viewer without changing keepers and rejects stale review changes', async () => {
+  const open = vi.spyOn(viewer, 'openViewer').mockResolvedValue();
+  const el = await searched();
+  el.querySelector<HTMLButtonElement>('[aria-label^="View full size:"]')?.click();
+  const source = open.mock.calls[0]?.[0];
+  expect(source?.startId).toBe(1);
+  expect(await source?.loadIds(new AbortController().signal)).toEqual([1, 2, 3]);
+  expect(source?.review?.isKept(1)).toBe(true);
+  expect(source?.review?.isKept(2)).toBe(false);
+  source?.review?.choose(2, true);
+  await settle(el);
+  expect([...el.querySelectorAll('opm-file-card')].map((card) => card.selected)).toEqual([
+    true,
+    true,
+    false,
+  ]);
+  events.emit({ type: 'fs_change', volume_id: 2, dirs: ['backup'] });
+  await settle(el);
+  expect(source?.review?.disabled()).toBe(true);
+  source?.review?.choose(3, false);
+  await settle(el);
+  expect(source?.review?.isKept(3)).toBe(false);
+});
+
+it('skips groups locally and explicitly retains their files in execution options', async () => {
+  const second = {
+    files: groups[0].files.map((file) => ({
+      ...file,
+      item: { ...file.item, id: file.item.id + 3 },
+    })),
+    pairs: groups[0].pairs.map((pair) => pair.map((id) => id + 3)),
+  };
+  vi.mocked(api.get).mockResolvedValueOnce({ groups: [...groups, second] });
+  const el = await searched();
+  el.querySelector<HTMLButtonElement>('[aria-label="Skip duplicate match"]')?.click();
+  await settle(el);
+  expect(el.querySelectorAll('article')).toHaveLength(1);
+  expect(el.textContent).toContain('4 to keep');
+  expect(el.textContent).toContain('Skips reset on the next search');
+
+  button(el, 'Automatic Selection').click();
+  await settle(el);
+  el.querySelector('opm-duplicate-selection')?.dispatchEvent(new Event('close'));
+  button(el, 'Trash 2 duplicates').click();
+  await settle(el);
+  const confirm = [...document.querySelectorAll('opm-modal')].find(
+    (modal) => modal.heading === 'Trash 2 duplicate files?',
+  );
+  expect(confirm).toBeDefined();
+  vi.mocked(api.post).mockResolvedValueOnce({ id: 8, title: 'Trash duplicates' });
+  button(confirm as Element, 'Trash 2 files').click();
+  await settle(el);
+  expect(api.post).toHaveBeenCalledWith(
+    '/api/plans/5/execute',
+    expect.objectContaining({
+      body: { options: { keep: expect.arrayContaining([1, 2, 3, 4]) }, only: null },
+    }),
+  );
+});
+
+it('restores skipped groups with their selections and resets skips for a fresh search', async () => {
+  const el = await searched();
+  el.querySelector<HTMLButtonElement>('[aria-label="Skip duplicate match"]')?.click();
+  await settle(el);
+  expect(button(el, 'Trash 0 duplicates').disabled).toBe(true);
+  button(el, 'Show skipped groups').click();
+  await settle(el);
+  expect(el.querySelectorAll('article')).toHaveLength(1);
+  expect(el.querySelector('opm-file-card')?.selected).toBe(true);
+  el.querySelector<HTMLButtonElement>('[aria-label="Skip duplicate match"]')?.click();
+  await settle(el);
+  button(el, 'Find duplicates').click();
+  await settle(el);
+  expect(el.querySelectorAll('article')).toHaveLength(1);
+  expect(el.textContent).not.toContain('groups skipped');
 });
 
 async function settle(el: Element) {

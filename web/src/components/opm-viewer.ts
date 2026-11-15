@@ -1,13 +1,18 @@
-import { html, type TemplateResult } from 'lit';
+import { html, nothing, type TemplateResult } from 'lit';
 import { keyed } from 'lit/directives/keyed.js';
+import { live } from 'lit/directives/live.js';
+import { repeat } from 'lit/directives/repeat.js';
 import { isAbortError, isApiError } from '@/api/errors';
 import { fetchFileDetail } from '@/api/files';
 import type { FileDetail } from '@/api/generated/FileDetail';
 import type { FileItem } from '@/api/generated/FileItem';
 import { OpmElement } from '@/base/opm-element';
+import type { CardActivateEvent } from '@/components/opm-file-card';
+import '@/components/opm-file-card';
 import '@/components/opm-modal';
 import '@/components/opm-viewer-stage';
 import type { StageFailure, StageSettledEvent } from '@/components/opm-viewer-stage';
+import { tooltip } from '@/components/tooltip';
 import {
   type ChromeActions,
   type ChromeView,
@@ -35,6 +40,14 @@ import { ViewerPreloader } from '@/components/viewer-preload';
 
 type Id = FileItem['id'];
 
+/** Optional keeper review; callbacks read live caller state and must reject stale changes. */
+export interface ViewerReview {
+  items: readonly FileItem[];
+  isKept(id: Id): boolean;
+  choose(id: Id, toggle: boolean): void;
+  disabled(): boolean;
+}
+
 /** What `openViewer()` pages through. */
 export interface ViewerSource {
   /** The file to show first. */
@@ -46,6 +59,8 @@ export interface ViewerSource {
    * `signal` aborts when the viewer closes or its source is replaced.
    */
   loadIds(signal: AbortSignal): Promise<readonly Id[]>;
+  /** Adds keep controls and a thumbnail strip without changing the browser's normal viewer. */
+  review?: ViewerReview;
 }
 
 /** Details kept for stepping back; the current file's is never dropped. */
@@ -57,7 +72,7 @@ let host: OpmViewer | undefined;
 /**
  * Opens the photo and video viewer and resolves once it is closed. The viewer is one dialog,
  * mounted on first use; calling this while it is open swaps the source (every pending promise
- * still resolves, once, when the viewer closes). Only the tool-view framework calls it.
+ * still resolves, once, when the viewer closes). Browse and duplicate review share this entry point.
  *
  *   // the pane, on `item-open` from the grid (ITEM_OPEN_EVENT, detail `{ id, index }`)
  *   void openViewer({
@@ -115,6 +130,7 @@ export class OpmViewer extends OpmElement {
     index: { state: true },
     detailStatus: { state: true },
     zoomed: { state: true },
+    guarded: { state: true },
   };
 
   declare opened: boolean;
@@ -129,6 +145,7 @@ export class OpmViewer extends OpmElement {
   declare zoomed: boolean;
 
   private startItem: FileItem | undefined;
+  private review: ViewerReview | undefined;
   private readonly details = new Map<Id, FileDetail>();
   private idsAbort: AbortController | undefined;
   private detailAbort: AbortController | undefined;
@@ -178,6 +195,7 @@ export class OpmViewer extends OpmElement {
     this.details.clear();
     this.session += 1;
     this.startItem = source.startItem;
+    this.review = source.review;
     this.currentId = source.startId;
     this.ids = [];
     this.idsStatus = 'loading';
@@ -205,6 +223,8 @@ export class OpmViewer extends OpmElement {
     this.abortSession();
     this.querySelector('opm-viewer-stage')?.release();
     this.opened = false;
+    this.startItem = this.itemOf(this.currentId);
+    this.review = undefined;
     settleAll();
   }
 
@@ -247,7 +267,9 @@ export class OpmViewer extends OpmElement {
   private itemOf(id: Id): FileItem | undefined {
     const known = this.details.get(id)?.item;
     if (known) return known;
-    return this.startItem?.id === id ? this.startItem : undefined;
+    return this.startItem?.id === id
+      ? this.startItem
+      : this.review?.items.find((item) => item.id === id);
   }
 
   /** The row to show: none when the server says the file is gone. */
@@ -318,13 +340,17 @@ export class OpmViewer extends OpmElement {
 
   private go(action: NavAction): void {
     const target = targetIndex(action, this.index, this.ids.length);
-    const id = target === null ? undefined : this.ids[target];
-    if (target === null || id === undefined) return;
+    if (target !== null) this.goTo(target, directionAfter(action));
+  }
+
+  private goTo(target: number, direction: Direction): void {
+    const id = this.ids[target];
+    if (id === undefined || id === this.currentId) return;
     this.cancelDetail();
     this.preloader.cancel();
     this.index = target;
     this.currentId = id;
-    this.lastDirection = directionAfter(action);
+    this.lastDirection = direction;
     this.zoomed = false;
     this.settledId = undefined;
     this.detailStatus = 'idle';
@@ -396,6 +422,10 @@ export class OpmViewer extends OpmElement {
 
   protected override updated(): void {
     void this.keepFocusInside();
+    this.querySelector('[data-review-current="true"]')?.scrollIntoView?.({
+      block: 'nearest',
+      inline: 'nearest',
+    });
   }
 
   /**
@@ -478,9 +508,68 @@ export class OpmViewer extends OpmElement {
           </div>
           ${renderInfoPanel(view, this.chrome)}
         </div>
+        ${this.renderReview()}
         <div class="sr-only" role="status" aria-live="polite">${this.announcementFor(item)}</div>
       </div>
     `;
+  }
+
+  private chooseKeeper(id: Id, toggle: boolean): void {
+    if (!this.review?.disabled()) this.review?.choose(id, toggle);
+    this.requestUpdate();
+  }
+
+  private renderReview() {
+    const review = this.review;
+    if (!review) return nothing;
+    const kept = review.isKept(this.currentId);
+    return html`
+      <div class="shrink-0 space-y-2 border-t border-base-300 pt-2" data-viewer-review ?inert=${this.guarded}>
+        <div class="flex flex-wrap items-center gap-3 text-sm">
+          <label class="flex items-center gap-2">
+            <input type="checkbox" class="checkbox checkbox-sm checkbox-success"
+              aria-label="Keep this file" .checked=${live(kept)} ?disabled=${this.guarded || review.disabled()}
+              @change=${() => this.chooseKeeper(this.currentId, true)}>
+            Keep this file
+          </label>
+          <span class="badge badge-sm ${kept ? 'badge-success' : 'badge-error'}" role="status">${kept ? 'Keep' : 'Remove'}</span>
+          <button class="btn btn-sm btn-outline ml-auto" ?disabled=${review.disabled()}
+            @click=${(event: MouseEvent) => this.chooseKeeper(this.currentId, event.metaKey || event.ctrlKey)}>
+            Keep this copy instead
+          </button>
+        </div>
+        <p class="text-xs text-base-content/70">Click a thumbnail to view it. Cmd/Ctrl-click or use its checkbox to keep multiple copies. Required keepers stay selected for direct-match safety.</p>
+        <div class="flex gap-2 overflow-x-auto pb-2" role="group" aria-label="Duplicate copies">
+          ${repeat(
+            review.items,
+            (entry) => entry.id,
+            (entry) => {
+              const current = entry.id === this.currentId;
+              const keep = review.isKept(entry.id);
+              return html`<div class="w-24 shrink-0 rounded-lg border-2 p-1 ${current ? 'border-primary' : 'border-transparent'}"
+              data-review-current=${String(current)}>
+              <opm-file-card class="h-16!" .item=${{ ...entry, overlay: { matched: keep, will_delete: !keep, planned: false } }}
+                .size=${96} .focused=${true} .selected=${keep} .asButton=${true}
+                .highlightSelection=${false} .showCaption=${false} .selectionActive=${true}
+                @card-activate=${(event: CardActivateEvent) => {
+                  if (
+                    event.detail.toggle ||
+                    event.detail.via === 'checkbox' ||
+                    event.detail.via === 'space'
+                  )
+                    this.chooseKeeper(entry.id, true);
+                  else {
+                    const target = this.ids.indexOf(entry.id);
+                    if (target >= 0) this.goTo(target, target < this.index ? -1 : 1);
+                  }
+                }}></opm-file-card>
+              <p class="mt-1 truncate text-xs" ${tooltip(entry.name)}>${entry.name}</p>
+              <p class="text-xs">${current ? 'Viewing · ' : ''}${keep ? 'Keep' : 'Remove'}</p>
+            </div>`;
+            },
+          )}
+        </div>
+      </div>`;
   }
 
   protected override render() {

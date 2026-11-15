@@ -23,6 +23,32 @@ const file = (id: number, patch: Partial<DuplicateFile> = {}): DuplicateFile => 
   ...patch,
 });
 
+it('retains multiple manual keepers even when they match and fills uncovered parts of a chain', () => {
+  const group: DuplicateFileGroup = {
+    files: [1, 2, 3, 4].map((id) => file(id)),
+    pairs: [
+      [1, 2],
+      [2, 3],
+      [3, 4],
+    ],
+  };
+  const selected = selectWithReasons(group, defaultRules(), new Set([1, 2]));
+  expect([...selected.keep]).toEqual([1, 2, 4]);
+  expect(selected.reasons.get(1)).toBe('Keep: Manual selection');
+  expect(selected.reasons.get(2)).toBe('Keep: Manual selection');
+  expect(selected.badges.get(2)?.[0]?.kind).toBe('manual');
+  for (const copy of group.files.filter((copy) => !selected.keep.has(copy.item.id))) {
+    expect(
+      group.pairs.some(
+        ([a, b]) =>
+          (a === copy.item.id && selected.keep.has(b)) ||
+          (b === copy.item.id && selected.keep.has(a)),
+      ),
+    ).toBe(true);
+  }
+  expect([...selectWithReasons(group, defaultRules(), new Set()).keep]).toEqual([1, 3]);
+});
+
 it('compares exact raw fields rather than rounded sizes or date display strings', () => {
   const a = file(1, { item: fileItem({ name: 'one.jpg', size: 102400, capture_ts: 100 }) });
   const b = file(2, { item: fileItem({ name: 'two.jpg', size: 102401, capture_ts: 101 }) });

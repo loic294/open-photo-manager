@@ -163,8 +163,9 @@ export function selectKeepers(
 export function selectWithReasons(
   group: DuplicateFileGroup,
   rules: readonly SelectionRule[],
-  preferred?: number,
+  preferred?: number | ReadonlySet<number>,
 ): { keep: Set<number>; reasons: Map<number, string>; badges: Map<number, SelectionBadge[]> } {
+  const manual = typeof preferred === 'number' ? new Set([preferred]) : (preferred ?? new Set());
   const neighbours = new Map<number, Set<number>>();
   for (const [a, b] of group.pairs) {
     if (!neighbours.has(a)) neighbours.set(a, new Set());
@@ -174,8 +175,7 @@ export function selectWithReasons(
   }
   const compare = comparison(rules);
   const ordered = [...group.files].sort((a, b) => {
-    if (a.item.id === preferred) return -1;
-    if (b.item.id === preferred) return 1;
+    if (manual.has(a.item.id) !== manual.has(b.item.id)) return manual.has(a.item.id) ? -1 : 1;
     return compare(a, b).order;
   });
   const covered = new Set<number>();
@@ -186,7 +186,7 @@ export function selectWithReasons(
   const removedBy = new Map<number, number>();
   for (const file of ordered) {
     const id = file.item.id;
-    if (covered.has(id)) continue;
+    if (covered.has(id) && !manual.has(id)) continue;
     let other: DuplicateFile | undefined;
     let position = ordered.length;
     for (const neighbour of neighbours.get(id) ?? []) {
@@ -196,14 +196,13 @@ export function selectWithReasons(
         other = ordered[index];
       }
     }
-    const reason =
-      id === preferred
-        ? 'Manual selection'
-        : other
-          ? compare(file, other).reason
-          : 'Additional keeper required for direct-match coverage';
+    const reason = manual.has(id)
+      ? 'Manual selection'
+      : other
+        ? compare(file, other).reason
+        : 'Additional keeper required for direct-match coverage';
     reasons.set(id, `Keep: ${reason}`);
-    basis.set(id, id === preferred ? 'manual' : other ? compare(file, other).rule : 'coverage');
+    basis.set(id, manual.has(id) ? 'manual' : other ? compare(file, other).rule : 'coverage');
     keep.add(id);
     covered.add(id);
     for (const other of neighbours.get(id) ?? []) {
@@ -246,7 +245,7 @@ export function selectWithReasons(
       if (!first) continue;
       const decisive = favorable.filter(
         (other) =>
-          id !== preferred &&
+          !manual.has(id) &&
           removedBy.get(other.item.id) === id &&
           compare(file, other).rule === rule.kind,
       );

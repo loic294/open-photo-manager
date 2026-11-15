@@ -6,7 +6,110 @@ import { expectNoSeriousA11yViolations } from '../../src/a11y';
 import { captureScreens } from '../../src/screens';
 import { expect, test } from '../../src/test';
 
-test.use({ allowedErrors: [/^requestfailed: .*\/api\/events net::ERR_ABORTED$/] });
+test.use({
+  allowedErrors: [
+    [
+      /^requestfailed: .*\/api\/events net::ERR_ABORTED$/,
+      // Viewer navigation intentionally cancels pending previews and thumbnail requests.
+      /^requestfailed: .*\/api\/files\/\d+\/(?:preview|thumb\?.*) net::ERR_ABORTED$/,
+      // Switching from folder view releases its unused facet requests.
+      /^requestfailed: .*\/api\/facets net::ERR_ABORTED$/,
+    ],
+    { scope: 'test' },
+  ],
+});
+
+test('duplicate review shares the full-size viewer, keeps multiple copies and skips matches temporarily', async ({
+  app,
+  page,
+  manifest,
+  source,
+  comparison,
+  duplicatesPage,
+}) => {
+  const fixture = manifest.duplicateGroups(1).find((group) => group.source);
+  if (!fixture?.source) throw new Error('Missing duplicate source fixture');
+  const file = manifest.file(fixture.source.volume, fixture.source.path);
+  const dir = file.path.includes('/') ? file.path.slice(0, file.path.lastIndexOf('/')) : '';
+  const url = new URL('/duplicates', app.url);
+  url.searchParams.set('src', `${file.volume}/${dir}`);
+  await page.goto(url.href);
+  await source.waitReady();
+  await comparison.waitReady();
+  await duplicatesPage.showFiles();
+  const response = await duplicatesPage.findFiles();
+  expect(response.ok()).toBe(true);
+  const data = (await response.json()) as DuplicateFileGroups;
+  const first = data.groups[0];
+  if (!first || first.files.length < 2) throw new Error('Missing duplicate copies');
+  const group = duplicatesPage
+    .files()
+    .getByRole('article', { name: 'Duplicate group 1', exact: true });
+  const copies = group.locator('opm-file-card');
+  await copies.last().getByRole('button').click();
+  await copies
+    .first()
+    .getByRole('button')
+    .click({ modifiers: ['ControlOrMeta'] });
+  await expect(copies.first().getByRole('button')).toHaveAttribute('aria-pressed', 'true');
+  await expect(copies.last().getByRole('button')).toHaveAttribute('aria-pressed', 'true');
+  await copies.first().locator('[data-checkbox]').click();
+  await expect(copies.first().getByRole('button')).toHaveAttribute('aria-pressed', 'false');
+
+  await group
+    .getByRole('button', { name: /^View full size:/ })
+    .first()
+    .click();
+  const viewer = page.locator('opm-viewer');
+  const dialog = viewer.getByRole('dialog');
+  await expect(dialog).toBeVisible();
+  await expect(viewer.locator('opm-viewer-stage')).toBeVisible();
+  await expect(viewer.getByRole('button', { name: '100% zoom', exact: true })).toBeVisible();
+  const keep = viewer.getByRole('checkbox', { name: 'Keep this file', exact: true });
+  await expect(keep).not.toBeChecked();
+  await keep.check();
+  const strip = viewer.getByRole('group', { name: 'Duplicate copies', exact: true });
+  await expect(strip.locator('opm-file-card')).toHaveCount(first.files.length);
+  await strip.locator('opm-file-card').last().getByRole('button').click();
+  await expect(keep).toBeChecked();
+  await expect(strip.locator('[data-review-current="true"]')).toContainText('Viewing');
+  await viewer.getByRole('button', { name: 'Keep this copy instead', exact: true }).click();
+  await strip.locator('opm-file-card').first().getByRole('button').click();
+  await expect(keep).not.toBeChecked();
+  await expect(viewer.locator('opm-viewer-stage img')).toHaveAttribute(
+    'src',
+    new RegExp(`/api/files/${first.files[0]?.item.id}/(?:preview|thumb)`),
+  );
+  for (const width of [1440, 390]) {
+    await page.setViewportSize({ width, height: 900 });
+    await expectNoSeriousA11yViolations(page);
+    await captureScreens(page, `duplicate-review-${width}`);
+    expect(
+      await page.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth),
+    ).toBe(true);
+  }
+  await page.keyboard.press('Escape');
+  await expect(dialog).not.toBeVisible();
+  await expect(copies.first().getByRole('button')).toHaveAttribute('aria-pressed', 'false');
+  await expect(copies.last().getByRole('button')).toHaveAttribute('aria-pressed', 'true');
+  for (const width of [1440, 390]) {
+    await page.setViewportSize({ width, height: 900 });
+    await expectNoSeriousA11yViolations(page);
+    await captureScreens(page, `duplicate-copy-cards-${width}`);
+  }
+  await group.getByRole('button', { name: 'Skip duplicate match', exact: true }).click();
+  await expect(duplicatesPage.files().getByRole('article')).toHaveCount(data.groups.length - 1);
+  await expect(duplicatesPage.files()).toContainText('Skips reset on the next search');
+  await duplicatesPage
+    .files()
+    .getByRole('button', { name: 'Show skipped groups', exact: true })
+    .click();
+  await expect(duplicatesPage.files().getByRole('article')).toHaveCount(data.groups.length);
+  await group.getByRole('button', { name: 'Skip duplicate match', exact: true }).click();
+  expect((await duplicatesPage.findFiles()).ok()).toBe(true);
+  await expect(duplicatesPage.files().getByRole('article')).toHaveCount(data.groups.length);
+  await expect(duplicatesPage.files()).not.toContainText('groups skipped');
+});
 
 test('keeper badges explain preferences beside filenames without clipping in the scrolling results', async ({
   app,

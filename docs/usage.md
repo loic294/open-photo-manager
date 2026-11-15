@@ -102,7 +102,10 @@ subtree from both sides; remove an exclusion to include it again.
 
 Each group has a separate card containing large thumbnails of all its copies. Green borders and **Keep** labels mean retain;
 red borders and **Remove** labels mean move to Trash after confirmation. Click a thumbnail to
-prefer that copy. Filename, size and capture date appear beneath each thumbnail; fields that
+prefer that copy instead of the current selection. Cmd/Ctrl-click or use a thumbnail's checkbox
+to toggle additional copies to keep. Space toggles the focused copy. A required keeper stays
+selected if removing it would leave a removal without a direct matching survivor.
+Filename, size and capture date appear beneath each thumbnail; fields that
 differ between copies are bold. Differing sizes include exact byte counts, and capture dates
 include seconds (a missing date is shown explicitly).
 Star ratings and flags appear as icon pills on the thumbnail when set. Thumbnails retain
@@ -110,6 +113,18 @@ the image's aspect ratio. Hover a thumbnail or its Keep/Remove pill to see the s
 The bottom slider adjusts thumbnail size; groups load as you scroll, without changing selection
 rules or the final action. Name-based matches are not always transitive, so a group can require
 multiple keepers: every removal must directly match a retained file.
+
+Use the overlaid **View full size** button to open the same viewer as Browse, including zoom,
+file information and access to the original. The bottom thumbnail strip navigates within that
+duplicate group and marks the currently viewed copy separately from **Keep**/**Remove**.
+**Keep this file** toggles the viewed copy; **Keep this copy instead** replaces the group's
+selection, retaining any extra keepers required for direct-match safety. Cmd/Ctrl-click or
+use checkboxes in the strip to keep multiple copies without leaving the viewer.
+
+**Skip** at the top right of a group hides the match and protects every copy from removal.
+**Show skipped groups** brings those groups back with their previous selections. Skips are
+temporary: they are not saved and reset on the next search or when the page is reloaded.
+Automatic selection never removes the protection of a skipped group.
 
 **Automatic Selection** lists folder preferences first, then filename regular expressions,
 shorter/longer filenames, capture, modification and creation dates in either order,

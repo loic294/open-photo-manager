@@ -256,6 +256,54 @@ async function cancelDialog(): Promise<void> {
 
 const stops: Array<() => void> = [];
 
+it('reviews duplicate keepers with the shared stage and a navigable thumbnail strip', async () => {
+  const items = LIST.slice(0, 3).map((id) => photo(id));
+  const kept = new Set([101]);
+  const choose = vi.fn((id: number, toggle: boolean) => {
+    if (!toggle) kept.clear();
+    if (toggle && kept.has(id)) kept.delete(id);
+    else kept.add(id);
+  });
+  let disabled = false;
+  await open({
+    startId: 101,
+    startItem: items[0],
+    loadIds: async () => items.map((item) => item.id),
+    review: { items, isKept: (id) => kept.has(id), choose, disabled: () => disabled },
+  });
+  const cards = [
+    ...document.querySelectorAll<HTMLElementTagNameMap['opm-file-card']>(
+      '[data-viewer-review] opm-file-card',
+    ),
+  ];
+  await Promise.all(cards.map((card) => card.updateComplete));
+  expect(cards).toHaveLength(3);
+  expect(control<HTMLInputElement>('Keep this file').checked).toBe(true);
+  cards[1]?.querySelector<HTMLElement>('[role="button"]')?.click();
+  await settle();
+  expect(stage().item?.id).toBe(102);
+  expect(document.querySelector('[data-review-current="true"]')?.textContent).toContain('Viewing');
+  expect(control<HTMLInputElement>('Keep this file').checked).toBe(false);
+  expect(choose).not.toHaveBeenCalled();
+  await click(control('Keep this file'));
+  expect([...kept]).toEqual([101, 102]);
+  await click(byText(document, 'Keep this copy instead'));
+  expect([...kept]).toEqual([102]);
+  cards[2]
+    ?.querySelector('[role="button"]')
+    ?.dispatchEvent(new MouseEvent('click', { bubbles: true, ctrlKey: true }));
+  await settle();
+  expect([...kept]).toEqual([102, 103]);
+  disabled = true;
+  await click(control('Keep this file'));
+  expect([...kept]).toEqual([102, 103]);
+  expect(control<HTMLInputElement>('Keep this file').checked).toBe(true);
+  expect(control<HTMLInputElement>('Keep this file').disabled).toBe(true);
+  await cancelDialog();
+  await open(listing(101).source);
+  expect(document.querySelector('[data-viewer-review]')).toBeNull();
+});
+
 beforeEach(() => {
   vi.useFakeTimers();
   vi.stubGlobal('Image', FakeImage);

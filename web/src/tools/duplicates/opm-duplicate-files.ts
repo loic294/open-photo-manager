@@ -15,6 +15,8 @@ import { createPlan, executePlan } from '@/api/plans';
 import { events } from '@/api/sse';
 import { OpmElement } from '@/base/opm-element';
 import { confirmDialog } from '@/components/confirm-dialog';
+import type { CardActivateEvent } from '@/components/opm-file-card';
+import { openViewer } from '@/components/opm-viewer';
 import { tooltip } from '@/components/tooltip';
 import '@/components/opm-file-card';
 import '@/components/opm-folder-picker';
@@ -50,6 +52,7 @@ export class OpmDuplicateFiles extends OpmElement {
     excluded: { state: true },
     groups: { state: true },
     keep: { state: true },
+    skipped: { state: true },
     plan: { state: true },
     busy: { state: true },
     failure: { state: true },
@@ -70,6 +73,7 @@ export class OpmDuplicateFiles extends OpmElement {
   private excluded: Scope[] = [];
   private groups: DuplicateFileGroup[] = [];
   private keep = new Set<number>();
+  private skipped = new Set<DuplicateFileGroup>();
   private plan: PlanDto | null = null;
   private busy = false;
   private failure = '';
@@ -175,6 +179,7 @@ export class OpmDuplicateFiles extends OpmElement {
     this.failure = '';
     this.groups = [];
     this.keep = new Set();
+    this.skipped = new Set();
     this.visible = PAGE_SIZE;
     const params: DuplicateFileParams = {
       matching: {
@@ -223,15 +228,48 @@ export class OpmDuplicateFiles extends OpmElement {
     this.keep = new Set(selections.flatMap((selection) => [...selection.keep]));
   }
 
-  private choose(group: DuplicateFileGroup, id: number): void {
+  private choose(group: DuplicateFileGroup, id: number, toggle = false): void {
+    if (this.busy || this.stale || this.skipped.has(group)) return;
     const keep = new Set(this.keep);
+    const preferred = new Set(
+      toggle
+        ? group.files.filter((file) => keep.has(file.item.id)).map((file) => file.item.id)
+        : [],
+    );
+    if (toggle && preferred.has(id)) preferred.delete(id);
+    else preferred.add(id);
     for (const file of group.files) keep.delete(file.item.id);
-    const selection = selectWithReasons(group, this.rules, id);
+    const selection = selectWithReasons(group, this.rules, preferred);
     for (const keeper of selection.keep) keep.add(keeper);
     this.reasons = new Map([...this.reasons, ...selection.reasons]);
     for (const file of group.files) this.badges.delete(file.item.id);
     this.badges = new Map([...this.badges, ...selection.badges]);
     this.keep = keep;
+  }
+
+  private preview(group: DuplicateFileGroup, file: DuplicateFile): void {
+    const plan = this.plan;
+    void openViewer({
+      startId: file.item.id,
+      startItem: file.item,
+      loadIds: async () => group.files.map((entry) => entry.item.id),
+      review: {
+        items: group.files.map((entry) => entry.item),
+        isKept: (id) => this.keep.has(id),
+        choose: (id, toggle) => this.choose(group, id, toggle),
+        disabled: () =>
+          this.busy ||
+          this.stale ||
+          !this.isConnected ||
+          this.plan !== plan ||
+          this.skipped.has(group),
+      },
+    });
+  }
+
+  private skip(group: DuplicateFileGroup): void {
+    if (this.busy || this.stale) return;
+    this.skipped = new Set([...this.skipped, group]);
   }
 
   private preferFolder(file: DuplicateFile): void {
@@ -243,12 +281,13 @@ export class OpmDuplicateFiles extends OpmElement {
 
   private async trash(): Promise<void> {
     if (!this.plan || this.busy || this.stale) return;
+    const kept = this.keptIds();
     const remove = this.groups
       .flatMap((group) => group.files)
-      .filter((file) => !this.keep.has(file.item.id));
+      .filter((file) => !kept.has(file.item.id));
     if (remove.length === 0) return;
     const plan = this.plan;
-    const keep = [...this.keep];
+    const keep = [...kept];
     this.busy = true;
     try {
       const confirmed = await confirmDialog({
@@ -271,14 +310,26 @@ export class OpmDuplicateFiles extends OpmElement {
     }
   }
 
+  private keptIds(): Set<number> {
+    return new Set([
+      ...this.keep,
+      ...[...this.skipped].flatMap((group) => group.files.map((file) => file.item.id)),
+    ]);
+  }
+
   private renderGroup(group: DuplicateFileGroup, index: number) {
     const first = group.files[0];
     const kept = group.files.filter((file) => this.keep.has(file.item.id)).length;
     const differences = differingFields(group);
     return html`<article class="card border-2 border-base-300 bg-base-200 p-4" aria-label=${`Duplicate group ${index + 1}`}>
-      <div class="mb-3 flex flex-wrap items-baseline justify-between gap-2">
-        <h2 class="min-w-0 break-all text-base font-semibold">${first?.item.name}</h2>
+      <div class="mb-3 flex items-start gap-2">
+        <h2 class="min-w-0 flex-1 break-all text-base font-semibold">${first?.item.name}</h2>
         <span class="text-sm text-base-content/70">${group.files.length} copies · ${kept} to keep</span>
+        <button class="btn btn-sm btn-ghost shrink-0" aria-label="Skip duplicate match"
+          ${tooltip('Skip this group until the next search; keep every copy')}
+          ?disabled=${this.busy || this.stale} @click=${() => this.skip(group)}>
+          <opm-icon name="x" size="sm"></opm-icon><span class="hidden sm:inline">Skip</span>
+        </button>
       </div>
       <div class="grid gap-4" role="group" aria-label=${`Copies of ${first?.item.name}`}
         style=${styleMap({ gridTemplateColumns: `repeat(auto-fill, minmax(min(100%, ${this.size}px), 1fr))` })}>
@@ -289,7 +340,7 @@ export class OpmDuplicateFiles extends OpmElement {
             const keep = this.keep.has(file.item.id);
             const path = `${this.folderLabel({ volume_id: file.item.volume_id, dir: file.item.dir })}/${file.item.name}`;
             return html`<div class="min-w-0">
-            <div style=${styleMap({ aspectRatio: file.item.width !== null && file.item.width > 0 && file.item.height !== null && file.item.height > 0 ? `${file.item.width} / ${file.item.height}` : '1' })}
+            <div class="relative" style=${styleMap({ aspectRatio: file.item.width !== null && file.item.width > 0 && file.item.height !== null && file.item.height > 0 ? `${file.item.width} / ${file.item.height}` : '1' })}
               ${tooltip(this.reasons.get(file.item.id) ?? '')}
               @contextmenu=${(event: MouseEvent) => {
                 event.preventDefault();
@@ -305,11 +356,22 @@ export class OpmDuplicateFiles extends OpmElement {
                 }
               }}>
               <opm-file-card .item=${{ ...file.item, overlay: { matched: keep, will_delete: !keep, planned: false } }}
-                .size=${this.size} .focused=${true} .selected=${keep} .asButton=${true} .highlightSelection=${false} .showCaption=${false}
-                @card-activate=${() => {
-                  if (!this.busy && !this.stale) this.choose(group, file.item.id);
+                .size=${this.size} .focused=${true} .selected=${keep} .asButton=${true} .highlightSelection=${false} .showCaption=${false} .selectionActive=${true}
+                @card-activate=${(event: CardActivateEvent) => {
+                  this.choose(
+                    group,
+                    file.item.id,
+                    event.detail?.toggle ||
+                      event.detail?.via === 'checkbox' ||
+                      event.detail?.via === 'space',
+                  );
                 }}>
               </opm-file-card>
+              <button class="btn btn-sm absolute bottom-2 left-1/2 z-10 -translate-x-1/2 whitespace-nowrap"
+                aria-label=${`View full size: ${file.item.name}`}
+                @click=${() => this.preview(group, file)}>
+                <opm-icon name="maximize" size="sm"></opm-icon>View full size
+              </button>
             </div>
             <dl class="mt-2 space-y-1 text-sm">
               <div><dt class="sr-only">Filename</dt>
@@ -339,15 +401,17 @@ export class OpmDuplicateFiles extends OpmElement {
           },
         )}
       </div>
-      ${kept > 1 ? html`<p class="mt-3 text-sm text-base-content/70">Multiple keepers are needed because not every file in this group directly matches every other file.</p>` : nothing}
+      ${kept > 1 ? html`<p class="mt-3 text-sm text-base-content/70">Multiple copies are selected to keep. Every removal must directly match a keeper.</p>` : nothing}
     </article>`;
   }
 
   protected override render() {
+    const groups = this.groups.filter((group) => !this.skipped.has(group));
     const total = this.groups.reduce((sum, group) => sum + group.files.length, 0);
+    const kept = this.keptIds().size;
     const run = lastRun('duplicates').value;
     const actionable =
-      this.groups.length > 0 && !this.busy && !this.stale && this.plan?.state === 'ready';
+      groups.length > 0 && !this.busy && !this.stale && this.plan?.state === 'ready';
     const tags = [
       ...new Set(this.groups.flatMap((group) => group.files.flatMap((file) => file.tags))),
     ].sort();
@@ -403,10 +467,21 @@ export class OpmDuplicateFiles extends OpmElement {
           )}
         </div>
         <p class="text-xs text-base-content/70">The source chooses which files to match. Copies are searched across all volumes. Exclusions include subfolders and hide files on both sides.</p>
+        <p class="text-xs text-base-content/70">Click a copy to keep it. Cmd/Ctrl-click or use its checkbox to keep multiple copies. A required keeper stays selected so every removal has a direct match.</p>
       </div>
       <div data-groups class="min-h-0 flex-1 space-y-4 overflow-auto p-3" aria-busy=${this.busy}>
         ${this.failure ? html`<div class="alert alert-error" role="alert">${this.failure}</div>` : nothing}
         ${this.stale && this.plan ? html`<div class="alert alert-warning" role="status">Refresh the search before changing selections or removing files.</div>` : nothing}
+        ${
+          this.skipped.size > 0
+            ? html`<div class="flex flex-wrap items-center gap-2 text-sm" role="status">
+          <span>${this.skipped.size} groups skipped; every copy will be kept. Skips reset on the next search.</span>
+          <button class="btn btn-sm btn-ghost" ?disabled=${this.busy} @click=${() => {
+            this.skipped = new Set();
+          }}>Show skipped groups</button>
+        </div>`
+            : nothing
+        }
         ${this.plan?.warnings
           .filter((warning) => warning.code !== 'overlapping_scopes')
           .map(
@@ -426,12 +501,12 @@ export class OpmDuplicateFiles extends OpmElement {
             : nothing
         }
         ${repeat(
-          this.groups.slice(0, this.visible),
+          groups.slice(0, this.visible),
           (group) => group.files[0]?.item.id,
           (group, index) => this.renderGroup(group, index),
         )}
         ${
-          this.visible < this.groups.length
+          this.visible < groups.length
             ? html`<div data-load-more class="flex justify-center py-4">
           <button class="btn btn-sm btn-ghost" @click=${() => {
             this.visible += PAGE_SIZE;
@@ -441,7 +516,7 @@ export class OpmDuplicateFiles extends OpmElement {
         }
       </div>
       <footer class="flex flex-none flex-wrap items-center gap-3 border-t border-base-300 bg-base-100 p-3">
-        <span class="text-sm" role="status">${this.groups.length} groups · ${this.keep.size} to keep · ${total - this.keep.size} to remove</span>
+        <span class="text-sm" role="status">${groups.length} groups · ${kept} to keep · ${total - kept} to remove</span>
         <label class="flex items-center gap-2 text-sm">Thumbnail size
           <input class="range range-xs w-28" type="range" min="160" max="480" step="20" .value=${String(this.size)}
             aria-label="Duplicate thumbnail size" @input=${(event: Event) => {
@@ -453,7 +528,7 @@ export class OpmDuplicateFiles extends OpmElement {
           <button class="btn btn-sm btn-outline" ?disabled=${!actionable} @click=${() => {
             this.automatic = true;
           }}>Automatic Selection</button>
-          <button class="btn btn-sm btn-error" ?disabled=${!actionable || total === this.keep.size} @click=${() => this.trash()}>Trash ${total - this.keep.size} duplicates</button>
+          <button class="btn btn-sm btn-error" ?disabled=${!actionable || total === kept} @click=${() => this.trash()}>Trash ${total - kept} duplicates</button>
         </div>
       </footer>
       <opm-folder-picker .open=${this.picking !== null} .initial=${this.picking === 'source' ? this.source : { volume_id: null, dir: '', recursive: true }}
