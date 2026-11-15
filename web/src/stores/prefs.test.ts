@@ -23,6 +23,7 @@ afterEach(() => {
   if (loaded) {
     for (const store of [
       loaded.theme,
+      loaded.dateDisplayFormat,
       loaded.gridSize,
       loaded.folderView,
       loaded.hideUnmatchedFolders,
@@ -33,6 +34,25 @@ afterEach(() => {
     }
     loaded = undefined;
   }
+});
+
+describe('date display format', () => {
+  it('persists and restores a browser-local choice', async () => {
+    const prefs = await loadPrefs();
+    expect(prefs.dateDisplayFormat.value).toBe('system');
+    prefs.dateDisplayFormat.value = 'day-first';
+    expect(stored('dateDisplayFormat')).toBe('day-first');
+    prefs.dateDisplayFormat.dispose();
+    expect((await loadPrefs()).dateDisplayFormat.value).toBe('day-first');
+  });
+
+  it.each(['"unsupported"', 'null', '17', '{bad'])(
+    'rejects invalid saved format %s',
+    async (value) => {
+      localStorage.setItem('opm.v1.dateDisplayFormat', value);
+      expect((await loadPrefs()).dateDisplayFormat.value).toBe('system');
+    },
+  );
 });
 
 describe('defaults', () => {

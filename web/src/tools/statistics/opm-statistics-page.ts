@@ -5,6 +5,7 @@ import { events } from '@/api/sse';
 import { getStatistics } from '@/api/statistics';
 import { OpmElement } from '@/base/opm-element';
 import { linkTo } from '@/stores/nav';
+import { dateDisplayFormat } from '@/stores/prefs';
 import { isEnded } from '@/stores/tasks';
 import { volumes } from '@/stores/volumes';
 import {
@@ -196,11 +197,11 @@ export class OpmStatisticsPage extends OpmElement {
             data
               ? html`
             <div class="flex flex-wrap items-center justify-between gap-2 text-sm">
-              <p>Collection updated ${formatFileTime(data.observed_at, undefined, data.timezone)} · ${data.timezone}</p>
+              <p>Collection updated ${formatFileTime(data.observed_at, undefined, data.timezone, dateDisplayFormat.value)} · ${data.timezone}</p>
               <a class="link" href=${linkTo('/settings?section=general')}>Reporting timezone settings</a>
             </div>
             <div class="alert alert-info alert-soft text-sm" role="note">
-              <p class="text-base-content">History starts ${formatFileTime(data.started_at, undefined, data.timezone)}. Today is provisional.
+              <p class="text-base-content">History starts ${formatFileTime(data.started_at, undefined, data.timezone, dateDisplayFormat.value)}. Today is provisional.
                 Inventory is the latest recorded observation, not an exact midnight count.
                 Gaps and partial days are not zero activity.
                 ${data.pending_events ? `${count(data.pending_events)} changes are still being processed.` : ''}
@@ -358,7 +359,7 @@ export class OpmStatisticsPage extends OpmElement {
               (volume) => html`
               <tr><th>${volume.volume_name}</th><td>${volume.online ? 'Online' : 'Offline · retained index'}</td>
                 <td>${count(volume.files)}</td><td>${bytes(volume.bytes)}</td><td>${bytes(volume.trash_bytes)}</td>
-                <td>${formatFileTime(volume.last_scan_at, undefined, this.data?.timezone)}</td></tr>
+                <td>${formatFileTime(volume.last_scan_at, undefined, this.data?.timezone, dateDisplayFormat.value)}</td></tr>
             `,
             )}</tbody>
           </table>
@@ -422,7 +423,7 @@ export class OpmStatisticsPage extends OpmElement {
                 )}
                 <td>${row.state === 'No observation' ? EM_DASH : `${count(row.activity.duplicates?.bytes ?? 0)} B`}</td>
                 <td>${row.state === 'No observation' ? EM_DASH : `${count(row.activity.purged?.bytes ?? 0)} B`}</td>
-                <td>${formatFileTime(row.observedAt, undefined, row.timezone)}</td>
+                <td>${formatFileTime(row.observedAt, undefined, row.timezone, dateDisplayFormat.value)}</td>
               </tr>
             `,
             )}</tbody>

@@ -18,6 +18,7 @@ import { confirmDialog } from '@/components/confirm-dialog';
 import type { CardActivateEvent } from '@/components/opm-file-card';
 import { openViewer } from '@/components/opm-viewer';
 import { tooltip } from '@/components/tooltip';
+import { dateDisplayFormat } from '@/stores/prefs';
 import '@/components/opm-file-card';
 import '@/components/opm-folder-picker';
 import type { MatchChangeEvent } from '@/components/opm-match-mode';
@@ -32,6 +33,7 @@ import { matchMode, strictPrefix } from '@/tools/duplicates/duplicates-state';
 import {
   defaultRules,
   differingFields,
+  differingPathSegments,
   inFolder,
   parentFolders,
   type SelectionBadge,
@@ -40,7 +42,7 @@ import {
 } from '@/tools/duplicates/file-selection';
 import '@/tools/duplicates/opm-duplicate-selection';
 import { EMPTY_FILTER } from '@/util/filter';
-import { formatCaptureDate, formatFileSize } from '@/util/format';
+import { formatCaptureDate, formatFileSize, formatTimeDifference } from '@/util/format';
 import { isMatchMode } from '@/util/match-modes';
 
 const PAGE_SIZE = 20;
@@ -83,6 +85,7 @@ export class OpmDuplicateFiles extends OpmElement {
   private visible = PAGE_SIZE;
   private reasons = new Map<number, string>();
   private badges = new Map<number, SelectionBadge[]>();
+  private keeperOrder = new Map<DuplicateFileGroup, number[]>();
   private observer: IntersectionObserver | null = null;
   private automatic = false;
   private rules = defaultRules();
@@ -180,6 +183,7 @@ export class OpmDuplicateFiles extends OpmElement {
     this.groups = [];
     this.keep = new Set();
     this.skipped = new Set();
+    this.keeperOrder.clear();
     this.visible = PAGE_SIZE;
     const params: DuplicateFileParams = {
       matching: {
@@ -221,6 +225,7 @@ export class OpmDuplicateFiles extends OpmElement {
   }
 
   private applyRules(rules: SelectionRule[]): void {
+    this.keeperOrder.clear();
     this.rules = rules;
     const selections = this.groups.map((group) => selectWithReasons(group, rules));
     this.reasons = new Map(selections.flatMap((selection) => [...selection.reasons]));
@@ -240,6 +245,11 @@ export class OpmDuplicateFiles extends OpmElement {
     else preferred.add(id);
     for (const file of group.files) keep.delete(file.item.id);
     const selection = selectWithReasons(group, this.rules, preferred);
+    const order = (this.keeperOrder.get(group) ?? []).filter(
+      (keeper) => keeper !== id && selection.keep.has(keeper),
+    );
+    if (selection.keep.has(id)) order.push(id);
+    this.keeperOrder.set(group, order);
     for (const keeper of selection.keep) keep.add(keeper);
     this.reasons = new Map([...this.reasons, ...selection.reasons]);
     for (const file of group.files) this.badges.delete(file.item.id);
@@ -321,6 +331,15 @@ export class OpmDuplicateFiles extends OpmElement {
     const first = group.files[0];
     const kept = group.files.filter((file) => this.keep.has(file.item.id)).length;
     const differences = differingFields(group);
+    const referenceId = this.keeperOrder.get(group)?.at(-1);
+    const reference =
+      group.files.find((file) => file.item.id === referenceId) ??
+      group.files.find((file) => this.keep.has(file.item.id));
+    const paths = differingPathSegments(
+      group.files.map((file) =>
+        this.folderLabel({ volume_id: file.item.volume_id, dir: file.item.dir }),
+      ),
+    );
     return html`<article class="card border-2 border-base-300 bg-base-200 p-4" aria-label=${`Duplicate group ${index + 1}`}>
       <div class="mb-3 flex items-start gap-2">
         <h2 class="min-w-0 flex-1 break-all text-base font-semibold">${first?.item.name}</h2>
@@ -336,11 +355,11 @@ export class OpmDuplicateFiles extends OpmElement {
         ${repeat(
           group.files,
           (file) => file.item.id,
-          (file) => {
+          (file, fileIndex) => {
             const keep = this.keep.has(file.item.id);
             const path = `${this.folderLabel({ volume_id: file.item.volume_id, dir: file.item.dir })}/${file.item.name}`;
             return html`<div class="min-w-0">
-            <div class="relative" style=${styleMap({ aspectRatio: file.item.width !== null && file.item.width > 0 && file.item.height !== null && file.item.height > 0 ? `${file.item.width} / ${file.item.height}` : '1' })}
+            <div data-copy-thumbnail class="group/duplicate relative" style=${styleMap({ aspectRatio: file.item.width !== null && file.item.width > 0 && file.item.height !== null && file.item.height > 0 ? `${file.item.width} / ${file.item.height}` : '1' })}
               ${tooltip(this.reasons.get(file.item.id) ?? '')}
               @contextmenu=${(event: MouseEvent) => {
                 event.preventDefault();
@@ -356,7 +375,7 @@ export class OpmDuplicateFiles extends OpmElement {
                 }
               }}>
               <opm-file-card .item=${{ ...file.item, overlay: { matched: keep, will_delete: !keep, planned: false } }}
-                .size=${this.size} .focused=${true} .selected=${keep} .asButton=${true} .highlightSelection=${false} .showCaption=${false} .selectionActive=${true}
+                .size=${this.size} .focused=${true} .selected=${keep} .asButton=${true} .highlightSelection=${false} .showCaption=${false} .selectionActive=${true} .overlayControls=${true}
                 @card-activate=${(event: CardActivateEvent) => {
                   this.choose(
                     group,
@@ -367,11 +386,17 @@ export class OpmDuplicateFiles extends OpmElement {
                   );
                 }}>
               </opm-file-card>
-              <button class="btn btn-sm absolute bottom-2 left-1/2 z-10 -translate-x-1/2 whitespace-nowrap"
+              <button class="btn btn-sm pointer-events-none absolute top-2 left-2 z-20 whitespace-nowrap opacity-0 group-hover/duplicate:pointer-events-auto group-hover/duplicate:opacity-100 group-focus-within/duplicate:pointer-events-auto group-focus-within/duplicate:opacity-100 [@media(hover:none)]:pointer-events-auto [@media(hover:none)]:opacity-100"
                 aria-label=${`View full size: ${file.item.name}`}
                 @click=${() => this.preview(group, file)}>
                 <opm-icon name="maximize" size="sm"></opm-icon>View full size
               </button>
+              <div class="pointer-events-none absolute inset-x-2 bottom-2 z-20 flex items-end justify-between gap-2">
+                <span data-copy-status class="badge badge-sm pointer-events-auto ${keep ? 'badge-success' : 'badge-error'}"
+                  ${tooltip(this.reasons.get(file.item.id) ?? '')}>${keep ? 'Keep' : 'Remove'}</span>
+                <span data-copy-size tabindex="0" class="badge badge-sm badge-neutral pointer-events-auto ${differences.size ? 'font-bold' : 'font-normal'}"
+                  ${tooltip(`${file.item.size.toLocaleString()} bytes`)}>${formatFileSize(file.item.size)}</span>
+              </div>
             </div>
             <dl class="mt-2 space-y-1 text-sm">
               <div><dt class="sr-only">Filename</dt>
@@ -389,20 +414,42 @@ export class OpmDuplicateFiles extends OpmElement {
                   }
                 </dd>
               </div>
-              <div><dt class="sr-only">Size</dt><dd data-copy-size class=${differences.size ? 'font-bold' : 'font-normal'}
-                ${tooltip(`${file.item.size.toLocaleString()} bytes`)}>${formatFileSize(file.item.size)}${differences.size ? ` (${file.item.size.toLocaleString()} bytes)` : nothing}</dd></div>
-              <div><dt class="sr-only">Capture date</dt><dd data-copy-date class=${differences.capture_ts ? 'font-bold' : 'font-normal'}>${file.item.capture_ts === null ? 'No capture date' : formatCaptureDate(file.item.capture_ts, undefined, true)}</dd></div>
+              <div><dt class="sr-only">Capture date</dt><dd class="flex flex-wrap items-center gap-2">
+                <span data-copy-date class=${differences.capture_ts ? 'font-bold' : 'font-normal'}>${file.item.capture_ts === null ? 'No capture date' : formatCaptureDate(file.item.capture_ts, undefined, true, dateDisplayFormat.value)}</span>
+                ${differences.capture_ts ? this.renderDateDifference(file, reference) : nothing}
+              </dd></div>
             </dl>
-            <div class="mt-2 flex items-center justify-between gap-2 text-sm">
-              <span class="badge badge-sm ${keep ? 'badge-success' : 'badge-error'}" ${tooltip(this.reasons.get(file.item.id) ?? '')}>${keep ? 'Keep' : 'Remove'}</span>
-            </div>
-            <p class="mt-2 break-all text-xs text-base-content/70" ${tooltip(path)}>${this.folderLabel({ volume_id: file.item.volume_id, dir: file.item.dir })}</p>
+            <p data-copy-path class="mt-2 break-all text-base font-normal text-base-content" ${tooltip(path)}>${paths[
+              fileIndex
+            ]?.map(
+              (part, index) =>
+                html`${index > 0 ? '/' : ''}${part.different ? html`<strong class="font-bold">${part.text}</strong>` : part.text}`,
+            )}</p>
           </div>`;
           },
         )}
       </div>
       ${kept > 1 ? html`<p class="mt-3 text-sm text-base-content/70">Multiple copies are selected to keep. Every removal must directly match a keeper.</p>` : nothing}
     </article>`;
+  }
+
+  private renderDateDifference(file: DuplicateFile, reference: DuplicateFile | undefined) {
+    if (!reference) return nothing;
+    if (file.item.id === reference.item.id)
+      return html`<span data-date-reference class="badge badge-sm badge-outline"
+        ${tooltip('Date/time reference: the most recently selected keeper, or the first automatic keeper')}>Reference</span>`;
+    const timestamp = file.item.capture_ts;
+    const baseline = reference.item.capture_ts;
+    if (timestamp === baseline) return nothing;
+    const label =
+      timestamp === null
+        ? 'Unknown difference'
+        : baseline === null
+          ? 'No reference date'
+          : formatTimeDifference(timestamp - baseline);
+    const keeperPath = `${this.folderLabel({ volume_id: reference.item.volume_id, dir: reference.item.dir })}/${reference.item.name}`;
+    return html`<span data-date-difference class="badge badge-sm badge-neutral h-auto whitespace-normal"
+      tabindex="0" ${tooltip(`Compared with keeper ${keeperPath}. ${timestamp === null || baseline === null ? 'A capture date is missing; the offset cannot be calculated.' : 'Positive means later; negative means earlier.'}`)}>${label}</span>`;
   }
 
   protected override render() {

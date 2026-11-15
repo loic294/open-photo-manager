@@ -7,6 +7,7 @@ import type { TrashSort } from '@/api/generated/TrashSort';
 import type { TrashVolumeSummary } from '@/api/generated/TrashVolumeSummary';
 import { OpmElement } from '@/base/opm-element';
 import { tooltip } from '@/components/tooltip';
+import { dateDisplayFormat } from '@/stores/prefs';
 import {
   renderEmpty,
   renderPager,
@@ -256,7 +257,7 @@ export class OpmTrashItems extends OpmElement {
         <td>${item.volume}</td>
         <td class="whitespace-nowrap text-right tabular-nums">${formatFileSize(item.size)}</td>
         <td class="whitespace-nowrap">
-          <span ${tooltip(formatFileTime(item.trashed_at))}>${relativeTime(item.trashed_at)}</span>
+          <span ${tooltip(formatFileTime(item.trashed_at, undefined, undefined, dateDisplayFormat.value))}>${relativeTime(item.trashed_at)}</span>
         </td>
         <td>${renderReasonBadge(item.reason)}</td>
         <td class="whitespace-nowrap text-right">

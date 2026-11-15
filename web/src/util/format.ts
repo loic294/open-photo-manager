@@ -1,3 +1,6 @@
+export const DATE_DISPLAY_FORMATS = ['system', 'iso', 'day-first', 'month-first'] as const;
+export type DateDisplayFormat = (typeof DATE_DISPLAY_FORMATS)[number];
+
 /** Shown where a value is missing. */
 export const EM_DASH = '\u2014';
 
@@ -10,14 +13,26 @@ function dateFormat(
   utc: boolean,
   seconds = false,
   timeZone?: string,
+  display: DateDisplayFormat = 'system',
 ): Intl.DateTimeFormat {
   const zone = utc ? 'UTC' : timeZone;
-  const key = `${locale ?? ''}|${zone ?? 'local'}|${seconds}`;
+  const key = `${locale ?? ''}|${zone ?? 'local'}|${seconds}|${display}`;
   let format = dateFormats.get(key);
   if (!format) {
     format = new Intl.DateTimeFormat(locale, {
-      dateStyle: 'medium',
-      timeStyle: seconds ? 'medium' : 'short',
+      ...(display === 'system'
+        ? ({ dateStyle: 'medium', timeStyle: seconds ? 'medium' : 'short' } as const)
+        : ({
+            year: 'numeric',
+            month: '2-digit',
+            day: '2-digit',
+            hour: '2-digit',
+            minute: '2-digit',
+            ...(seconds ? ({ second: '2-digit' } as const) : {}),
+            hourCycle: 'h23',
+            numberingSystem: 'latn',
+            calendar: 'gregory',
+          } as const)),
       ...(zone ? { timeZone: zone } : {}),
     });
     dateFormats.set(key, format);
@@ -31,12 +46,29 @@ function formatSeconds(
   utc: boolean,
   seconds = false,
   timeZone?: string,
+  display: DateDisplayFormat = 'system',
 ): string {
   if (typeof ts !== 'number' || !Number.isFinite(ts)) return EM_DASH;
   const date = new Date(ts * 1000);
-  return Number.isNaN(date.getTime())
-    ? EM_DASH
-    : dateFormat(locale, utc, seconds, timeZone).format(date);
+  if (Number.isNaN(date.getTime())) return EM_DASH;
+  const formatter = dateFormat(locale, utc, seconds, timeZone, display);
+  if (display === 'system') return formatter.format(date);
+  const parts = formatter.formatToParts(date);
+  const part = (kind: Intl.DateTimeFormatPartTypes): string => {
+    const value = parts.find((entry) => entry.type === kind)?.value;
+    if (value === undefined) throw new Error(`Missing date/time part: ${kind}`);
+    return value;
+  };
+  const day = part('day');
+  const month = part('month');
+  const year = part('year');
+  const calendar =
+    display === 'iso'
+      ? `${year}-${month}-${day}`
+      : display === 'day-first'
+        ? `${day}/${month}/${year}`
+        : `${month}/${day}/${year}`;
+  return `${calendar} ${part('hour')}:${part('minute')}${seconds ? `:${part('second')}` : ''}`;
 }
 
 function numberFormat(locale: string | undefined, fractionDigits: number): Intl.NumberFormat {
@@ -61,8 +93,9 @@ export function formatCaptureDate(
   ts: number | null | undefined,
   locale?: string,
   seconds = false,
+  display: DateDisplayFormat = 'system',
 ): string {
-  return formatSeconds(ts, locale, true, seconds);
+  return formatSeconds(ts, locale, true, seconds, undefined, display);
 }
 
 /**
@@ -74,8 +107,9 @@ export function formatFileTime(
   ts: number | null | undefined,
   locale?: string,
   timeZone?: string,
+  display: DateDisplayFormat = 'system',
 ): string {
-  return formatSeconds(ts, locale, false, false, timeZone);
+  return formatSeconds(ts, locale, false, false, timeZone, display);
 }
 
 const SIZE_UNITS = ['B', 'KB', 'MB', 'GB', 'TB'] as const;
@@ -113,6 +147,24 @@ export function formatDuration(ms: number | null | undefined): string {
   return hours > 0
     ? `${hours}:${String(minutes).padStart(2, '0')}:${seconds}`
     : `${minutes}:${seconds}`;
+}
+
+/** A signed, exact capture-time offset, with no rounding away seconds. */
+export function formatTimeDifference(seconds: number): string {
+  if (!Number.isFinite(seconds)) return EM_DASH;
+  let remaining = Math.abs(Math.trunc(seconds));
+  const parts: string[] = [];
+  for (const [unit, size] of [
+    ['d', 86400],
+    ['h', 3600],
+    ['m', 60],
+    ['s', 1],
+  ] as const) {
+    const count = Math.floor(remaining / size);
+    if (count > 0) parts.push(`${count}${unit}`);
+    remaining %= size;
+  }
+  return parts.length === 0 ? '0s' : `${seconds < 0 ? '-' : '+'}${parts.join(' ')}`;
 }
 
 /** What a task's `speed` counts: bytes per second when it declared a byte total, else items. */

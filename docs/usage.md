@@ -105,16 +105,23 @@ red borders and **Remove** labels mean move to Trash after confirmation. Click a
 prefer that copy instead of the current selection. Cmd/Ctrl-click or use a thumbnail's checkbox
 to toggle additional copies to keep. Space toggles the focused copy. A required keeper stays
 selected if removing it would leave a removal without a direct matching survivor.
-Filename, size and capture date appear beneath each thumbnail; fields that
-differ between copies are bold. Differing sizes include exact byte counts, and capture dates
-include seconds (a missing date is shown explicitly).
+**Keep**/**Remove** overlays the thumbnail's bottom left, with file size at the bottom right
+(hover or focus it for exact bytes). Filename and capture date appear beneath each thumbnail;
+fields that differ between copies are bold. Capture dates include seconds (a missing date is
+shown explicitly). A signed badge to the right of a differing date shows its exact offset from
+the **Reference** keeper: the most recently selected keeper, or the first automatic keeper.
+With multiple keepers, unchecking the reference falls back to the last selected remaining keeper.
+Missing dates are marked as unavailable comparisons, never zero offsets.
+Folder paths use larger text, with differing volume or folder segments in bold; shared prefixes
+and suffixes remain regular for easier side-by-side comparison.
 Star ratings and flags appear as icon pills on the thumbnail when set. Thumbnails retain
 the image's aspect ratio. Hover a thumbnail or its Keep/Remove pill to see the selecting rule.
 The bottom slider adjusts thumbnail size; groups load as you scroll, without changing selection
 rules or the final action. Name-based matches are not always transitive, so a group can require
 multiple keepers: every removal must directly match a retained file.
 
-Use the overlaid **View full size** button to open the same viewer as Browse, including zoom,
+Hover or focus a thumbnail to reveal **View full size** at its top left (always available on touch).
+Use it to open the same viewer as Browse, including zoom,
 file information and access to the original. The bottom thumbnail strip navigates within that
 duplicate group and marks the currently viewed copy separately from **Keep**/**Remove**.
 **Keep this file** toggles the viewed copy; **Keep this copy instead** replaces the group's
@@ -302,6 +309,12 @@ not accepted by **Folder formatting**. The examples use the generated sample fil
    You should see: a confirmation before folder removal and a background task afterwards.
 
 ## Settings and indexing
+
+**Display** > **Date and time format** offers the browser locale, year-first (`2026-11-14`),
+day-first (`14/11/2026`) and month-first (`11/14/2026`) dates. Numeric formats use a 24-hour
+clock. This preference applies immediately to capture dates and file timestamps and is saved
+in this browser, independently of the server settings' Save/Discard actions. Camera capture
+times remain wall-clock times; file timestamps still use the applicable timezone.
 
 1. Open **Settings** > **General**. **Files and sidecars** controls **Sidecar extensions**,
    **Ignored names** and **Ignored prefixes**. Defaults link full-filename or same-stem companions

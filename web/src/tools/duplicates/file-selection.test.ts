@@ -6,6 +6,7 @@ import {
   compareFiles,
   defaultRules,
   differingFields,
+  differingPathSegments,
   inFolder,
   parentFolders,
   type RuleKind,
@@ -21,6 +22,31 @@ const file = (id: number, patch: Partial<DuplicateFile> = {}): DuplicateFile => 
   has_description: false,
   tags: [],
   ...patch,
+});
+
+it.each([
+  {
+    paths: ['photos/trip/day', 'photos/backup/day'],
+    bold: [['trip'], ['backup']],
+  },
+  { paths: ['photos/trip', 'photos/trip/day'], bold: [[], ['day']] },
+  { paths: ['photos/trip/day', 'photos/trip'], bold: [['day'], []] },
+  { paths: ['photos/trip', 'photos/trip'], bold: [[], []] },
+  {
+    paths: ['photos/trip/day', 'archive/backup/day', 'photos/other/day'],
+    bold: [
+      ['photos', 'trip'],
+      ['archive', 'backup'],
+      ['photos', 'other'],
+    ],
+  },
+  { paths: ['photos/été', 'photos/e\u0301té'], bold: [['été'], ['e\u0301té']] },
+])('emphasizes only differing folder segments in $paths', ({ paths, bold }) => {
+  const segments = differingPathSegments(paths);
+  expect(
+    segments.map((parts) => parts.filter((part) => part.different).map((part) => part.text)),
+  ).toEqual(bold);
+  expect(segments.map((parts) => parts.map((part) => part.text).join('/'))).toEqual(paths);
 });
 
 it('retains multiple manual keepers even when they match and fills uncovered parts of a chain', () => {

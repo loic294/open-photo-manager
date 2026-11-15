@@ -8,7 +8,7 @@ import { OpmElement } from '@/base/opm-element';
 import { tooltip } from '@/components/tooltip';
 import '@/components/opm-icon';
 import type { IconName } from '@/components/opm-icon';
-import { GRID_SIZE } from '@/stores/prefs';
+import { dateDisplayFormat, GRID_SIZE } from '@/stores/prefs';
 import { EM_DASH, formatCaptureDate, formatDuration, formatFileSize } from '@/util/format';
 
 /** Height in px of the caption (name and date) under the thumbnail. */
@@ -215,7 +215,7 @@ const FILE_DATE_HINT = 'File date (created or modified): the file has no capture
 
 /** `capture_ts` is the photographer's wall clock; the icon tells where it comes from. */
 function cardDate(item: FileItem): CardDate {
-  const text = formatCaptureDate(item.capture_ts);
+  const text = formatCaptureDate(item.capture_ts, undefined, false, dateDisplayFormat.value);
   if (text === EM_DASH) return { text, icon: null, hint: 'No date' };
   const source = item.capture_src;
   if (source === 'exif' || source === 'xmp' || source === 'video') {
@@ -226,7 +226,7 @@ function cardDate(item: FileItem): CardDate {
 
 /** What a screen reader says for the card: the name, the date, then everything the badges show. */
 function cardLabel(item: FileItem): string {
-  const date = formatCaptureDate(item.capture_ts);
+  const date = formatCaptureDate(item.capture_ts, undefined, false, dateDisplayFormat.value);
   const parts = [item.name, date === EM_DASH ? 'no date' : date];
   if (item.overlay.will_delete) parts.push('will be deleted');
   if (item.overlay.matched) parts.push('matched');
@@ -277,6 +277,7 @@ export class OpmFileCard extends OpmElement {
     asButton: { type: Boolean, attribute: 'as-button' },
     highlightSelection: { type: Boolean, attribute: 'highlight-selection' },
     showCaption: { type: Boolean, attribute: 'show-caption' },
+    overlayControls: { type: Boolean, attribute: 'overlay-controls' },
     selectionActive: { type: Boolean, attribute: 'selection-active' },
     size: { type: Number },
     focused: { type: Boolean },
@@ -289,6 +290,8 @@ export class OpmFileCard extends OpmElement {
   asButton = false;
   highlightSelection = true;
   showCaption = true;
+  /** Leaves the thumbnail corners free for its caller's action and status overlays. */
+  overlayControls = false;
   declare selectionActive: boolean;
   declare size: number;
   declare focused: boolean;
@@ -465,12 +468,12 @@ export class OpmFileCard extends OpmElement {
       ${this.renderThumbnail(item)}
       ${
         top.length > 0
-          ? html`<div class="absolute top-1 left-1 flex max-w-[calc(100%-2rem)] gap-1 overflow-hidden">${top.map((badge) => this.renderBadge(badge))}</div>`
+          ? html`<div class="absolute ${this.overlayControls ? 'top-12' : 'top-1'} left-1 flex max-w-[calc(100%-2rem)] gap-1 overflow-hidden">${top.map((badge) => this.renderBadge(badge))}</div>`
           : nothing
       }
       ${
         bottom.length > 0
-          ? html`<div class="absolute bottom-1 left-1 flex gap-1">${bottom.map((badge) => this.renderBadge(badge))}</div>`
+          ? html`<div class="absolute ${this.overlayControls ? 'bottom-9' : 'bottom-1'} left-1 flex gap-1">${bottom.map((badge) => this.renderBadge(badge))}</div>`
           : nothing
       }
       ${item.overlay.planned ? nothing : this.renderCheckbox(selected)}

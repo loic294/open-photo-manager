@@ -7,7 +7,40 @@ import {
   formatFileSize,
   formatFileTime,
   formatRate,
+  formatTimeDifference,
 } from '@/util/format';
+
+describe('preferred date and time format', () => {
+  it.each([
+    ['iso', '2023-11-14 22:13:20'],
+    ['day-first', '14/11/2023 22:13:20'],
+    ['month-first', '11/14/2023 22:13:20'],
+  ] as const)('uses %s without changing the camera wall clock', (format, expected) => {
+    expect(formatCaptureDate(1_700_000_000, 'en-US', true, format)).toBe(expected);
+    expect(formatCaptureDate(1_700_000_000, 'fr-FR', true, format)).toBe(expected);
+    expect(formatCaptureDate(1_700_000_000, 'th-TH-u-ca-buddhist', true, format)).toBe(expected);
+    expect(formatCaptureDate(1_700_000_000, 'en-US', false, format)).toBe(expected.slice(0, -3));
+  });
+
+  it('keeps real-instant timezone conversion and renders midnight as 00:00', () => {
+    expect(formatFileTime(1_700_000_000, 'en-US', 'Asia/Kolkata', 'iso')).toBe('2023-11-15 03:43');
+    expect(formatFileTime(0, 'en-US', 'UTC', 'iso')).toBe('1970-01-01 00:00');
+    expect(formatFileTime(0, 'en-US', 'UTC', 'day-first')).toBe('01/01/1970 00:00');
+  });
+});
+
+describe('formatTimeDifference', () => {
+  it.each([
+    [1, '+1s'],
+    [-61, '-1m 1s'],
+    [90061, '+1d 1h 1m 1s'],
+    [3600, '+1h'],
+    [0, '0s'],
+    [Number.NaN, EM_DASH],
+  ])('formats %s seconds as %s', (seconds, expected) => {
+    expect(formatTimeDifference(seconds)).toBe(expected);
+  });
+});
 
 describe('formatCaptureDate', () => {
   // 2023-11-14T22:13:20Z

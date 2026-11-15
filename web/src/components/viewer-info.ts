@@ -5,6 +5,7 @@ import type { FileItem } from '@/api/generated/FileItem';
 import type { FileKind } from '@/api/generated/FileKind';
 import { tooltip } from '@/components/tooltip';
 import { isBoolean, persistedSignal } from '@/stores/persisted';
+import { dateDisplayFormat } from '@/stores/prefs';
 import { volumes } from '@/stores/volumes';
 import {
   EM_DASH,
@@ -75,7 +76,7 @@ function dimensions(item: FileItem): string {
 }
 
 function capture(item: FileItem): InfoValue {
-  const date = formatCaptureDate(item.capture_ts);
+  const date = formatCaptureDate(item.capture_ts, undefined, false, dateDisplayFormat.value);
   if (date === EM_DASH || item.capture_src === null) return date;
   return html`${date} <span class="badge badge-ghost badge-xs">${CAPTURE_SOURCE_LABEL[item.capture_src]}</span>`;
 }
@@ -159,11 +160,18 @@ export const INFO_ROWS: readonly InfoRow[] = [
       ),
   },
   { id: 'hash', label: 'Hash', value: (ctx) => fromDetail(ctx, (detail) => hash(detail.hash)) },
-  { id: 'modified', label: 'Modified', value: ({ item }) => formatFileTime(item.mtime) },
+  {
+    id: 'modified',
+    label: 'Modified',
+    value: ({ item }) => formatFileTime(item.mtime, undefined, undefined, dateDisplayFormat.value),
+  },
   {
     id: 'created',
     label: 'Created',
-    value: (ctx) => fromDetail(ctx, (detail) => formatFileTime(detail.btime)),
+    value: (ctx) =>
+      fromDetail(ctx, (detail) =>
+        formatFileTime(detail.btime, undefined, undefined, dateDisplayFormat.value),
+      ),
   },
   {
     id: 'immich',

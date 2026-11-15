@@ -13,6 +13,7 @@ import '@/components/opm-select';
 import { toast } from '@/components/toast';
 import { UnsavedGuard } from '@/controllers/unsaved-guard';
 import { indexStatus } from '@/stores/index-status';
+import { dateDisplayFormat, isDateDisplayFormat } from '@/stores/prefs';
 import {
   includeFolder,
   loadSettings,
@@ -43,6 +44,7 @@ import {
   validateJunkPrefix,
 } from '@/tools/settings/limits';
 import { CONFLICT_POLICIES, isConflictPolicy } from '@/util/conflict-policies';
+import { formatCaptureDate } from '@/util/format';
 
 type ListField = 'sidecar_extensions' | 'junk_names' | 'junk_prefixes';
 type NumberField =
@@ -493,11 +495,37 @@ export class OpmSettingsGeneral extends OpmElement {
         novalidate
         @submit=${(event: Event) => event.preventDefault()}
       >
-        ${this.renderAlert()} ${this.renderFiles(doc)} ${this.renderMoving(doc)}
+        ${this.renderAlert()} ${this.renderDisplay()} ${this.renderFiles(doc)} ${this.renderMoving(doc)}
         ${this.renderStatistics(doc)} ${this.renderIndexing(doc)} ${this.renderVolumes()} ${this.renderExcluded()} ${this.renderExcluded(true)}
         ${this.dirty ? this.renderActionBar() : nothing}
       </form>
     `;
+  }
+
+  private renderDisplay() {
+    return html`
+      <fieldset class=${CARD}>
+        <legend class="fieldset-legend text-base">Display</legend>
+        <div class="flex flex-col gap-2">
+          <label for="settings-date-display" class="font-medium">Date and time format</label>
+          <select id="settings-date-display" class="select w-full max-w-sm" aria-describedby="date-display-help"
+            .value=${live(dateDisplayFormat.value)}
+            @change=${(event: Event) => {
+              const value = (event.target as HTMLSelectElement).value;
+              if (isDateDisplayFormat(value)) dateDisplayFormat.value = value;
+            }}>
+            <option value="system">System (browser locale)</option>
+            <option value="iso">Year first: 2026-11-14 20:30:45</option>
+            <option value="day-first">Day first: 14/11/2026 20:30:45</option>
+            <option value="month-first">Month first: 11/14/2026 20:30:45</option>
+          </select>
+        </div>
+        <p data-date-preview>${formatCaptureDate(Date.UTC(2026, 10, 14, 20, 30, 45) / 1000, undefined, true, dateDisplayFormat.value)}</p>
+        <p id="date-display-help" class="text-xs text-base-content/70">
+          Applies to capture dates and file timestamps. Saved automatically for this browser.
+          Numeric formats use a 24-hour clock. Capture times stay on the camera's clock.
+        </p>
+      </fieldset>`;
   }
 
   private renderSkeleton() {

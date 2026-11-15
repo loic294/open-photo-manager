@@ -4,6 +4,7 @@ import type { SettingsDto } from '@/api/generated/SettingsDto';
 import type { OpmChipInput } from '@/components/opm-chip-input';
 import type { OpmSelect } from '@/components/opm-select';
 import { refreshIndexStatus, resetIndexStatusForTests } from '@/stores/index-status';
+import { dateDisplayFormat } from '@/stores/prefs';
 import { clearToasts, toasts } from '@/stores/toasts';
 import { loadVolumes, resetVolumesForTests } from '@/stores/volumes';
 import { mount } from '@/test/helpers';
@@ -181,6 +182,7 @@ beforeEach(() => {
 });
 
 afterEach(() => {
+  dateDisplayFormat.value = 'system';
   vi.restoreAllMocks();
   resetIndexStatusForTests();
   resetVolumesForTests();
@@ -189,6 +191,27 @@ afterEach(() => {
 });
 
 describe('opm-settings-general', () => {
+  it('applies the date format immediately without dirtying or saving server settings', async () => {
+    const { element, requests } = await open();
+    const select = element.querySelector<HTMLSelectElement>(
+      'select[aria-describedby="date-display-help"]',
+    );
+    if (!select) throw new Error('Missing date format selector');
+    select.value = 'day-first';
+    select.dispatchEvent(new Event('change', { bubbles: true }));
+    await element.updateComplete;
+    expect(dateDisplayFormat.value).toBe('day-first');
+    expect(element.querySelector('[data-date-preview]')?.textContent).toBe('14/11/2026 20:30:45');
+    expect(bar(element)).toBeNull();
+    expect(requests.filter((request) => request.method !== 'GET')).toHaveLength(0);
+    element.remove();
+    const { element: reopened } = await open();
+    expect(
+      reopened.querySelector<HTMLSelectElement>('select[aria-describedby="date-display-help"]')
+        ?.value,
+    ).toBe('day-first');
+  });
+
   it('shows volume capabilities and host warnings read-only', async () => {
     const { element } = await open();
     vi.spyOn(api, 'get').mockImplementation(async (path) => {
@@ -283,6 +306,7 @@ describe('opm-settings-general', () => {
         legend.textContent?.trim(),
       );
       expect(legends).toEqual([
+        'Display',
         'Files and sidecars',
         'Moving and deleting',
         'Library statistics',
@@ -810,7 +834,7 @@ describe('opm-settings-general', () => {
       expect(requests).toHaveLength(2);
       for (const card of element.querySelectorAll('fieldset')) {
         const legend = card.querySelector('legend')?.textContent?.trim() ?? '';
-        if (['Volumes', 'Excluded folders', 'Soft-excluded folders'].includes(legend)) {
+        if (['Display', 'Volumes', 'Excluded folders', 'Soft-excluded folders'].includes(legend)) {
           expect(card.hasAttribute('disabled')).toBe(false);
           continue;
         }

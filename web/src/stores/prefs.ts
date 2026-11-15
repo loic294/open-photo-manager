@@ -11,6 +11,7 @@ import {
   recordOf,
   type Validator,
 } from '@/stores/persisted';
+import { DATE_DISPLAY_FORMATS, type DateDisplayFormat } from '@/util/format';
 
 /** User preferences. Every signal persists to localStorage and syncs across tabs. */
 
@@ -19,6 +20,13 @@ export type ThemePref = (typeof THEMES)[number];
 
 /** `system` follows the operating system. Applied to `<html>` by `@/app/theme`. */
 export const theme = persistedSignal<ThemePref>('theme', 'system', oneOf(THEMES));
+
+export const isDateDisplayFormat = oneOf(DATE_DISPLAY_FORMATS);
+export const dateDisplayFormat = persistedSignal<DateDisplayFormat>(
+  'dateDisplayFormat',
+  'system',
+  isDateDisplayFormat,
+);
 
 /** Thumbnail edge length in px. `step` is for the slider; `setGridSize` clamps. */
 export const GRID_SIZE = { min: 96, max: 320, step: 16, default: 160 } as const;

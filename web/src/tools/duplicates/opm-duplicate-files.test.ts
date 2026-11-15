@@ -81,6 +81,30 @@ it('preserves image aspect ratios and explains selections on hover', async () =>
   expect(el.textContent).toContain('1 in subfolders');
 });
 
+it('shows readable folder paths and bolds only differing segments across copies', async () => {
+  vi.mocked(api.get).mockResolvedValueOnce({
+    groups: groups.map((group) => ({
+      ...group,
+      files: group.files.map((file, index) => ({
+        ...file,
+        item: { ...file.item, volume_id: 1, dir: index === 1 ? 'backup/day' : 'trip/day' },
+      })),
+    })),
+  });
+  const el = await searched();
+  const paths = [...el.querySelectorAll('[data-copy-path]')];
+  expect(paths.map((path) => path.textContent)).toEqual([
+    'photos/trip/day',
+    'photos/backup/day',
+    'photos/trip/day',
+  ]);
+  expect(
+    paths.map((path) => [...path.querySelectorAll('strong')].map((part) => part.textContent)),
+  ).toEqual([['trip'], ['backup'], ['trip']]);
+  expect(paths.every((path) => path.classList.contains('text-base'))).toBe(true);
+  expect(paths[0]?.getAttribute('data-tooltip')).toContain('photos/trip/day/');
+});
+
 it('appends groups when the sentinel enters view and preserves earlier choices', async () => {
   let intersect = (_entries: { isIntersecting: boolean }[]) => {};
   const disconnect = vi.fn();
@@ -169,6 +193,79 @@ it('opens a copy in the shared viewer without changing keepers and rejects stale
   source?.review?.choose(3, false);
   await settle(el);
   expect(source?.review?.isKept(3)).toBe(false);
+});
+
+it('overlays keep status and file size without nesting the fullscreen button in a card', async () => {
+  const el = await searched();
+  const card = el.querySelector('opm-file-card');
+  const thumbnail = card?.parentElement;
+  expect(card?.overlayControls).toBe(true);
+  expect(thumbnail?.querySelector('[data-copy-status]')?.textContent).toBe('Keep');
+  expect(thumbnail?.querySelector('[data-copy-size]')?.textContent).toBe('100 B');
+  expect(thumbnail?.querySelector('[data-copy-size]')?.getAttribute('data-tooltip')).toBe(
+    '100 bytes',
+  );
+  expect(card?.querySelector('[aria-label^="View full size:"]')).toBeNull();
+  expect(thumbnail?.querySelector('button[aria-label^="View full size:"]')).not.toBeNull();
+});
+
+it('compares dates with the latest retained selection and falls back when it is unchecked', async () => {
+  vi.mocked(api.get).mockResolvedValueOnce({
+    groups: groups.map((group) => ({
+      ...group,
+      files: group.files.map((file, index) => ({
+        ...file,
+        item: { ...file.item, capture_ts: 1700000000 + index * 61 },
+      })),
+    })),
+  });
+  const el = await searched();
+  const cards = [...el.querySelectorAll('opm-file-card')];
+  const differences = () =>
+    [...el.querySelectorAll('[data-copy-date]')].map(
+      (date) => date.parentElement?.querySelector('[data-date-difference]')?.textContent ?? null,
+    );
+  const choose = async (index: number, toggle = false) => {
+    cards[index]?.dispatchEvent(
+      new CustomEvent('card-activate', {
+        bubbles: true,
+        detail: { toggle },
+      }),
+    );
+    await settle(el);
+  };
+  expect(differences()).toEqual([null, '+1m 1s', '+2m 2s']);
+  await choose(1, true);
+  expect(differences()).toEqual(['-1m 1s', null, '+1m 1s']);
+  await choose(2, true);
+  expect(differences()).toEqual(['-2m 2s', '-1m 1s', null]);
+  await choose(2, true);
+  expect(differences()).toEqual(['-1m 1s', null, '+1m 1s']);
+  await choose(2);
+  expect(cards.map((card) => card.selected)).toEqual([false, false, true]);
+  expect(differences()).toEqual(['-2m 2s', '-1m 1s', null]);
+});
+
+it('omits equal-date offsets and reports missing dates without inventing a difference', async () => {
+  vi.mocked(api.get).mockResolvedValueOnce({
+    groups: groups.map((group) => ({
+      ...group,
+      files: group.files.map((file, index) => ({
+        ...file,
+        item: { ...file.item, capture_ts: index === 2 ? null : 1700000000 },
+      })),
+    })),
+  });
+  const el = await searched();
+  expect(
+    [...el.querySelectorAll('[data-date-difference]')].map((badge) => badge.textContent),
+  ).toEqual(['Unknown difference']);
+  const cards = [...el.querySelectorAll('opm-file-card')];
+  cards[2]?.dispatchEvent(new CustomEvent('card-activate', { bubbles: true }));
+  await settle(el);
+  expect(
+    [...el.querySelectorAll('[data-date-difference]')].map((badge) => badge.textContent),
+  ).toEqual(['No reference date', 'No reference date']);
 });
 
 it('skips groups locally and explicitly retains their files in execution options', async () => {

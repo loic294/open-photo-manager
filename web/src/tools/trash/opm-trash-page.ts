@@ -18,6 +18,7 @@ import { confirmDialog } from '@/components/confirm-dialog';
 import { toast } from '@/components/toast';
 import { tooltip } from '@/components/tooltip';
 import { linkTo } from '@/stores/nav';
+import { dateDisplayFormat } from '@/stores/prefs';
 import { isEnded } from '@/stores/tasks';
 import type { TrashBatchEvent } from '@/tools/trash/opm-trash-deletions';
 import type {
@@ -418,7 +419,7 @@ export class OpmTrashPage extends OpmElement {
     this.batchFilter = {
       volumeId: batch.volume_id,
       batch: batch.batch,
-      label: `Deletion of ${formatFileTime(batch.trashed_at)} on ${batch.volume}`,
+      label: `Deletion of ${formatFileTime(batch.trashed_at, undefined, undefined, dateDisplayFormat.value)} on ${batch.volume}`,
     };
     this.offset = 0;
     this.selected = new Set();

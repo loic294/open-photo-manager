@@ -45,7 +45,31 @@ test('duplicate review shares the full-size viewer, keeps multiple copies and sk
   const group = duplicatesPage
     .files()
     .getByRole('article', { name: 'Duplicate group 1', exact: true });
+  await expect(group.locator('[data-copy-path]').first()).toHaveCSS('font-size', '16px');
+  await expect(group.locator('[data-copy-path] strong').first()).toHaveCSS('font-weight', '700');
   const copies = group.locator('opm-file-card');
+  const thumbnail = group.locator('[data-copy-thumbnail]').first();
+  const fullscreen = group.getByRole('button', { name: /^View full size:/ }).first();
+  await page.mouse.move(0, 0);
+  await expect(fullscreen).toHaveCSS('opacity', '0');
+  await thumbnail.hover();
+  await expect(fullscreen).toHaveCSS('opacity', '1');
+  const frame = await thumbnail.boundingBox();
+  const fullBounds = await fullscreen.boundingBox();
+  const statusBounds = await thumbnail.locator('[data-copy-status]').boundingBox();
+  const sizeBounds = await thumbnail.locator('[data-copy-size]').boundingBox();
+  if (!frame || !fullBounds || !statusBounds || !sizeBounds)
+    throw new Error('Missing thumbnail overlays');
+  expect(fullBounds.x - frame.x).toBeLessThan(12);
+  expect(fullBounds.y - frame.y).toBeLessThan(12);
+  expect(statusBounds.x - frame.x).toBeLessThan(12);
+  expect(frame.y + frame.height - statusBounds.y - statusBounds.height).toBeLessThan(12);
+  expect(frame.x + frame.width - sizeBounds.x - sizeBounds.width).toBeLessThan(12);
+  expect(frame.y + frame.height - sizeBounds.y - sizeBounds.height).toBeLessThan(12);
+  expect(statusBounds.x + statusBounds.width).toBeLessThan(sizeBounds.x);
+  await fullscreen.focus();
+  await page.mouse.move(0, 0);
+  await expect(fullscreen).toHaveCSS('opacity', '1');
   await copies.last().getByRole('button').click();
   await copies
     .first()
@@ -56,10 +80,8 @@ test('duplicate review shares the full-size viewer, keeps multiple copies and sk
   await copies.first().locator('[data-checkbox]').click();
   await expect(copies.first().getByRole('button')).toHaveAttribute('aria-pressed', 'false');
 
-  await group
-    .getByRole('button', { name: /^View full size:/ })
-    .first()
-    .click();
+  await thumbnail.hover();
+  await fullscreen.click();
   const viewer = page.locator('opm-viewer');
   const dialog = viewer.getByRole('dialog');
   await expect(dialog).toBeVisible();
@@ -94,6 +116,7 @@ test('duplicate review shares the full-size viewer, keeps multiple copies and sk
   await expect(copies.last().getByRole('button')).toHaveAttribute('aria-pressed', 'true');
   for (const width of [1440, 390]) {
     await page.setViewportSize({ width, height: 900 });
+    await group.locator('[data-copy-path]').first().scrollIntoViewIfNeeded();
     await expectNoSeriousA11yViolations(page);
     await captureScreens(page, `duplicate-copy-cards-${width}`);
   }
@@ -109,6 +132,83 @@ test('duplicate review shares the full-size viewer, keeps multiple copies and sk
   expect((await duplicatesPage.findFiles()).ok()).toBe(true);
   await expect(duplicatesPage.files().getByRole('article')).toHaveCount(data.groups.length);
   await expect(duplicatesPage.files()).not.toContainText('groups skipped');
+});
+
+test('date format persists in Settings and duplicate offsets follow the latest keeper', async ({
+  app,
+  page,
+  manifest,
+  source,
+  comparison,
+  duplicatesPage,
+  settingsPage,
+}) => {
+  await page.goto(`${app.url}/settings`);
+  const format = settingsPage.field('Date and time format');
+  await format.selectOption('iso');
+  await expect(settingsPage.general().locator('[data-date-preview]')).toHaveText(
+    '2026-11-14 20:30:45',
+  );
+  await expect(settingsPage.saveButton()).toHaveCount(0);
+  await page.reload();
+  await expect(format).toHaveValue('iso');
+
+  const fixture = manifest
+    .duplicateGroups(3)
+    .find((candidate) => candidate.source && candidate.members.some((member) => member.match));
+  if (!fixture?.source) throw new Error('Missing different-time duplicate fixture');
+  const file = manifest.file(fixture.source.volume, fixture.source.path);
+  const url = new URL('/duplicates', app.url);
+  url.searchParams.set('src', `${file.volume}/${file.path.slice(0, file.path.lastIndexOf('/'))}`);
+  await page.goto(url.href);
+  await source.waitReady();
+  await comparison.waitReady();
+  await duplicatesPage.showFiles();
+  await duplicatesPage.chooseMode('Filename exact match, different time');
+  const response = await duplicatesPage.findFiles();
+  expect(response.ok()).toBe(true);
+  const data = (await response.json()) as DuplicateFileGroups;
+  const first = data.groups[0];
+  if (!first || first.files.length < 2) throw new Error('Missing different-time copies');
+  const group = duplicatesPage
+    .files()
+    .getByRole('article', { name: 'Duplicate group 1', exact: true });
+  const copies = group.locator('opm-file-card');
+  await copies.first().getByRole('button').click();
+  await expect(group.locator('[data-date-reference]')).toHaveCount(1);
+  const baseline = first.files[0]?.item.capture_ts;
+  if (baseline == null) throw new Error('Missing fixture capture date');
+  await expect(group.locator('[data-copy-date]').first()).toHaveText(
+    new Date(baseline * 1000).toISOString().slice(0, 19).replace('T', ' '),
+  );
+  const otherIndex = first.files.findIndex(
+    (entry) => entry.item.capture_ts !== null && entry.item.capture_ts !== baseline,
+  );
+  const other = first.files[otherIndex];
+  if (!other || other.item.capture_ts === null) throw new Error('Missing differing capture date');
+  const details = group.locator('dl');
+  await expect(details.nth(otherIndex).locator('[data-date-difference]')).toHaveText(
+    other.item.capture_ts > baseline ? /^\+/ : /^-/,
+  );
+  await copies
+    .nth(otherIndex)
+    .getByRole('button')
+    .click({ modifiers: ['ControlOrMeta'] });
+  await expect(copies.first().getByRole('button')).toHaveAttribute('aria-pressed', 'true');
+  await expect(copies.nth(otherIndex).getByRole('button')).toHaveAttribute('aria-pressed', 'true');
+  await expect(details.nth(otherIndex).locator('[data-date-reference]')).toHaveText('Reference');
+  await expect(details.first().locator('[data-date-difference]')).toHaveText(
+    other.item.capture_ts > baseline ? /^-/ : /^\+/,
+  );
+  for (const width of [1440, 390]) {
+    await page.setViewportSize({ width, height: 900 });
+    await details.first().scrollIntoViewIfNeeded();
+    await expectNoSeriousA11yViolations(page);
+    await captureScreens(page, `duplicate-date-differences-${width}`);
+    expect(
+      await page.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth),
+    ).toBe(true);
+  }
 });
 
 test('keeper badges explain preferences beside filenames without clipping in the scrolling results', async ({

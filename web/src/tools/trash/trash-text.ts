@@ -3,6 +3,7 @@ import type { TaskDto } from '@/api/generated/TaskDto';
 import type { TrashBatchDto } from '@/api/generated/TrashBatchDto';
 import type { TrashSummary } from '@/api/generated/TrashSummary';
 import type { TrashVolumeSummary } from '@/api/generated/TrashVolumeSummary';
+import { dateDisplayFormat } from '@/stores/prefs';
 import { EM_DASH, formatFileSize, formatFileTime } from '@/util/format';
 import { formatCount } from '@/util/format-count';
 
@@ -129,7 +130,7 @@ export function restoreBatchConfirmation(
   return {
     title: `Restore ${items}?`,
     message:
-      `${items} (${formatFileSize(batch.bytes)}) deleted on ${formatFileTime(batch.trashed_at)} ` +
+      `${items} (${formatFileSize(batch.bytes)}) deleted on ${formatFileTime(batch.trashed_at, undefined, undefined, dateDisplayFormat.value)} ` +
       `go back to their original folders on volume ${batch.volume}. ${restorePolicyText(policy)}`,
     confirmLabel: `Restore ${items}`,
   };

@@ -28,6 +28,30 @@ export function differingFields(group: DuplicateFileGroup) {
   };
 }
 
+export function differingPathSegments(paths: readonly string[]) {
+  const split = paths.map((path) => path.split('/'));
+  const first = split[0];
+  if (!first) return [];
+  let prefix = 0;
+  while (prefix < first.length && split.every((parts) => parts[prefix] === first[prefix])) prefix++;
+  let suffix = 0;
+  while (
+    suffix < first.length - prefix &&
+    split.every(
+      (parts) =>
+        suffix < parts.length - prefix &&
+        parts[parts.length - 1 - suffix] === first[first.length - 1 - suffix],
+    )
+  )
+    suffix++;
+  return split.map((parts) =>
+    parts.map((text, index) => ({
+      text,
+      different: index >= prefix && index < parts.length - suffix,
+    })),
+  );
+}
+
 export interface SelectionRule {
   kind: RuleKind;
   enabled: boolean;
