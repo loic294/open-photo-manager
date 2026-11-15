@@ -66,6 +66,7 @@ async fn counterparts(
         OverlapPolicy::Unoriented,
         &ctx.cancel,
         &mut sink,
+        &crate::query::FileQuery::folder_exclusions(&ctx.settings.soft_excluded_folders)?,
     )
     .await?;
     let ids: HashSet<_> = sink.pairs.iter().map(|p| p.comparison).collect();
@@ -144,7 +145,9 @@ pub(super) async fn build(ctx: &BuildContext, value: Value) -> Result<Built, Pla
     let policy = p
         .conflict_policy
         .unwrap_or(ctx.settings.default_conflict_policy);
-    let query = super::source_query(&p.source)?;
+    let query = super::source_query(&p.source)?.excluding(
+        &crate::query::FileQuery::folder_exclusions(&ctx.settings.soft_excluded_folders)?,
+    );
     let mut registration = ctx.db.begin_write().await?;
     crate::plans::file_identity::begin(&mut registration, ctx.plan_id).await?;
     registration.commit().await?;

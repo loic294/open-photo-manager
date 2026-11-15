@@ -75,7 +75,7 @@ pub(super) fn rules(p: &MoveParams, settings: &Settings) -> Result<Rules, PlanEr
         ));
     }
     let junk = JunkRules::new(&settings.junk_names, &settings.junk_prefixes);
-    let excluded = Exclusions::new(&settings.excluded_folders);
+    let excluded = Exclusions::for_tools(settings);
     for (field, volume, path) in [
         ("source.scope", p.source.scope.volume_id, &source_base),
         (

@@ -57,6 +57,18 @@ describe('parseLocation', () => {
 });
 
 describe('formatLocation', () => {
+  it('syncs both panes atomically in one history entry, including generated links', () => {
+    goToUrl('/browse?src=photo/old&cmp=backup/other');
+    const push = vi.spyOn(window.history, 'pushState');
+    const next = { volume: 'photo', dir: 'cafe\u0301' };
+    const href = linkToLocation('comparison', next, true);
+    setLocation('comparison', next, { sync: true });
+    expect(locations.source.value).toEqual(next);
+    expect(locations.comparison.value).toEqual(next);
+    expect(push).toHaveBeenCalledOnce();
+    expect(`${window.location.pathname}${window.location.search}`).toBe(href);
+  });
+
   it('is the inverse of parseLocation', () => {
     expect(formatLocation({ volume: null, dir: '' })).toBeNull();
     expect(formatLocation({ volume: 'photo', dir: '' })).toBe('photo');

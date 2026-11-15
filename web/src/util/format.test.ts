@@ -27,6 +27,12 @@ describe('formatCaptureDate', () => {
     expect(plain(formatCaptureDate(0, 'en-US'))).toBe('Jan 1, 1970, 12:00 AM');
   });
 
+  it('can expose second-level differences without changing the existing minute display', () => {
+    expect(plain(formatCaptureDate(ts, 'en-US', true))).toBe('Nov 14, 2023, 10:13:20 PM');
+    expect(plain(formatCaptureDate(ts + 1, 'en-US', true))).toBe('Nov 14, 2023, 10:13:21 PM');
+    expect(formatCaptureDate(ts, 'en-US')).toBe(formatCaptureDate(ts + 1, 'en-US'));
+  });
+
   it('does not depend on the browser time zone', async () => {
     const expected = plain(formatCaptureDate(ts, 'en-US'));
     for (const zone of ['Pacific/Kiritimati', 'America/Los_Angeles', 'Asia/Kolkata']) {
@@ -59,6 +65,14 @@ describe('formatCaptureDate', () => {
 });
 
 describe('formatFileTime', () => {
+  it('uses an explicit reporting timezone without sharing another zone’s cached formatter', () => {
+    const ts = Date.parse('2026-11-13T07:59:00Z') / 1000;
+    expect(formatFileTime(ts, 'en-US', 'America/Los_Angeles').replace(/\s/g, ' ')).toBe(
+      'Nov 12, 2026, 11:59 PM',
+    );
+    expect(formatFileTime(ts, 'en-US', 'UTC').replace(/\s/g, ' ')).toBe('Nov 13, 2026, 7:59 AM');
+  });
+
   // 2023-11-14T22:13:20Z
   const ts = 1_700_000_000;
 

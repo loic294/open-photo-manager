@@ -79,6 +79,7 @@ describe('opm-pane before the volumes are known', () => {
           count: 2,
           total: 2,
           matches: null,
+          preview: null,
           overlay: { matched: false, planned: false, will_delete: false },
         },
       ],

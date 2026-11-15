@@ -83,7 +83,7 @@ pub(super) async fn build(ctx: &BuildContext, params: Value) -> Result<Built, Pl
         ));
     }
     let junk = JunkRules::new(&ctx.settings.junk_names, &ctx.settings.junk_prefixes);
-    let excluded = Exclusions::new(&ctx.settings.excluded_folders);
+    let excluded = Exclusions::for_tools(&ctx.settings);
     if excluded.contains(volume_id, &base) {
         return Err(PlanError::invalid_field(
             "scope",

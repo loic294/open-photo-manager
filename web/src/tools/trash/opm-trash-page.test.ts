@@ -357,7 +357,9 @@ describe('opm-trash-page opening', () => {
     expect(page.querySelector('[role="status"][aria-label="Loading deletions"]')).not.toBeNull();
     expect([...page.querySelectorAll('.stat-value')].map(text)).toEqual([EM_DASH, EM_DASH]);
     expect(button(page, EMPTY_TRASH).disabled).toBe(true);
-    expect(button(page, EMPTY_TRASH).title).toBe('The trash is still loading.');
+    expect(button(page, EMPTY_TRASH).getAttribute('data-tooltip')).toBe(
+      'The trash is still loading.',
+    );
 
     await answerHeld(held[0] as Held);
     expect(page.querySelector('[aria-label="Loading deletions"]')).toBeNull();
@@ -782,14 +784,14 @@ describe('opm-trash-page deletions', () => {
     const restore = button(page, 'Restore all');
     const reason = 'Volume photos is offline: its items cannot be restored until it is back.';
     expect(restore.disabled).toBe(true);
-    expect(restore.title).toBe(reason);
-    expect(restore.parentElement?.title).toBe(reason);
+    expect(restore.getAttribute('data-tooltip')).toBe(reason);
+    expect(restore.parentElement?.getAttribute('data-tooltip')).toBe(reason);
     await click(restore);
     expect(requests(RESTORE)).toHaveLength(0);
 
     server.summary = makeTrashSummary({ volumes: [{ ...photos, writable: false }] });
     await refetch();
-    expect(button(page, 'Restore all').title).toBe(
+    expect(button(page, 'Restore all').getAttribute('data-tooltip')).toBe(
       'Volume photos is read-only: its items cannot be restored.',
     );
   });
@@ -1008,8 +1010,8 @@ describe('opm-trash-page empty trash', () => {
     await mountPage();
     const empty = button(page, EMPTY_TRASH);
     expect(empty.disabled).toBe(true);
-    expect(empty.title).toBe(reason);
-    expect(empty.parentElement?.title).toBe(reason);
+    expect(empty.getAttribute('data-tooltip')).toBe(reason);
+    expect(empty.parentElement?.getAttribute('data-tooltip')).toBe(reason);
     await click(empty);
     expect(requests(EMPTY)).toHaveLength(0);
   });
@@ -1021,7 +1023,7 @@ describe('opm-trash-page empty trash', () => {
     await flush();
     server.summary = makeTrashSummary({ volumes: [photos, { ...archive, items: 0, bytes: 0 }] });
     await refetch();
-    expect(button(page, `Empty trash on archive${ELLIPSIS}`).title).toBe(
+    expect(button(page, `Empty trash on archive${ELLIPSIS}`).getAttribute('data-tooltip')).toBe(
       'The trash on archive is empty.',
     );
   });

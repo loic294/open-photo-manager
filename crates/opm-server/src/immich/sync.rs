@@ -116,11 +116,11 @@
 
 use std::fmt;
 use std::sync::Arc;
-use std::time::{Duration, Instant};
+use std::time::Duration;
 
 use opm_core::dto::{ImmichSyncRequest, TaskKind, TaskState};
 use opm_core::paths::{TaskId, VolumeId};
-use serde_json::Value;
+use serde_json::{Value, json};
 use tokio::sync::Mutex;
 use tokio::time::MissedTickBehavior;
 use tokio_util::sync::CancellationToken;
@@ -233,6 +233,34 @@ impl fmt::Debug for ImmichSync {
 }
 
 impl ImmichSync {
+    pub(crate) async fn resume_task(&self, task_id: TaskId, params: Value) -> Result<(), AppError> {
+        #[derive(serde::Deserialize)]
+        struct Request {
+            full: bool,
+            manual: bool,
+        }
+        let request: Request = serde_json::from_value(params).map_err(AppError::internal)?;
+        let sync = self.clone();
+        self.inner
+            .tasks
+            .resume(task_id, move |ctx| async move {
+                let _turn = tokio::select! {
+                    biased;
+                    () = ctx.cancel.cancelled() => return Err(TaskError::Cancelled),
+                    turn = sync.inner.running.lock() => turn,
+                };
+                sync.run(
+                    &ctx,
+                    Pending {
+                        task_id,
+                        full: request.full,
+                        manual: request.manual,
+                    },
+                )
+                .await
+            })
+            .await
+    }
     /// Nothing is read or sent here; see [`ImmichSync::start_background`] and
     /// [`ImmichSync::submit`].
     pub fn new(db: Db, immich: ImmichService, tasks: TaskEngine) -> Self {
@@ -410,8 +438,14 @@ impl ImmichSync {
         if let Some(waiting) = pending.as_mut()
             && inner.is_active(waiting.task_id).await
         {
-            waiting.full |= full;
-            waiting.manual |= manual;
+            let full = waiting.full || full;
+            let manual = waiting.manual || manual;
+            inner
+                .tasks
+                .update_params(waiting.task_id, json!({ "full": full, "manual": manual }))
+                .await?;
+            waiting.full = full;
+            waiting.manual = manual;
             return Ok(SyncSubmitted {
                 task_id: waiting.task_id,
                 coalesced: true,
@@ -421,7 +455,9 @@ impl ImmichSync {
         let task_id = inner
             .tasks
             .submit(
-                TaskSpec::new(TaskKind::ImmichSync, TASK_TITLE),
+                TaskSpec::new(TaskKind::ImmichSync, TASK_TITLE)
+                    .resumable()
+                    .with_params(json!({ "full": full, "manual": manual })),
                 move |ctx| async move { sync.run_task(ctx).await },
             )
             .await?;
@@ -495,9 +531,22 @@ impl ImmichSync {
 
         let states = assets::states(db).await.map_err(storage_failed)?;
         let now = now_secs();
+        let checkpoint = crate::tasks::Checkpoint::new(db, ctx.id).await?;
+        let due_keys = match checkpoint.load::<Vec<String>>("immich-scopes").await? {
+            Some(keys) => keys,
+            None => {
+                let keys = scopes
+                    .iter()
+                    .filter(|scope| request.manual || is_due(scope, states.get(&scope.key), now))
+                    .map(|scope| scope.key.clone())
+                    .collect::<Vec<_>>();
+                checkpoint.save("immich-scopes", &keys).await?;
+                keys
+            }
+        };
         let due: Vec<&Scope> = scopes
             .iter()
-            .filter(|scope| request.manual || is_due(scope, states.get(&scope.key), now))
+            .filter(|scope| due_keys.contains(&scope.key))
             .collect();
 
         let env = PassEnv {
@@ -811,7 +860,7 @@ fn directory_prefix(prefix: &str) -> String {
 }
 
 /// What the streams of one pass showed.
-#[derive(Default)]
+#[derive(Default, serde::Serialize, serde::Deserialize)]
 struct Seen {
     /// How many assets the streams returned.
     read: i64,
@@ -834,40 +883,65 @@ async fn pass(
     state: Option<&ScopeState>,
     force_full: bool,
 ) -> Result<i64, PassError> {
-    let started = Instant::now();
+    let checkpoint = crate::tasks::Checkpoint::new(env.db, env.ctx.id).await?;
+    let key = format!("immich-pass:{}:{}", scope.key, scope.fingerprint);
+    let saved = checkpoint
+        .load::<(i64, bool, Option<i64>, i64, Option<i64>)>(&key)
+        .await?;
+    if let Some((_, _, _, _, Some(read))) = saved {
+        return Ok(read);
+    }
     let planned = pass_kind(scope, state, force_full, now_secs());
-    let Some(start) = assets::begin_pass(env.db, env.api_key_id, scope, now_secs()).await? else {
-        return Err(PassError::Stopped);
-    };
-    // The rows of a scope that was just wiped have nothing to be incremental on.
-    let (full, updated_after_ms) = match planned {
-        PassKind::Incremental { updated_after_ms } if !start.wiped => {
-            (false, Some(updated_after_ms))
+    let (run, full, updated_after_ms, started_at, _) = match saved {
+        Some(saved) => saved,
+        None => {
+            let Some(start) = assets::begin_pass(env.db, env.api_key_id, scope, now_secs()).await?
+            else {
+                return Err(PassError::Stopped);
+            };
+            // The rows of a scope that was just wiped have nothing to be incremental on.
+            let (full, updated_after_ms) = match planned {
+                PassKind::Incremental { updated_after_ms } if !start.wiped => {
+                    (false, Some(updated_after_ms))
+                }
+                _ => (true, None),
+            };
+            let saved = (start.run, full, updated_after_ms, now_secs(), None::<i64>);
+            checkpoint.save(&key, &saved).await?;
+            saved
         }
-        _ => (true, None),
     };
 
     let base = search_for(scope, updated_after_ms);
     let mut seen = Seen::default();
-    read_stream(env, scope, start.run, base.clone(), &mut seen).await?;
+    read_stream(env, scope, run, base.clone(), &mut seen).await?;
     if needs_hidden_pass(env.client, &seen) {
         let hidden = MetadataSearch {
             visibility: Some(AssetVisibility::Hidden),
             ..base
         };
-        read_stream(env, scope, start.run, hidden, &mut seen).await?;
+        read_stream(env, scope, run, hidden, &mut seen).await?;
     }
 
     env.ctx.progress.set_title("Matching files");
-    let reading_ms = i64::try_from(started.elapsed().as_millis()).unwrap_or(i64::MAX);
+    let reading_ms = now_secs()
+        .saturating_sub(started_at)
+        .saturating_add(1)
+        .saturating_mul(1000);
     let completion = Completion {
         scope,
-        run: start.run,
+        run,
         full,
         high_water_ms: seen.updated_ms.saturating_sub(reading_ms),
         now: now_secs(),
     };
     if assets::complete(env.db, env.api_key_id, &completion).await? {
+        checkpoint
+            .save(
+                &key,
+                &(run, full, updated_after_ms, started_at, Some(seen.read)),
+            )
+            .await?;
         Ok(seen.read)
     } else {
         Err(PassError::Stopped)
@@ -882,7 +956,32 @@ async fn read_stream(
     mut search: MetadataSearch,
     seen: &mut Seen,
 ) -> Result<(), PassError> {
-    for _ in 0..MAX_PAGES {
+    let checkpoint = crate::tasks::Checkpoint::new(env.db, env.ctx.id).await?;
+    let key = format!(
+        "immich-stream:{}:{run}:{}",
+        scope.key,
+        if search.visibility.is_some() {
+            "hidden"
+        } else {
+            "base"
+        }
+    );
+    let mut pages = 0;
+    if let Some((saved_seen, after, count, complete)) = checkpoint
+        .load::<(Seen, Option<PageToken>, u32, bool)>(&key)
+        .await?
+    {
+        env.ctx
+            .progress
+            .add(saved_seen.read.saturating_sub(seen.read), 0);
+        *seen = saved_seen;
+        search.after = after;
+        pages = count;
+        if complete {
+            return Ok(());
+        }
+    }
+    for index in pages..MAX_PAGES {
         let page = tokio::select! {
             () = env.ctx.cancel.cancelled() => return Err(PassError::Stopped),
             page = env.client.search_metadata(&search) => page?,
@@ -904,12 +1003,16 @@ async fn read_stream(
         env.ctx.progress.add(count, 0);
         // A page can be short or empty without being the last one: only the end of the token
         // chain ends the stream.
-        match page.next {
-            Some(token) => {
-                seen.flat_paging |= matches!(token, PageToken::Page(_));
-                search.after = Some(token);
-            }
-            None => return Ok(()),
+        let complete = page.next.is_none();
+        if let Some(token) = page.next {
+            seen.flat_paging |= matches!(token, PageToken::Page(_));
+            search.after = Some(token);
+        }
+        checkpoint
+            .save(&key, &(&*seen, &search.after, index + 1, complete))
+            .await?;
+        if complete {
+            return Ok(());
         }
     }
     Err(PassError::Immich {

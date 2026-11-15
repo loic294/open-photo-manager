@@ -67,6 +67,68 @@ fn request(volume: VolumeId, dir: &str) -> Value {
 }
 
 #[tokio::test]
+async fn folder_and_volume_previews_use_filtered_images_from_their_own_subtrees() {
+    let app = TestApp::new().await;
+    let seed = Seed::new(&app.state.db);
+    let volume = seed.volume("photos").await;
+    let other = seed.volume("other").await;
+    seed.file(other, "trip", "foreign.jpg")
+        .rating(5)
+        .insert()
+        .await;
+    seed.file(volume, "trip", "unmatched.jpg")
+        .rating(1)
+        .insert()
+        .await;
+    seed.file(volume, "trip", "video.mp4")
+        .rating(5)
+        .insert()
+        .await;
+    let image = seed
+        .file(volume, "trip/nested", "photo.jpg")
+        .rating(5)
+        .mtime(321)
+        .insert()
+        .await;
+    seed.file(volume, "trip.old", "sibling.jpg")
+        .rating(5)
+        .insert()
+        .await;
+    seed.dir(volume, "empty").await;
+    let mut body = request(volume, "");
+    body["filter"] = json!({"ratings": [5]});
+    let (status, response) = browse::folders(&app, body).await;
+    assert_eq!(status, StatusCode::OK, "{response}");
+    let folders = response["folders"].as_array().unwrap();
+    let trip = folders.iter().find(|f| f["name"] == "trip").unwrap();
+    assert_eq!(trip["preview"], json!({"id": image, "mtime": 321}));
+    assert_eq!(folders[0]["name"], "empty");
+    assert_eq!(folders[0]["preview"], Value::Null);
+
+    let (_, root) = browse::folders(&app, json!({"filter": {"ratings": [5]}})).await;
+    let photos = root["folders"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .find(|f| f["volume_id"] == volume)
+        .unwrap();
+    assert_eq!(photos["preview"], trip["preview"]);
+
+    let (_, empty) = browse::folders(
+        &app,
+        json!({"volume_id": volume, "filter": {"ratings": [4]}}),
+    )
+    .await;
+    assert!(
+        empty["folders"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .all(|f| f["preview"].is_null())
+    );
+}
+
+#[tokio::test]
 async fn folders_list_the_subfolders_with_their_counts() {
     let app = TestApp::new().await;
     let photos = library(&app).await;

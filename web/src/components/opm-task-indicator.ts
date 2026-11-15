@@ -6,6 +6,7 @@ import type { TaskDto } from '@/api/generated/TaskDto';
 import type { TaskState } from '@/api/generated/TaskState';
 import { OpmElement } from '@/base/opm-element';
 import type { TaskCancelEvent, TaskDismissEvent } from '@/components/opm-task-row';
+import { tooltip } from '@/components/tooltip';
 import '@/components/opm-task-row';
 import {
   aggregate,
@@ -313,7 +314,7 @@ export class OpmTaskIndicator extends OpmElement {
         counts.failed > 0
           ? html`<span
               class="badge badge-error badge-sm tabular-nums"
-              title="${counts.failed} failed"
+              ${tooltip(`${counts.failed} failed`)}
               >${counts.failed}</span
             >`
           : nothing
@@ -322,7 +323,7 @@ export class OpmTaskIndicator extends OpmElement {
         counts.queued > 0
           ? html`<span
               class="badge badge-ghost badge-sm tabular-nums"
-              title="${counts.queued} waiting"
+              ${tooltip(`${counts.queued} waiting`)}
               >${counts.queued}</span
             >`
           : nothing

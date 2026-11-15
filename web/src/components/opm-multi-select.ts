@@ -2,6 +2,7 @@ import { html, nothing, type PropertyValues } from 'lit';
 import { createRef, ref } from 'lit/directives/ref.js';
 import { OpmElement } from '@/base/opm-element';
 import type { IconName } from '@/components/opm-icon';
+import { tooltip } from '@/components/tooltip';
 import '@/components/opm-icon';
 import { MAX_ENTRY_CHARS, sameText, textKey, toggleIn } from '@/util/filter';
 import { formatCount } from '@/util/format-count';
@@ -328,7 +329,7 @@ export class OpmMultiSelect extends OpmElement {
             ?disabled=${this.disabled}
             @change=${(event: Event) => this.onCheckboxChange(event, option.value)}
           />
-          <span class="truncate" title=${option.value}>${option.value}</span>
+          <span class="truncate" ${tooltip(option.value)}>${option.value}</span>
           ${counted ? html`<span class="badge badge-ghost badge-sm">${formatCount(count)}</span>` : nothing}
         </label>
       </li>
@@ -401,7 +402,7 @@ export class OpmMultiSelect extends OpmElement {
   private renderChip(value: string) {
     return html`
       <li class="badge badge-soft badge-primary h-7 min-w-0 max-w-full gap-1 pr-0.5">
-        <span class="truncate" title=${value}>${value}</span>
+        <span class="truncate" ${tooltip(value)}>${value}</span>
         <button
           type="button"
           class="btn btn-ghost btn-circle btn-xs size-5 min-h-0 shrink-0"

@@ -56,7 +56,7 @@ async fn a_running_task_is_interrupted_when_the_engine_stops() {
 
 #[tokio::test]
 async fn a_waiting_task_is_interrupted_and_never_runs() {
-    let h = Harness::new().await;
+    let h = Harness::serial_fs().await;
     let mut events = h.events();
     let mut gate = Gate::new();
     let running = h.engine.submit(fs(), gate.runner()).await.unwrap();
@@ -242,7 +242,7 @@ async fn a_runner_that_needs_time_to_clean_up_is_waited_for() {
 
 #[tokio::test]
 async fn cancelling_the_app_wide_token_stops_the_engine() {
-    let h = Harness::new().await;
+    let h = Harness::serial_fs().await;
     let mut gate = Gate::new();
     let running = h.engine.submit(fs(), gate.runner()).await.unwrap();
     gate.started().await;

@@ -167,6 +167,7 @@ struct Row {
 }
 
 struct Values {
+    has_description: bool,
     capture_ts: i64,
     capture_offset_min: Option<i32>,
     capture_src: CaptureSource,
@@ -486,6 +487,10 @@ fn values_of(
             .map(|mime| mime.essence_str().to_owned())
     });
     Values {
+        has_description: meta
+            .description
+            .as_deref()
+            .is_some_and(|text| !text.trim().is_empty()),
         capture_ts: capture.naive_local,
         capture_offset_min: capture.offset_min,
         capture_src: capture.src,
@@ -536,7 +541,7 @@ async fn write_values(
     };
     let result = sqlx::query(
         "UPDATE files SET capture_ts = ?, capture_offset_min = ?, capture_src = ?, camera_id = ?, \
-         rating = ?, flag = ?, width = ?, height = ?, duration_ms = ?, mime = ?, meta_state = ? \
+         rating = ?, flag = ?, width = ?, height = ?, duration_ms = ?, mime = ?, meta_state = ?, has_description = ? \
          WHERE id = ? AND size = ? AND mtime = ?",
     )
     .bind(values.capture_ts)
@@ -550,6 +555,7 @@ async fn write_values(
     .bind(values.duration_ms)
     .bind(&values.mime)
     .bind(PipelineState::Done.code())
+    .bind(values.has_description)
     .bind(row.id)
     .bind(row.size)
     .bind(row.mtime)

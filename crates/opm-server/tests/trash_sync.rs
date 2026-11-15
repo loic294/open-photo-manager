@@ -86,6 +86,41 @@ async fn items_by_name(fx: &TrashFx) -> BTreeMap<String, Value> {
 }
 
 #[tokio::test]
+async fn restart_rechecks_missing_paths_before_discarding_trash_rows() {
+    let fx = TrashFx::new().await;
+    let item = fx.trash(fx.a, "returned.jpg", b"returned").await;
+    let _gate = fx.hold_the_queue().await;
+    let id = fx.queue_sync().await;
+    fx.app.state.tasks.shutdown().await;
+    common::trash::within(fx.app.state.tasks.wait_finished(id))
+        .await
+        .unwrap();
+    let missing = json!([item.trash_item_id, [[fx.a, item.trash_item_id]]]);
+    sqlx::query("INSERT INTO task_checkpoints (task_id, key, value) VALUES (?, 'sync-page:00000000000000000000', ?)")
+        .bind(id).bind(missing.to_string()).execute(fx.app.state.db.write()).await.unwrap();
+    fx.app.state.begin_shutdown();
+    fx.app.state.shutdown().await;
+    let recovered = opm_server::state::AppState::new((*fx.app.state.config).clone())
+        .await
+        .unwrap();
+    let task = common::trash::within(recovered.tasks.wait_finished(id))
+        .await
+        .unwrap();
+    assert_eq!(task.state, TaskState::Done, "{task:?}");
+    let left: Vec<i64> = sqlx::query_scalar("SELECT id FROM trash_items ORDER BY id")
+        .fetch_all(recovered.db.read())
+        .await
+        .unwrap();
+    assert_eq!(left, vec![item.trash_item_id]);
+    assert_eq!(
+        std::fs::read(fx.ta.path(item.trash_path.as_str())).unwrap(),
+        b"returned"
+    );
+    recovered.begin_shutdown();
+    recovered.shutdown().await;
+}
+
+#[tokio::test]
 async fn a_sync_is_a_task_on_the_file_lane_that_waits_for_its_turn() {
     let fx = TrashFx::new().await;
     let gate = fx.hold_the_queue().await;

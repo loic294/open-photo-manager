@@ -115,7 +115,7 @@ describe('opm-segmented structure', () => {
       ],
     });
 
-    expect(buttons(host)[0]?.getAttribute('title')).toBe('The first');
+    expect(buttons(host)[0]?.getAttribute('data-tooltip')).toBe('The first');
     expect(buttons(host)[1]?.hasAttribute('title')).toBe(false);
   });
 

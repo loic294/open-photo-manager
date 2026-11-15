@@ -79,6 +79,8 @@ async fn a_new_installation_serves_the_defaults_and_stores_nothing() {
             "keep_cross_volume_source_in_trash",
             "name_max_len",
             "sidecar_extensions",
+            "soft_excluded_folders",
+            "statistics_timezone",
             "trash_retention_days",
         ]
     );
@@ -255,9 +257,9 @@ async fn unknown_fields_in_a_put_are_ignored() {
     let (status, saved) = put(&app, &document).await;
 
     assert_eq!(status, StatusCode::OK, "{saved}");
-    assert_eq!(sorted_keys(&saved).len(), 9);
+    assert_eq!(sorted_keys(&saved).len(), 11);
     assert!(saved.get("added_by_a_newer_client").is_none());
-    assert_eq!(sorted_keys(&stored(&app).await.unwrap()).len(), 9);
+    assert_eq!(sorted_keys(&stored(&app).await.unwrap()).len(), 11);
 }
 
 #[tokio::test]

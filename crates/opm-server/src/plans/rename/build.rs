@@ -183,7 +183,9 @@ fn source_wanted(row: &Source) -> Result<Wanted, PlanError> {
 pub(super) async fn build(ctx: &BuildContext, value: Value) -> Result<Built, PlanError> {
     let params: RenameParams =
         serde_json::from_value(value).map_err(|error| PlanError::invalid(error.to_string()))?;
-    let query = super::super::moves::source_query(&params.source)?;
+    let query = super::super::moves::source_query(&params.source)?.excluding(
+        &crate::query::FileQuery::folder_exclusions(&ctx.settings.soft_excluded_folders)?,
+    );
     super::super::moves::validate_volume(
         "source.scope.volume_id",
         params.source.scope.volume_id,

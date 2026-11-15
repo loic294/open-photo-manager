@@ -262,7 +262,7 @@ describe('opm-multi-select chips', () => {
 
     const label = host.querySelector('ul[role="list"] li span');
     expect(label?.classList.contains('truncate')).toBe(true);
-    expect(label?.getAttribute('title')).toBe(long);
+    expect(label?.getAttribute('data-tooltip')).toBe(long);
   });
 
   it('removes a value with the x of its chip', async () => {
@@ -773,7 +773,7 @@ describe('opm-multi-select rows', () => {
 
     const text = host.querySelector('ul.menu label span');
     expect(text?.classList.contains('truncate')).toBe(true);
-    expect(text?.getAttribute('title')).toBe(long);
+    expect(text?.getAttribute('data-tooltip')).toBe(long);
   });
 
   it('follows the options when they change while open', async () => {

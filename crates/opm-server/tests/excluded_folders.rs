@@ -91,6 +91,243 @@ async fn exclude(app: &TestApp, volume: VolumeId, path: &str) -> (StatusCode, Va
 }
 
 #[tokio::test]
+async fn soft_exclusions_keep_indexed_files_and_survive_settings_saves_without_scanning() {
+    let (app, volume, tree) = lab().await;
+    let (_, stale) = app.call(Method::GET, "/api/settings", None).await;
+    let task_count: i64 = sqlx::query_scalar("SELECT COUNT(*) FROM tasks")
+        .fetch_one(app.state.db.read())
+        .await
+        .unwrap();
+    let folder = json!({"volume_id": volume, "path": "2024/private"});
+    let (status, saved) = app
+        .call(
+            Method::POST,
+            "/api/settings/soft-excluded-folders",
+            Some(folder.clone()),
+        )
+        .await;
+    assert_eq!(status, StatusCode::OK, "{saved}");
+    assert_eq!(saved["soft_excluded_folders"], json!([folder]));
+    assert_eq!(saved["excluded_folders"], json!([]));
+    assert!(indexed_dir(&app, volume, "2024/private/deep").await);
+    assert_eq!(subfolders(&app, volume, "2024").await, ["private"]);
+    assert_eq!(
+        sqlx::query_scalar::<_, i64>("SELECT COUNT(*) FROM tasks")
+            .fetch_one(app.state.db.read())
+            .await
+            .unwrap(),
+        task_count
+    );
+    let (status, saved) = app.call(Method::PUT, "/api/settings", Some(stale)).await;
+    assert_eq!(status, StatusCode::OK, "{saved}");
+    assert_eq!(saved["soft_excluded_folders"], json!([folder]));
+    let stored: String = sqlx::query_scalar("SELECT value FROM settings WHERE key = 'app'")
+        .fetch_one(app.state.db.read())
+        .await
+        .unwrap();
+    assert_eq!(
+        serde_json::from_str::<Value>(&stored).unwrap()["soft_excluded_folders"],
+        json!([folder])
+    );
+
+    tree.write("2024/private/later.jpg", b"still indexed");
+    let (status, task) = app
+        .call(
+            Method::POST,
+            "/api/index/rescan",
+            Some(json!({"targets": []})),
+        )
+        .await;
+    assert_eq!(status, StatusCode::ACCEPTED, "{task}");
+    app.state
+        .tasks
+        .wait_finished(task["id"].as_i64().unwrap())
+        .await
+        .unwrap();
+    let (_, listing) = items(&app, json!({"volume_id": volume, "dir": "2024/private"})).await;
+    assert!(names(&listing, "items").contains(&"later.jpg".to_owned()));
+    let (status, saved) = app
+        .call(
+            Method::POST,
+            "/api/settings/soft-excluded-folders/remove",
+            Some(folder.clone()),
+        )
+        .await;
+    assert_eq!(status, StatusCode::OK, "{saved}");
+    assert_eq!(saved["soft_excluded_folders"], json!([]));
+    assert!(indexed_dir(&app, volume, "2024/private").await);
+    let (status, _) = app
+        .call(
+            Method::POST,
+            "/api/settings/soft-excluded-folders/remove",
+            Some(folder),
+        )
+        .await;
+    assert_eq!(status, StatusCode::NOT_FOUND);
+    for path in ["", "../private", ".opm-trash/batch"] {
+        let (status, body) = app
+            .call(
+                Method::POST,
+                "/api/settings/soft-excluded-folders",
+                Some(json!({"volume_id": volume, "path": path})),
+            )
+            .await;
+        assert_eq!(status, StatusCode::BAD_REQUEST, "{body}");
+    }
+}
+
+#[tokio::test]
+async fn every_tool_omits_soft_exclusions_and_preexisting_plans_leave_them_untouched() {
+    let (app, volume, tree) = lab().await;
+    tree.write("2024/private/keep.jpg", b"keep");
+    tree.mkdir("2024/private/empty");
+    let (_, task) = app
+        .call(
+            Method::POST,
+            "/api/index/rescan",
+            Some(json!({"targets": []})),
+        )
+        .await;
+    app.state
+        .tasks
+        .wait_finished(task["id"].as_i64().unwrap())
+        .await
+        .unwrap();
+    let (destination, _) = app.add_volume("archive").await;
+    let side = |dir: &str| json!({"scope": {"volume_id": volume, "dir": dir, "recursive": true}, "filter": {}});
+    let duplicates = json!({"mode": "hash", "strict_prefix": false, "source": side("2024"), "comparison": side("2024")});
+    let moves = json!({"source": side("2024/private"), "destination": {"volume_id": destination, "dir": ""},
+        "move_type": "flat", "pattern": null, "match_mode": null, "strict_prefix": false, "conflict_policy": null});
+    let rename = json!({"source": side("2024/private"), "rules": {"pattern": "renamed-{name}"}, "conflict_policy": null});
+    let cleanup = json!({"scope": {"volume_id": volume, "dir": "2024", "recursive": true}});
+    let mut old = Vec::new();
+    for (kind, params) in [
+        ("duplicates", duplicates.clone()),
+        ("move", moves.clone()),
+        ("rename", rename.clone()),
+        ("cleanup", cleanup.clone()),
+    ] {
+        let (status, plan) = app
+            .call(
+                Method::POST,
+                "/api/plans",
+                Some(json!({"kind": kind, "params": params})),
+            )
+            .await;
+        assert_eq!(status, StatusCode::CREATED, "{kind}: {plan}");
+        if kind == "duplicates" {
+            assert_eq!(plan["stats"]["pairs"], 1);
+        }
+        old.push((kind, plan["id"].as_i64().unwrap()));
+    }
+    let (_, plan) = app
+        .call(
+            Method::POST,
+            "/api/plans",
+            Some(json!({"kind": "duplicates", "params": duplicates})),
+        )
+        .await;
+    old.push(("duplicates_source", plan["id"].as_i64().unwrap()));
+    let (status, body) = app
+        .call(
+            Method::POST,
+            "/api/settings/soft-excluded-folders",
+            Some(json!({"volume_id": volume, "path": "2024/private"})),
+        )
+        .await;
+    assert_eq!(status, StatusCode::OK, "{body}");
+    for (kind, id) in old {
+        let options = if kind == "duplicates" {
+            json!({"action": "delete_comparison"})
+        } else if kind == "duplicates_source" {
+            json!({"action": "delete_source"})
+        } else {
+            json!({})
+        };
+        let (status, task) = app
+            .call(
+                Method::POST,
+                &format!("/api/plans/{id}/execute"),
+                Some(json!({"options": options, "only": null})),
+            )
+            .await;
+        assert_eq!(status, StatusCode::ACCEPTED, "{kind}: {task}");
+        let finished = app
+            .state
+            .tasks
+            .wait_finished(task["id"].as_i64().unwrap())
+            .await
+            .unwrap();
+        if kind == "move" {
+            assert_eq!(finished.state, opm_core::dto::TaskState::Failed);
+            assert!(
+                finished.error.as_deref().unwrap().contains("excluded"),
+                "{:?}",
+                finished.error
+            );
+        } else {
+            assert_eq!(
+                finished.state,
+                opm_core::dto::TaskState::Done,
+                "{kind}: {:?}",
+                finished.error
+            );
+            let (_, executed) = app
+                .call(Method::GET, &format!("/api/plans/{id}"), None)
+                .await;
+            assert_eq!(executed["result"]["done"], 0, "{kind}: {executed}");
+            assert_eq!(executed["result"]["failed"], 0, "{kind}: {executed}");
+            assert!(
+                executed["result"]["skipped"].as_u64().unwrap() > 0,
+                "{kind}: {executed}"
+            );
+        }
+    }
+    for path in [
+        "2024/keep.jpg",
+        "2024/private/keep.jpg",
+        "2024/private/secret.jpg",
+        "2024/private/deep/more.jpg",
+        "2024/private/empty",
+    ] {
+        assert!(tree.path(path).exists(), "old plan changed {path}");
+    }
+    let mut moves = moves;
+    moves["source"] = side("2024");
+    let mut rename = rename;
+    rename["source"] = side("2024");
+    for (kind, params, count_key, count) in [
+        ("duplicates", duplicates, "pairs", 0),
+        ("move", moves, "candidates", 1),
+        ("rename", rename, "candidates", 1),
+        ("cleanup", cleanup, "empty_folders", 0),
+    ] {
+        let (status, plan) = app
+            .call(
+                Method::POST,
+                "/api/plans",
+                Some(json!({"kind": kind, "params": params})),
+            )
+            .await;
+        assert_eq!(status, StatusCode::CREATED, "{kind}: {plan}");
+        assert_eq!(plan["stats"][count_key], count, "{kind}: {plan}");
+    }
+    let (status, preview) = app
+        .call(
+            Method::POST,
+            "/api/format/preview",
+            Some(json!({"source": side("2024"), "pattern": "{YYYY}", "limit": 20})),
+        )
+        .await;
+    assert_eq!(status, StatusCode::OK, "{preview}");
+    assert_eq!(preview["samples"].as_array().unwrap().len(), 1, "{preview}");
+    let (status, preview) = app.call(Method::POST, "/api/rename/preview",
+        Some(json!({"source": side("2024"), "rules": {"pattern": "renamed-{name}"}, "limit": 20}))).await;
+    assert_eq!(status, StatusCode::OK, "{preview}");
+    assert_eq!(preview["samples"].as_array().unwrap().len(), 1);
+}
+
+#[tokio::test]
 async fn an_excluded_folder_leaves_the_index_and_comes_back_when_included() {
     let (app, volume, tree) = lab().await;
     assert!(indexed_dir(&app, volume, "2024/private").await);

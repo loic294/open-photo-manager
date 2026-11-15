@@ -100,6 +100,7 @@ impl Ns {
 
 #[derive(Clone, Copy, PartialEq, Eq)]
 enum Prop {
+    Description,
     Rating,
     Pick,
     Subject,
@@ -114,6 +115,7 @@ enum Prop {
 impl Prop {
     fn of(ns: Ns, local: &str) -> Option<Self> {
         Some(match (ns, local) {
+            (Ns::Dc, "description") => Self::Description,
             (Ns::Xmp, "Rating") => Self::Rating,
             (Ns::XmpDm, "pick") => Self::Pick,
             (Ns::Dc, "subject") => Self::Subject,
@@ -134,6 +136,7 @@ impl Prop {
 
 #[derive(Default)]
 struct Found {
+    description: Option<String>,
     rating: Option<String>,
     pick: Option<String>,
     make: Option<String>,
@@ -148,10 +151,11 @@ struct Found {
 impl Found {
     fn set_scalar(&mut self, prop: Prop, value: &str) {
         let value = value.trim();
-        if value.is_empty() {
+        if value.is_empty() && prop != Prop::Description {
             return;
         }
         let slot = match prop {
+            Prop::Description => &mut self.description,
             Prop::Rating => &mut self.rating,
             Prop::Pick => &mut self.pick,
             Prop::Make => &mut self.make,
@@ -186,6 +190,7 @@ impl Found {
             None
         };
         SourceMetadata {
+            description: self.description,
             rating: self.rating.as_deref().and_then(parse_integer_lenient),
             pick: self.pick.as_deref().and_then(parse_integer_lenient),
             keywords,
@@ -367,9 +372,12 @@ fn parse_text(text: &str) -> Result<SourceMetadata, XmpError> {
                     && scalar.is_none()
                     && descriptions > 0
                     && let Some(prop) = Prop::of(ns, local)
-                    && prop.is_list()
                 {
-                    found.list_mut(prop);
+                    if prop.is_list() {
+                        found.list_mut(prop);
+                    } else if prop == Prop::Description {
+                        found.set_scalar(prop, "");
+                    }
                 }
             }
             Event::End(end) => {

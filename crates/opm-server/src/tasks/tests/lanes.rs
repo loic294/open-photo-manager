@@ -17,70 +17,88 @@ use super::support::{
 };
 use crate::tasks::{Lane, LaneLimits, TaskCtx, TaskError, TaskOptions, TaskSpec};
 
-/// A lane that runs one task at a time starts its tasks one after the other, in submission order.
-async fn runs_one_at_a_time(spec: fn() -> TaskSpec) {
-    let h = Harness::new().await;
-    let mut gate = Gate::new();
-    let mut ids = Vec::new();
-    for _ in 0..4 {
-        ids.push(h.engine.submit(spec(), gate.runner()).await.unwrap());
-    }
-
-    assert_eq!(gate.started().await, ids[0]);
-    gate.assert_nothing_starts().await;
-    assert_eq!(h.count_in("running").await, 1);
-    assert_eq!(h.count_in("queued").await, 3);
-
-    for next in &ids[1..] {
-        gate.release(1);
-        assert_eq!(gate.started().await, *next);
-        assert_eq!(h.count_in("running").await, 1, "one slot, one task");
-    }
-    gate.release(1);
-    for id in ids {
-        assert_eq!(h.finished(id).await.state, TaskState::Done);
-    }
-}
-
-#[tokio::test]
-async fn the_fs_lane_runs_one_task_at_a_time() {
-    runs_one_at_a_time(fs).await;
-}
-
-#[tokio::test]
-async fn the_index_lane_runs_one_task_at_a_time() {
-    runs_one_at_a_time(index).await;
-}
-
-#[tokio::test]
-async fn the_immich_lane_runs_two_tasks_at_once() {
+async fn runs_three_at_a_time(spec: fn() -> TaskSpec) {
     let h = Harness::new().await;
     let mut gate = Gate::new();
     let mut ids = Vec::new();
     for _ in 0..5 {
-        ids.push(h.engine.submit(immich(), gate.runner()).await.unwrap());
+        ids.push(h.engine.submit(spec(), gate.runner()).await.unwrap());
     }
 
-    let mut first_two = [gate.started().await, gate.started().await];
-    first_two.sort_unstable();
-    assert_eq!(first_two, [ids[0], ids[1]]);
+    let mut started = [
+        gate.started().await,
+        gate.started().await,
+        gate.started().await,
+    ];
+    started.sort_unstable();
+    assert_eq!(started, ids[..3]);
     gate.assert_nothing_starts().await;
-    assert_eq!(h.count_in("running").await, 2);
+    assert_eq!(h.count_in("running").await, 3);
+    assert_eq!(h.count_in("queued").await, 2);
 
-    for next in &ids[2..] {
+    for next in &ids[3..] {
         gate.release(1);
         assert_eq!(gate.started().await, *next);
-        assert_eq!(h.count_in("running").await, 2, "two slots, two tasks");
+        assert_eq!(h.count_in("running").await, 3, "three slots, three tasks");
     }
-    gate.release(2);
+    gate.release(3);
     for id in ids {
         assert_eq!(h.finished(id).await.state, TaskState::Done);
+    }
+}
+
+#[tokio::test]
+async fn the_fs_lane_runs_three_tasks_at_a_time() {
+    runs_three_at_a_time(fs).await;
+}
+
+#[tokio::test]
+async fn the_index_lane_runs_three_tasks_at_a_time() {
+    runs_three_at_a_time(index).await;
+}
+
+#[tokio::test]
+async fn the_immich_lane_runs_three_tasks_at_once() {
+    runs_three_at_a_time(immich).await;
+}
+
+#[tokio::test]
+async fn mixed_lanes_share_three_slots_and_cancellation_releases_one() {
+    let h = Harness::new().await;
+    let mut gate = Gate::new();
+    let mut ids = Vec::new();
+    for spec in [fs(), index(), immich(), immich(), index(), fs()] {
+        ids.push(h.engine.submit(spec, gate.runner()).await.unwrap());
+    }
+    let mut first = [
+        gate.started().await,
+        gate.started().await,
+        gate.started().await,
+    ];
+    first.sort_unstable();
+    assert_eq!(first, ids[..3]);
+    gate.assert_nothing_starts().await;
+    assert_eq!(h.count_in("running").await, 3);
+    assert_eq!(h.count_in("queued").await, 3);
+    h.engine.cancel(ids[0]).await.unwrap();
+    assert_eq!(h.finished(ids[0]).await.state, TaskState::Cancelled);
+    assert_eq!(gate.started().await, ids[3]);
+    assert_eq!(h.count_in("running").await, 3);
+    h.engine.cancel(ids[5]).await.unwrap();
+    assert_eq!(h.finished(ids[5]).await.started_at, None);
+    gate.release(1);
+    assert_eq!(gate.started().await, ids[4]);
+    gate.assert_nothing_starts().await;
+    assert_eq!(h.count_in("running").await, 3);
+    gate.release(3);
+    for id in &ids[1..5] {
+        assert_eq!(h.finished(*id).await.state, TaskState::Done);
     }
 }
 
 #[tokio::test]
 async fn lanes_do_not_wait_for_each_other() {
-    let h = Harness::new().await;
+    let h = Harness::serial_fs().await;
     let mut gate = Gate::new();
     let blocked = h.engine.submit(fs(), gate.runner()).await.unwrap();
     assert_eq!(gate.started().await, blocked);
@@ -104,7 +122,7 @@ async fn lanes_do_not_wait_for_each_other() {
 async fn the_limits_can_be_changed() {
     let options = TaskOptions {
         concurrency: LaneLimits {
-            fs: 3,
+            fs: 2,
             ..LaneLimits::default()
         },
         ..fast()
@@ -116,17 +134,13 @@ async fn the_limits_can_be_changed() {
         ids.push(h.engine.submit(fs(), gate.runner()).await.unwrap());
     }
 
-    let mut first_three = [
-        gate.started().await,
-        gate.started().await,
-        gate.started().await,
-    ];
-    first_three.sort_unstable();
-    assert_eq!(first_three, [ids[0], ids[1], ids[2]]);
+    let mut first_two = [gate.started().await, gate.started().await];
+    first_two.sort_unstable();
+    assert_eq!(first_two, [ids[0], ids[1]]);
     gate.assert_nothing_starts().await;
 
     gate.release(1);
-    assert_eq!(gate.started().await, ids[3]);
+    assert_eq!(gate.started().await, ids[2]);
     gate.release(4);
     for id in ids {
         h.finished(id).await;
@@ -221,7 +235,15 @@ fn counted(
 
 #[tokio::test]
 async fn sixty_tasks_respect_the_limits_and_their_order() {
-    let h = Harness::new().await;
+    let h = Harness::with(TaskOptions {
+        concurrency: LaneLimits {
+            fs: 1,
+            index: 1,
+            immich: 2,
+        },
+        ..fast()
+    })
+    .await;
     let mut events = h.events();
     let (fs_lane, immich_lane) = (
         Arc::new(Occupancy::default()),
@@ -327,7 +349,7 @@ async fn cancelling_while_tasks_come_and_go_never_breaks_the_lanes() {
         "{done} done, {cancelled} cancelled"
     );
 
-    assert!(lanes[0].peak() <= 1 && lanes[1].peak() <= 1 && lanes[2].peak() <= 2);
+    assert!(lanes.iter().all(|lane| lane.peak() <= 3));
     assert!(lanes.iter().all(|lane| lane.inside() == 0));
     assert_eq!(h.active_rows().await, 0);
     assert!(h.engine.list(0).await.unwrap().is_empty());

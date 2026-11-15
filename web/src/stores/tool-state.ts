@@ -20,6 +20,7 @@ type PerTool<T> = Partial<Record<ToolId, T>>;
 
 const pinnedBases = signal<PerTool<Partial<Record<PaneId, PaneLocation | null>>>>({});
 const recursiveSwitches = signal<PerTool<boolean>>({});
+const navigationSwitches = signal<PerTool<boolean>>({});
 const handoffs = signal<PerTool<Handoff | null>>({});
 
 /** The folder the user pinned as the base of the pane, `null` until they choose one. */
@@ -46,6 +47,16 @@ export function setRecursive(tool: ToolId, on: boolean): void {
   recursiveSwitches.value = { ...recursiveSwitches.peek(), [tool]: on };
 }
 
+/** Navigation and scrolling are linked only while this tool's visible switch is on. */
+export function navigationSynced(tool: ToolId): boolean {
+  return navigationSwitches.value[tool] ?? false;
+}
+
+export function setNavigationSynced(tool: ToolId, on: boolean): void {
+  if (navigationSynced(tool) === on) return;
+  navigationSwitches.value = { ...navigationSwitches.peek(), [tool]: on };
+}
+
 /** The label of the server-side selection restricting the tool's items, `null` for none. */
 export function handoffFor(tool: ToolId): Handoff | null {
   return handoffs.value[tool] ?? null;
@@ -64,6 +75,7 @@ export function resetToolState(tool: ToolId): void {
   batch(() => {
     for (const pane of PANES) setPinnedBase(tool, pane, null);
     setRecursive(tool, true);
+    setNavigationSynced(tool, false);
     setHandoff(tool, null);
   });
 }
@@ -73,6 +85,7 @@ export function resetToolStateForTests(): void {
   batch(() => {
     pinnedBases.value = {};
     recursiveSwitches.value = {};
+    navigationSwitches.value = {};
     handoffs.value = {};
   });
 }

@@ -5,6 +5,7 @@ import type { PlanSide } from '@/api/generated/PlanSide';
 import type { Scope } from '@/api/generated/Scope';
 import { createPlan, deletePlan } from '@/api/plans';
 import { events } from '@/api/sse';
+import { settings } from '@/stores/settings';
 import { isEnded, onTaskFinished, tasks } from '@/stores/tasks';
 import type { PlanBinding, PlanStatus, PlanWarningView } from '@/tools/framework/plan-binding';
 import type { PlanParamsResult } from '@/tools/framework/tool-config';
@@ -120,7 +121,12 @@ export class PlanController implements PlanBinding {
       effect(() => {
         try {
           const input = ctx.config.plan?.params(ctx) ?? { ready: false, reason: null };
-          const key = input.ready ? paramsKey(input.params) : null;
+          const key = input.ready
+            ? paramsKey({
+                params: input.params,
+                soft_excluded_folders: settings.value?.soft_excluded_folders ?? [],
+              })
+            : null;
           untracked(() => this.changed(input, key));
         } catch (error) {
           untracked(() => {

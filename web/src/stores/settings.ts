@@ -1,7 +1,10 @@
 import { type ReadonlySignal, signal } from '@preact/signals-core';
 import { api } from '@/api/client';
+import { errorMessage } from '@/api/errors';
 import type { ExcludedFolder } from '@/api/generated/ExcludedFolder';
 import type { SettingsDto } from '@/api/generated/SettingsDto';
+import { events } from '@/api/sse';
+import { pushToast } from '@/stores/toasts';
 
 const current = signal<SettingsDto | null>(null);
 
@@ -16,6 +19,22 @@ export const settings: ReadonlySignal<SettingsDto | null> = current;
 let inFlight: Promise<SettingsDto> | undefined;
 // Counts the saves: a load that began before one must not overwrite what the save stored.
 let saves = 0;
+
+/** The shell loads shared folder exclusions on startup and after reconnecting. */
+export function startSettings(): () => void {
+  let active = true;
+  const reload = () => {
+    void loadSettings().catch((error: unknown) => {
+      if (active) pushToast('error', errorMessage(error, 'Could not load folder exclusions'));
+    });
+  };
+  reload();
+  const stop = events.onResync(reload);
+  return () => {
+    active = false;
+    stop();
+  };
+}
 
 /**
  * Fetches the settings into the store and resolves with them. Rejects with an `ApiError` (the
@@ -72,6 +91,25 @@ export async function excludeFolder(folder: ExcludedFolder): Promise<SettingsDto
  */
 export async function includeFolder(folder: ExcludedFolder): Promise<SettingsDto> {
   const saved = await api.post<SettingsDto>('/api/settings/excluded-folders/remove', {
+    body: folder,
+  });
+  saves += 1;
+  current.value = saved;
+  return saved;
+}
+
+/** Excludes a subtree from tool plans, without changing its index or starting a scan. */
+export async function softExcludeFolder(folder: ExcludedFolder): Promise<SettingsDto> {
+  const saved = await api.post<SettingsDto>('/api/settings/soft-excluded-folders', {
+    body: folder,
+  });
+  saves += 1;
+  current.value = saved;
+  return saved;
+}
+
+export async function softIncludeFolder(folder: ExcludedFolder): Promise<SettingsDto> {
+  const saved = await api.post<SettingsDto>('/api/settings/soft-excluded-folders/remove', {
     body: folder,
   });
   saves += 1;

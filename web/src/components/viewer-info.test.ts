@@ -129,7 +129,7 @@ describe('renderInfoTable', () => {
   it('formats the size and gives the exact bytes in a tooltip', () => {
     const host = table({ item: fileItem({ size: 4_200_000 }) });
     expect(text(host, 'size')).toBe(formatFileSize(4_200_000));
-    expect(row(host, 'size')?.querySelector('span')?.getAttribute('title')).toBe(
+    expect(row(host, 'size')?.querySelector('span')?.getAttribute('data-tooltip')).toBe(
       `${(4_200_000).toLocaleString()} bytes`,
     );
   });
@@ -244,7 +244,7 @@ describe('renderInfoTable', () => {
     const span = row(host, 'hash')?.querySelector('span');
     expect(span?.textContent).toBe('da39a3ee5e6b\u2026');
     expect(span?.classList.contains('font-mono')).toBe(true);
-    expect(span?.getAttribute('title')).toBe(hash);
+    expect(span?.getAttribute('data-tooltip')).toBe(hash);
   });
 
   it('says when the hash is not computed yet', () => {

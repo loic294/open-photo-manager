@@ -24,6 +24,7 @@ afterEach(() => {
     for (const store of [
       loaded.theme,
       loaded.gridSize,
+      loaded.folderView,
       loaded.hideUnmatchedFolders,
       loaded.lastAction,
       loaded.sort,
@@ -59,6 +60,25 @@ describe('theme', () => {
     expect(stored('theme')).toBe('dark');
   });
 
+  describe('folderView', () => {
+    it('defaults to lists and persists each pane independently', async () => {
+      const prefs = await loadPrefs();
+      expect(prefs.folderView.value).toEqual({ source: 'list', comparison: 'list' });
+      prefs.folderView.value = { ...prefs.folderView.peek(), source: 'thumbnails' };
+      expect(stored('folderView')).toEqual({ source: 'thumbnails', comparison: 'list' });
+      prefs.folderView.dispose();
+      expect((await loadPrefs()).folderView.value).toEqual({
+        source: 'thumbnails',
+        comparison: 'list',
+      });
+    });
+
+    it('ignores malformed saved folder views', async () => {
+      localStorage.setItem('opm.v1.folderView', '{"source":"unknown","comparison":"list"}');
+      expect((await loadPrefs()).folderView.value).toEqual({ source: 'list', comparison: 'list' });
+    });
+  });
+
   it('restores a stored choice', async () => {
     localStorage.setItem('opm.v1.theme', '"light"');
 
@@ -77,13 +97,13 @@ describe('theme', () => {
 });
 
 describe('gridSize', () => {
-  it('is per pane and persisted', async () => {
+  it('keeps both panes at the same persisted scale', async () => {
     const prefs = await loadPrefs();
 
     prefs.setGridSize('comparison', 224);
 
-    expect(prefs.gridSize.value).toEqual({ source: 160, comparison: 224 });
-    expect(stored('gridSize')).toEqual({ source: 160, comparison: 224 });
+    expect(prefs.gridSize.value).toEqual({ source: 224, comparison: 224 });
+    expect(stored('gridSize')).toEqual({ source: 224, comparison: 224 });
   });
 
   it('clamps to the slider range and rounds to whole pixels', async () => {
@@ -118,6 +138,7 @@ describe('gridSize', () => {
   });
 
   it.each([
+    ['different pane scales', '{"source":160,"comparison":224}'],
     ['an out-of-range size', '{"source":10,"comparison":160}'],
     ['a missing pane', '{"source":160}'],
     ['an extra key', '{"source":160,"comparison":160,"third":1}'],

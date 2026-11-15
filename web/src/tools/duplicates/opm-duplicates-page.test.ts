@@ -140,8 +140,8 @@ it('loads the real page via its route, config, panes, match borders and comparis
   expect(el.querySelector('opm-tool-view')?.config).toBe(duplicatesTool);
   expect(el.querySelector('h2')).toBeNull();
   expect(el.querySelector('opm-modal')?.heading).toBe('Duplicate finder');
-  expect(el.querySelector('[data-floating-actions] opm-split-button')).not.toBeNull();
-  expect(el.querySelector('opm-bottom-bar opm-split-button')).toBeNull();
+  expect(el.querySelector('[data-floating-actions] opm-split-button')).toBeNull();
+  expect(el.querySelector('opm-bottom-bar opm-split-button')).not.toBeNull();
   const panes = [...el.querySelectorAll('opm-pane')];
   expect(panes.map((pane) => pane.plan)).toEqual([
     { plan_id: 1, side: 'source' },

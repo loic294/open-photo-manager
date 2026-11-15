@@ -337,7 +337,7 @@ describe('opm-task-row', () => {
       const text = element.querySelector('.truncate');
 
       expect(text?.textContent).toBe(title);
-      expect(text?.getAttribute('title')).toBe(title);
+      expect(text?.getAttribute('data-tooltip')).toBe(title);
       expect(bar(element)?.getAttribute('aria-label')).toBe(title);
     });
 

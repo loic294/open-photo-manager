@@ -269,38 +269,49 @@ async fn send_raw(app: &TestApp, request: Request<Body>) -> (StatusCode, Value) 
 /// A task that is not one of the jobs and holds the index lane until it is released.
 struct Blocker {
     id: TaskId,
-    release: oneshot::Sender<()>,
+    release: Vec<oneshot::Sender<()>>,
 }
 
 impl Blocker {
     fn release(self) {
-        self.release.send(()).ok();
+        for release in self.release {
+            release.send(()).ok();
+        }
     }
 }
 
 /// Occupies the index lane, so what is queued meanwhile stays queued.
 async fn block_lane(app: &TestApp) -> Blocker {
-    let (release, released) = oneshot::channel::<()>();
-    let id = app
-        .state
-        .tasks
-        .submit(
-            TaskSpec::new(TaskKind::Index, "A task in the way"),
-            move |ctx| async move {
-                tokio::select! {
-                    _ = released => Ok(json!({})),
-                    () = ctx.cancel.cancelled() => Err(TaskError::Cancelled),
-                }
-            },
-        )
-        .await
-        .unwrap();
-    eventually("the blocking task to run", || async move {
-        let task = app.state.tasks.get(id).await.unwrap();
-        (task.state == TaskState::Running).then_some(())
-    })
-    .await;
-    Blocker { id, release }
+    let mut ids = Vec::new();
+    let mut release = Vec::new();
+    for _ in 0..3 {
+        let (sender, released) = oneshot::channel::<()>();
+        let id = app
+            .state
+            .tasks
+            .submit(
+                TaskSpec::new(TaskKind::Index, "A task in the way"),
+                move |ctx| async move {
+                    tokio::select! {
+                        _ = released => Ok(json!({})),
+                        () = ctx.cancel.cancelled() => Err(TaskError::Cancelled),
+                    }
+                },
+            )
+            .await
+            .unwrap();
+        eventually("the blocking task to run", || async move {
+            let task = app.state.tasks.get(id).await.unwrap();
+            (task.state == TaskState::Running).then_some(())
+        })
+        .await;
+        ids.push(id);
+        release.push(sender);
+    }
+    Blocker {
+        id: ids[0],
+        release,
+    }
 }
 
 /// An extractor that waits at its first file until the test opens the gate, for good.

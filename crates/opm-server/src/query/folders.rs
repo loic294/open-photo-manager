@@ -1,6 +1,6 @@
 //! The folder list and the footer counts.
 
-use opm_core::dto::FooterCounts;
+use opm_core::dto::{FolderPreview, FooterCounts};
 use opm_core::names::normalize_name;
 use opm_core::paths::VolumeId;
 use sqlx::{QueryBuilder, Sqlite};
@@ -47,6 +47,16 @@ pub struct FolderRow {
     pub count: i64,
     /// Files in the folder and below it, whatever the filter says.
     pub total: i64,
+    pub preview: Option<FolderPreview>,
+}
+
+#[derive(sqlx::FromRow)]
+struct FolderCounts {
+    name: String,
+    count: i64,
+    total: i64,
+    preview_id: Option<i64>,
+    preview_mtime: Option<i64>,
 }
 
 impl FileQuery {
@@ -60,23 +70,27 @@ impl FileQuery {
     pub async fn folders(&self, db: &Db) -> Result<Vec<FolderRow>, QueryError> {
         let volume_id = self.scope.volume_id.ok_or(QueryError::VolumeRequired)?;
         let dir = self.scope.dir.as_str();
-        let rows: Vec<(String, i64, i64)> = self
+        let rows: Vec<FolderCounts> = self
             .folders_statement(volume_id)
             .build_query_as()
             .fetch_all(db.read())
             .await?;
         let mut folders: Vec<FolderRow> = rows
             .into_iter()
-            .map(|(name, count, total)| FolderRow {
+            .map(|row| FolderRow {
                 path: if dir.is_empty() {
-                    name.clone()
+                    row.name.clone()
                 } else {
-                    format!("{dir}/{name}")
+                    format!("{dir}/{}", row.name)
                 },
-                name,
+                name: row.name,
                 volume_id,
-                count,
-                total,
+                count: row.count,
+                total: row.total,
+                preview: row
+                    .preview_id
+                    .zip(row.preview_mtime)
+                    .map(|(id, mtime)| FolderPreview { id, mtime }),
             })
             .collect();
         folders.sort_by_cached_key(|folder| (normalize_name(&folder.name), folder.name.clone()));
@@ -97,7 +111,7 @@ impl FileQuery {
         })
     }
 
-    /// One row per child directory of the scope's directory: `name`, `count`, `total`.
+    /// One row per child directory, with counts and a matching photo's id and mtime.
     ///
     /// `per_dir` counts the files of every directory below the listed one (one pass over the
     /// `(volume_id, dir_path)` index range). Each of those counts is attributed to the first path
@@ -120,17 +134,19 @@ impl FileQuery {
             self.push_filter_only(&mut qb, "f");
             qb.push(" THEN 1 ELSE 0 END)");
         }
-        qb.push(" AS cnt FROM files f WHERE ");
+        qb.push(" AS cnt, MIN(CASE WHEN f.kind = 'image' AND ");
+        self.push_filter_only(&mut qb, "f");
+        qb.push(" THEN f.id END) AS preview_id FROM files f WHERE ");
         self.push_condition(&mut qb, "f", true, FilterPart::Nothing);
-        qb.push(" GROUP BY f.dir_path) SELECT child, SUM(cnt), SUM(total) FROM (SELECT ");
+        qb.push(" GROUP BY f.dir_path), children AS (SELECT child, SUM(cnt) AS cnt, SUM(total) AS total, MIN(preview_id) AS preview_id FROM (SELECT ");
         push_child_segment(&mut qb, "dir_path", dir);
-        qb.push(" AS child, total, cnt, 0 AS listed FROM per_dir WHERE dir_path <> ")
+        qb.push(" AS child, total, cnt, preview_id, 0 AS listed FROM per_dir WHERE dir_path <> ")
             .push_bind(dir.to_owned())
-            .push(" UNION ALL SELECT d.name, 0, 0, 1 FROM dirs d WHERE d.volume_id = ")
+            .push(" UNION ALL SELECT d.name, 0, 0, NULL, 1 FROM dirs d WHERE d.volume_id = ")
             .push_bind(volume_id)
             .push(" AND d.parent_path = ")
             .push_bind(dir.to_owned())
-            .push(") GROUP BY child HAVING MAX(listed) = 1");
+            .push(") GROUP BY child HAVING MAX(listed) = 1) SELECT c.child AS name, c.cnt AS count, c.total, f.id AS preview_id, f.mtime AS preview_mtime FROM children c LEFT JOIN files f ON f.id = c.preview_id");
         qb
     }
 

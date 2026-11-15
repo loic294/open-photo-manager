@@ -241,7 +241,7 @@ it('does not preview or insert during composition, without a source, or while di
   await el.updateComplete;
   expect(input.disabled).toBe(true);
   expect(
-    [...el.querySelectorAll('button[title]')].every(
+    [...el.querySelectorAll('button[data-tooltip]')].every(
       (button) => (button as HTMLButtonElement).disabled,
     ),
   ).toBe(true);

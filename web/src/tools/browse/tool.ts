@@ -11,7 +11,8 @@ export const browseTool = defineTool({
   summary: 'Look around the library in two panes and narrow them down with the filters.',
   help: [
     'Open a volume and navigate folders independently in each pane. Use the path breadcrumbs or Up to return to a parent.',
-    'Open Filters beside the page title to narrow the listings. Sort and thumbnail size are independent for each pane.',
+    'Open Filters beside the page title to narrow the listings. Each pane has its own sort; either thumbnail-size slider scales both panes.',
+    'Turn on Sync navigation to show the same folder and link scrolling in both panes.',
     'Double-click a file to open the viewer. Select files to hand them off to another tool.',
   ],
   panes: {

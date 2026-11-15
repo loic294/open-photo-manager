@@ -399,19 +399,13 @@ describe('opm-bottom-bar slider', () => {
     expect(source.classList.contains('w-24')).toBe(true);
     expect(source.getAttribute('aria-label')).toBe('Thumbnail size');
     expect([source.min, source.max, source.step, source.value]).toEqual(['64', '256', '32', '128']);
-    const comparison = slider(host, 'comparison');
-    expect([comparison.min, comparison.max, comparison.step, comparison.value]).toEqual([
-      '100',
-      '400',
-      '50',
-      '200',
-    ]);
+    expect(segment(host, 'comparison').querySelector('input[type="range"]')).toBeNull();
   });
 
   it('shrinks with its segment and is hidden when the segment is narrower than 14rem', async () => {
     const host = await mount('opm-bottom-bar', { source: footer(), comparison: footer() });
 
-    for (const pane of ['source', 'comparison'] as const) {
+    for (const pane of ['source'] as const) {
       const { classList } = slider(host, pane);
       expect(classList.contains('shrink')).toBe(true);
       expect(classList.contains('min-w-12')).toBe(true);
@@ -429,14 +423,12 @@ describe('opm-bottom-bar slider', () => {
 
     drag(slider(host, 'source'), 192);
     drag(slider(host, 'source'), 208);
-    drag(slider(host, 'comparison'), 112);
 
     expect(received).toEqual([
       { pane: 'source', size: 192 },
       { pane: 'source', size: 208 },
-      { pane: 'comparison', size: 112 },
     ]);
-    expect(onBody).toHaveBeenCalledTimes(3);
+    expect(onBody).toHaveBeenCalledTimes(2);
     document.body.removeEventListener('size-change', onBody);
   });
 
@@ -544,7 +536,7 @@ describe('opm-bottom-bar actions', () => {
     expect(host.querySelector('.flex-none')).toBeNull();
   });
 
-  it('renders the passed template at the far right, after the segments', async () => {
+  it('keeps actions inside the comparison half without shifting the pane divider', async () => {
     const host = await mount('opm-bottom-bar', {
       source: footer(),
       comparison: footer(),
@@ -555,10 +547,9 @@ describe('opm-bottom-bar actions', () => {
     expect(area?.classList.contains('items-center')).toBe(true);
     expect(area?.querySelector('#go')?.textContent).toBe('Go');
     const bar = host.querySelector('.navbar');
-    expect(bar?.lastElementChild).toBe(area);
-    expect(
-      segments(host).every((element) => element.compareDocumentPosition(area as Node) & 4),
-    ).toBe(true);
+    expect(bar?.lastElementChild).toBe(segment(host, 'comparison'));
+    expect(segment(host, 'comparison').lastElementChild).toBe(area);
+    expect(bar?.classList.contains('md:grid-cols-2')).toBe(true);
   });
 
   it('updates and removes the actions with the property', async () => {

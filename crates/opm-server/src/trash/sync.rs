@@ -80,7 +80,7 @@ const TOTALS_DIFFER_SQL: &str = "SELECT EXISTS (\
        FROM trash_items GROUP BY volume_id))";
 
 /// What a sync did.
-#[derive(Debug, Default, Clone, PartialEq, Eq)]
+#[derive(Debug, Default, Clone, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
 struct Tally {
     volumes: u64,
     /// Volumes that were offline and so were not looked at.
@@ -261,8 +261,9 @@ impl TrashService {
     /// final title and result.
     pub async fn sync(&self) -> Result<TaskId, AppError> {
         let service = self.clone();
-        let spec =
-            TaskSpec::new(TaskKind::FsTrash, TITLE).with_params(json!({ "op": "trash_sync" }));
+        let spec = TaskSpec::new(TaskKind::FsTrash, TITLE)
+            .resumable()
+            .with_params(json!({ "op": "trash_sync" }));
         let id = self
             .tasks
             .submit(spec, move |ctx| async move { service.run_sync(ctx).await })
@@ -271,7 +272,7 @@ impl TrashService {
         Ok(id)
     }
 
-    async fn run_sync(&self, ctx: TaskCtx) -> Result<Value, TaskError> {
+    pub(super) async fn run_sync(&self, ctx: TaskCtx) -> Result<Value, TaskError> {
         let volumes = self.volumes.refresh().await?;
         let mut tally = Tally::default();
         let mut roots = HashMap::new();
@@ -285,7 +286,13 @@ impl TrashService {
         }
         tally.volumes = roots.len() as u64;
 
-        self.remove_gone(&ctx, &roots, &mut tally).await?;
+        let checkpoint = crate::tasks::Checkpoint::new(&self.db, ctx.id).await?;
+        if let Some(saved) = checkpoint.load("sync-removed").await? {
+            tally = saved;
+        } else {
+            self.remove_gone(&ctx, &roots, &mut tally).await?;
+            checkpoint.save("sync-removed", &tally).await?;
+        }
         for volume in &volumes {
             if let Some(root) = roots.get(&volume.id) {
                 self.adopt_untracked(&ctx, volume.id, root, &mut tally)
@@ -352,16 +359,53 @@ impl TrashService {
         roots: &HashMap<VolumeId, Arc<VolumeRoot>>,
         tally: &mut Tally,
     ) -> Result<(), TaskError> {
-        let totals: Vec<(VolumeId, i64)> =
-            sqlx::query_as("SELECT volume_id, COUNT(*) FROM trash_items GROUP BY volume_id")
+        let checkpoint = crate::tasks::Checkpoint::new(&self.db, ctx.id).await?;
+        let totals: HashMap<VolumeId, i64> = match checkpoint.load("sync-totals").await? {
+            Some(saved) => saved,
+            None => {
+                let totals: Vec<(VolumeId, i64)> = sqlx::query_as(
+                    "SELECT volume_id, COUNT(*) FROM trash_items GROUP BY volume_id",
+                )
                 .fetch_all(self.db.read())
                 .await?;
-        let totals: HashMap<VolumeId, i64> = totals.into_iter().collect();
+                let totals: HashMap<VolumeId, i64> = totals.into_iter().collect();
+                checkpoint.save("sync-totals", &totals).await?;
+                totals
+            }
+        };
 
         // One pass over the table by id: every page is a rowid range, whatever the volumes.
         let shared = Arc::new(roots.clone());
         let mut gone: HashMap<VolumeId, Vec<TrashItemId>> = HashMap::new();
         let mut after: TrashItemId = 0;
+        let mut pages = checkpoint
+            .entries::<(TrashItemId, Vec<(VolumeId, TrashItemId)>)>("sync-page:")
+            .await?;
+        pages.sort_by(|a, b| a.0.cmp(&b.0));
+        let mut page_index = pages.len();
+        for (_, (last, missing)) in pages {
+            after = last;
+            if missing.is_empty() {
+                continue;
+            }
+            // A previously missing file may have returned while the server was stopped.
+            let mut query = QueryBuilder::<Sqlite>::new(
+                "SELECT id, volume_id, trash_path FROM trash_items WHERE id IN (",
+            );
+            let mut ids = query.separated(", ");
+            for (_, id) in missing {
+                ids.push_bind(id);
+            }
+            ids.push_unseparated(")");
+            let page: Vec<Checked> = query.build_query_as().fetch_all(self.db.read()).await?;
+            let roots = Arc::clone(&shared);
+            let missing = tokio::task::spawn_blocking(move || missing_in(&roots, page))
+                .await
+                .map_err(|err| AppError::internal(&err))?;
+            for (volume_id, id) in missing {
+                gone.entry(volume_id).or_default().push(id);
+            }
+        }
         loop {
             if ctx.cancel.is_cancelled() {
                 return Err(TaskError::Cancelled);
@@ -382,6 +426,10 @@ impl TrashService {
             let missing = tokio::task::spawn_blocking(move || missing_in(&roots, page))
                 .await
                 .map_err(|err| AppError::internal(&err))?;
+            checkpoint
+                .save(&format!("sync-page:{page_index:020}"), &(after, &missing))
+                .await?;
+            page_index += 1;
             for (volume_id, id) in missing {
                 gone.entry(volume_id).or_default().push(id);
             }
@@ -389,9 +437,16 @@ impl TrashService {
         }
 
         for (volume_id, ids) in gone {
+            let key = format!("sync-delete:{volume_id}");
+            if let Some((removed, held)) = checkpoint.load::<(u64, u64)>(&key).await? {
+                tally.removed += removed;
+                tally.held += held;
+                continue;
+            }
             let total = totals.get(&volume_id).copied().unwrap_or(0).max(0) as u64;
             if guard_trips(ids.len() as u64, total) {
                 tally.held += ids.len() as u64;
+                checkpoint.save(&key, &(0_u64, ids.len() as u64)).await?;
                 tracing::warn!(
                     volume = volume_id,
                     missing = ids.len(),
@@ -400,7 +455,9 @@ impl TrashService {
                 );
                 continue;
             }
-            tally.removed += self.delete_rows(&ids).await?;
+            let removed = self.delete_rows(&ids).await?;
+            tally.removed += removed;
+            checkpoint.save(&key, &(removed, 0_u64)).await?;
         }
         Ok(())
     }
@@ -432,7 +489,15 @@ impl TrashService {
         let Ok(trash) = RelPath::root().join(TRASH_DIR) else {
             return Ok(());
         };
-        let mut stack = vec![trash];
+        let checkpoint = crate::tasks::Checkpoint::new(&self.db, ctx.id).await?;
+        let key = format!("sync-adopt:{volume_id}");
+        let mut stack = match checkpoint.load::<(Vec<RelPath>, Tally)>(&key).await? {
+            Some((stack, saved)) => {
+                *tally = saved;
+                stack
+            }
+            None => vec![trash],
+        };
         while let Some(dir) = stack.pop() {
             if ctx.cancel.is_cancelled() {
                 return Err(TaskError::Cancelled);
@@ -450,6 +515,7 @@ impl TrashService {
             let Some((batch, below)) = below_batch(&dir) else {
                 // `.opm-trash` itself: its batches are what matters, a loose file is not one.
                 push_children(&mut stack, &dir, &listing.dirs);
+                checkpoint.save(&key, &(&stack, &*tally)).await?;
                 continue;
             };
             let tracked = self.tracked_in(volume_id, &dir, &listing).await?;
@@ -471,6 +537,7 @@ impl TrashService {
                     .adopt(ctx, volume_id, &batch, &dir, &below, &fresh)
                     .await?;
             }
+            checkpoint.save(&key, &(&stack, &*tally)).await?;
         }
         Ok(())
     }

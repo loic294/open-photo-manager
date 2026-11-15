@@ -2,6 +2,7 @@ import { html, nothing, type PropertyValues } from 'lit';
 import { createRef, ref } from 'lit/directives/ref.js';
 import { OpmElement } from '@/base/opm-element';
 import type { IconName } from '@/components/opm-icon';
+import { tooltip } from '@/components/tooltip';
 import '@/components/opm-icon';
 import { lastAction } from '@/stores/prefs';
 import { formatCount } from '@/util/format-count';
@@ -59,6 +60,8 @@ let instanceCounter = 0;
  * `busy` shows a spinner and disables both buttons, `disabled` only disables them, `count` is a
  * badge in the main button. The menu closes on a choice, Escape (focus returns to the chevron), an
  * outside press and when focus leaves it; ArrowUp/ArrowDown/Home/End move between the entries.
+ * `info-icons` puts help on separate menu icons; `menu-start` anchors to the join's left edge,
+ * and `menu-label` names the menu and its chooser.
  */
 export class OpmSplitButton extends OpmElement {
   static override properties = {
@@ -68,6 +71,9 @@ export class OpmSplitButton extends OpmElement {
     busy: { type: Boolean },
     disabled: { type: Boolean },
     count: { type: Number },
+    infoIcons: { type: Boolean, attribute: 'info-icons' },
+    menuStart: { type: Boolean, attribute: 'menu-start' },
+    menuLabel: { type: String, attribute: 'menu-label' },
     menuOpen: { state: true },
     localChoice: { state: true },
   };
@@ -81,6 +87,9 @@ export class OpmSplitButton extends OpmElement {
   declare disabled: boolean;
   /** Shown as a badge in the main button, for example the number of matched items. */
   declare count: number | undefined;
+  infoIcons = false;
+  menuStart = false;
+  menuLabel = 'Choose action';
   declare private menuOpen: boolean;
   declare private localChoice: string | undefined;
 
@@ -169,7 +178,9 @@ export class OpmSplitButton extends OpmElement {
 
   private entries(): HTMLButtonElement[] {
     return Array.from(
-      this.querySelectorAll<HTMLButtonElement>('[role="menuitemradio"]:not(:disabled)'),
+      this.querySelectorAll<HTMLButtonElement>(
+        '[role="menuitemradio"]:not(:disabled), [role="menuitem"]:not(:disabled)',
+      ),
     );
   }
 
@@ -200,7 +211,7 @@ export class OpmSplitButton extends OpmElement {
   };
 
   private choose(option: SplitOption): void {
-    if (option.disabled) return;
+    if (option.disabled || this.disabled || this.busy) return;
     this.remember(option.id);
     this.closeMenu(true);
     this.emit('split-select', option.id);
@@ -259,23 +270,32 @@ export class OpmSplitButton extends OpmElement {
     return html`
       <li
         role="none"
-        class=${hint ? 'tooltip tooltip-left' : nothing}
-        data-tip=${hint ?? nothing}
+        class=${this.infoIcons ? 'flex-row items-center' : nothing}
       >
         <button
           type="button"
           role="menuitemradio"
           tabindex="-1"
-          class=${selected ? 'menu-active' : option.danger ? 'text-error' : nothing}
+          class=${`${this.infoIcons ? 'min-w-0 flex-1' : ''} ${selected ? 'menu-active' : option.danger ? 'text-error' : ''}`}
           aria-checked=${selected ? 'true' : 'false'}
           aria-describedby=${hint ? hintId : nothing}
-          ?disabled=${option.disabled}
+          ?disabled=${option.disabled || this.disabled || this.busy}
+          ${tooltip(this.infoIcons ? undefined : hint)}
           @click=${() => this.choose(option)}
         >
           ${option.icon ? html`<opm-icon name=${option.icon} size="sm"></opm-icon>` : nothing}
-          <span>${option.label}</span>
+          <span class=${this.infoIcons ? 'whitespace-normal text-left' : nothing}>${option.label}</span>
           ${selected ? html`<opm-icon name="check" size="sm"></opm-icon>` : nothing}
         </button>
+        ${
+          hint && this.infoIcons
+            ? html`
+          <button type="button" role="menuitem" class="btn btn-ghost btn-xs btn-square shrink-0"
+            aria-label=${`About ${option.label}`} ${tooltip(hint)}>
+            <opm-icon name="info" size="sm"></opm-icon>
+          </button>`
+            : nothing
+        }
         ${hint ? html`<span id=${hintId} class="sr-only">${hint}</span>` : nothing}
       </li>
     `;
@@ -289,11 +309,11 @@ export class OpmSplitButton extends OpmElement {
     const colour = option.danger ? 'btn-error' : 'btn-primary';
     const menuId = `${this.uid}-menu`;
     return html`
-      <div class="join min-w-0 max-w-full">
+      <div class="join relative min-w-0 max-w-full" ${tooltip(locked ? (option.hint ?? option.label) : undefined)}>
         <button
           type="button"
           class="btn btn-sm join-item min-w-0 flex-1 ${colour}"
-          title=${option.label}
+          ${tooltip(option.hint ?? option.label)}
           ?disabled=${locked}
           aria-busy=${this.busy ? 'true' : nothing}
           @click=${this.onMainClick}
@@ -310,15 +330,16 @@ export class OpmSplitButton extends OpmElement {
         </button>
         <details
           ${ref(this.detailsRef)}
-          class="dropdown dropdown-top dropdown-end shrink-0"
+          class="dropdown dropdown-top ${this.menuStart ? 'static' : 'dropdown-end'} shrink-0"
           ?open=${this.menuOpen}
           @keydown=${this.onKeydown}
           @focusout=${this.onFocusOut}
         >
           <summary
             ${ref(this.summaryRef)}
+            role="button"
             class="btn btn-sm btn-square join-item ${colour} ${locked ? 'btn-disabled' : ''}"
-            aria-label="Choose action"
+            aria-label=${this.menuLabel}
             aria-haspopup="menu"
             aria-expanded=${this.menuOpen ? 'true' : 'false'}
             aria-controls=${menuId}
@@ -330,9 +351,9 @@ export class OpmSplitButton extends OpmElement {
           </summary>
           <ul
             id=${menuId}
-            class="menu dropdown-content mb-2 w-max min-w-56 rounded-box border border-base-300 bg-base-100 p-2 shadow-lg"
+            class="menu dropdown-content ${this.menuStart ? 'left-0 w-full min-w-0' : 'w-max min-w-56'} z-20 mb-2 max-w-[calc(100vw-1rem)] rounded-box border border-base-300 bg-base-100 p-2 shadow-lg"
             role="menu"
-            aria-label="Choose action"
+            aria-label=${this.menuLabel}
           >
             ${this.options.map((entry, index) => this.renderEntry(entry, index, option.id))}
           </ul>

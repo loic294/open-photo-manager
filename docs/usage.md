@@ -6,7 +6,7 @@ The five tools operate on the index and show a plan before a confirmed file oper
 ## Tour the screen
 
 1. Use the menu to switch between **Browse**, **Duplicate finder**, **Asset move**,
-   **Folder formatting**, **Empty folder cleanup**, **Trash** and **Settings**. The re-index
+   **Folder formatting**, **Empty folder cleanup**, **Statistics**, **Trash** and **Settings**. The re-index
    commands are also in the menu.
 
    You should see: each tool keeps its own source and comparison pane locations.
@@ -22,12 +22,18 @@ The five tools operate on the index and show a plan before a confirmed file oper
 
 3. Use **Use this folder** in a pinned pane to change its base and **Go to base** to return.
    The bottom bar shows matching counts, selected counts, **Select all**, **Clear selection** and
-   a thumbnail-size slider for each pane. The top-right task indicator shows background work.
+   one thumbnail-size slider on the left. The top-right task indicator shows background work.
 
-   You should see: folder navigation, selection and thumbnail size are independent per pane;
-   tasks continue while you use other tools.
+   You should see: selection stays independent, while the thumbnail-size slider scales both panes.
+   **Sync navigation**, beside **Include subfolders**, makes both panes show the exact same folder
+   and links their scrolling. Turn it off to browse separately. Tasks continue while you use other tools.
    Long folder paths collapse their middle into **...**; open it to navigate to a hidden parent.
    Hover or focus a path segment to see the full path in a tooltip.
+   Hover a filename for its full name, or its capture date for the time, file size and date source.
+   The list/grid icons in each pane's toolbar switch folders between compact rows and photo
+   thumbnails. Each pane remembers its own choice. Previews use a matching indexed photo from
+   the folder or its descendants; folders without photos show a folder icon. Counts and
+   right-click actions work in either view, and the thumbnail-size slider also scales folder tiles.
 
 ## Check the library
 
@@ -44,7 +50,91 @@ The five tools operate on the index and show a plan before a confirmed file oper
 
    You should see: the viewer, or an explanation/download path for unsupported media.
 
+## Library statistics
+
+Open **Statistics** to review daily file counts and logical sizes, additions, modifications,
+removals, duplicate cleanup, restores, and permanent trash deletion. Filter by volume and choose
+30 days, 90 days, one year, or a custom window of up to 366 days. Daily summaries are retained
+indefinitely; older history remains available by choosing an earlier window.
+
+Collection runs in the backend without this page open: at startup, every five minutes, at the
+reporting timezone's calendar boundary, and after completed tasks. Inventory charts use the latest
+actual observation in each day, not a reconstructed exact midnight count. The observation time is
+shown. Current-day activity is provisional; an interrupted day can be partial, and missing days
+are gaps, not zeros. The first release cannot recover history from before it was installed.
+Large imports drain their activity queue in bounded follow-up passes; pending changes are shown.
+
+**Settings > General > Library statistics** sets the IANA reporting timezone (initially
+`America/Los_Angeles`). All browsers use that timezone for daily buckets, including daylight-saving
+changes. Historical buckets keep their original timezone and are not rewritten when it changes.
+
+The inventory includes all indexed files, including sidecars and retained offline-volume rows;
+trash and planned ghost files are excluded. The initial index and discoveries before a new volume's
+first successful full scan are its **Initial inventory**, not new additions. Type and index-health
+tables show where bytes live and which metadata, hash, or thumbnail stages need attention.
+
+Added and modified counts are distinct per indexed file per day. Actual size, mtime, or classified
+kind changes count as modifications; metadata processing and unchanged forced rescans do not.
+Internal moves and renames are not additions or removals. A copy adds a file; a restore is counted
+separately. Changes are dated when the index observes them, not by the file's capture date.
+Content edits that preserve all indexed change indicators cannot be detected by these statistics.
+
+Duplicate counts include only successful cleanup operations, with primary files and companion
+sidecars separate. Failed or skipped operations do not count. Duplicate files are a subset of all
+trashed files, and trashing also removes files from the index: these activity columns overlap.
+Restoring or emptying trash does not erase the earlier activity. Bytes moved to trash are **not**
+freed space; permanently purged bytes are logical sizes, not a measurement of physical NAS capacity.
+Folder restore and purge file counts use the recorded index inventory. Legacy or adopted folders
+without that inventory cannot supply file counts, although their bytes can still be reported.
+The daily table provides exact counts and byte totals alongside the charts.
+
 ## Duplicate finder
+
+Use **Folder view** for the existing source/comparison workflow, or **File view** to review
+groups of matching copies together.
+
+### File view
+
+Choose a **Source** folder, optionally include its subfolders, then **Find duplicates**.
+The source determines which files start the search, not where their copies may be:
+matches are found across all volumes. **Exclude folder** omits that folder and its entire
+subtree from both sides; remove an exclusion to include it again.
+
+Each group has a separate card containing large thumbnails of all its copies. Green borders and **Keep** labels mean retain;
+red borders and **Remove** labels mean move to Trash after confirmation. Click a thumbnail to
+prefer that copy. Filename, size and capture date appear beneath each thumbnail; fields that
+differ between copies are bold. Differing sizes include exact byte counts, and capture dates
+include seconds (a missing date is shown explicitly).
+Star ratings and flags appear as icon pills on the thumbnail when set. Thumbnails retain
+the image's aspect ratio. Hover a thumbnail or its Keep/Remove pill to see the selecting rule.
+The bottom slider adjusts thumbnail size; groups load as you scroll, without changing selection
+rules or the final action. Name-based matches are not always transitive, so a group can require
+multiple keepers: every removal must directly match a retained file.
+
+**Automatic Selection** lists folder preferences first, then filename regular expressions,
+shorter/longer filenames, capture, modification and creation dates in either order,
+file size in either order, presence of ratings, descriptions, flags or tags, a specific tag
+among the matching copies, and multiple preferred folders (exact or including descendants).
+Enable rules individually and drag them into priority order; Up/Down buttons also reorder.
+The first enabled rule wins, later rules break ties, missing dates rank last, and exact ties
+use the lowest file ID. Applying rules replaces manual choices in every group.
+
+Right-click a thumbnail and choose **Keep files from this folder**. Choose its folder or any pre-populated ancestor, then exact-folder or
+subfolder matching. Applying makes that preference the first rule for all groups.
+
+**Trash duplicates** confirms the total and warns that copies outside the source can be removed.
+The existing plan executor rechecks identity, metadata and matching survivors before using
+journaled file operations. Nothing is permanently deleted; use Trash to recover files.
+Changes to indexed files or search settings require a refresh before another action.
+File view is bounded to 20,000 matched files per side and the existing two-million-pair limit;
+an oversized search is refused rather than truncated. Narrow the source folder if necessary.
+Descriptions are read from embedded EXIF/IPTC/XMP and linked XMP metadata; existing indexed
+images and videos are queued for metadata extraction after the database upgrade.
+
+The source folder shows matching file counts separately for that folder and its subfolders.
+After a search, the source picker also shows matching counts from the current plan.
+
+### Folder view
 
 1. Set a source folder in the left pane and a comparison folder in the right pane. **Match by**
    offers **Hash exact match** (same content), **Filename and time exact match** (same filename
@@ -55,7 +145,7 @@ The five tools operate on the index and show a plan before a confirmed file oper
    You should see: matching files have a green border, and the summary reports matching files in
    both panes. Matches update as background hashing finishes.
 
-2. The compact split action floating above the grid offers **Delete source items**, **Delete comparison items** and
+2. The compact split action in the bottom bar offers **Delete source items**, **Delete comparison items** and
    **Move files**. Its last-used choice is remembered. Delete actions ask for confirmation and
    send only matched files to Trash when a matching survivor remains outside the effective
    deletion set. **Move files** hands the chosen files to **Asset move**; no files move until its
@@ -122,8 +212,8 @@ The five tools operate on the index and show a plan before a confirmed file oper
    use Rust syntax and search anywhere unless anchored with `^` and `$`. Matching ignores case by
    default when a matcher pattern is used.
 
-   You should see: matching source files are marked, while the comparison pane shows the current
-   files and non-selectable new-name ghosts. Folder rows and counts remain real because files stay
+   You should see: matching source files are marked, while the comparison pane shows only
+   proposed names as non-selectable ghost cards. Folder rows and counts remain real because files stay
    in their current folders.
 
 2. **Clean numbered copies** optionally removes recognized copy suffixes from the stem, including
@@ -187,6 +277,8 @@ not accepted by **Folder formatting**. The examples use the generated sample fil
    never removed. Planned deletions have a red border.
 
    You should see: the comparison pane marks the empty folders below the base that qualify.
+   Parent folders show the number of matches below them even when the parent itself is not empty;
+   only folders that will actually be removed have a red border.
 
 2. Choose **Delete empty folders (N)** and review the counts of top-level and nested folders.
    Empty directories are removed, not sent to Trash. Leftover junk files (such as thumbnail
@@ -222,6 +314,10 @@ not accepted by **Folder formatting**. The examples use the generated sample fil
 
 4. **Indexing** controls scans, hashing, thumbnails, watches and periodic repair.
    The top-right task indicator lets background work proceed without locking the rest of the app.
+   Up to three tasks run at once across indexing, file operations and Immich; additional tasks
+   wait in submission order. Multiple move/delete tasks can progress together. Each file or
+   owner/sidecar group is rechecked and changed as one synchronized unit, so tasks interleave
+   between items rather than racing a duplicate's last surviving copy.
    Failed and interrupted tasks remain visible until dismissed; dismissing history is not a retry.
    See [watcher fallback](synology.md#watcher-and-rescan-fallback) and
    [indexing troubleshooting](troubleshooting.md#indexing).
@@ -252,6 +348,17 @@ not accepted by **Folder formatting**. The examples use the generated sample fil
 
    You should see: the folder disappears from the pane at once, and its counts leave the totals
    after a short background scan.
+
+6. To leave a folder out of tools without hiding it, right-click it and choose **Soft exclude
+   folder**. The folder and its descendants stay indexed and browsable with a **Soft exclude**
+   tag, but are omitted from duplicate matching, moves, folder formatting, batch rename and
+   empty-folder cleanup. This is one shared list across tools, separate from search-specific
+   exclusions. Plans refresh when the list changes; older plans cannot modify newly excluded files.
+
+   Choose **Remove soft exclusion** on the exact folder, or **Include in tools** under
+   **Settings** > **General** > **Soft-excluded folders**, to include it again immediately.
+   Neither action requires a rescan. A child excluded by its parent must be re-included at that
+   parent or through Settings.
 
 ## Trash and recovery
 
@@ -373,3 +480,22 @@ minutes use `{min}`. Month names are English. The sample is `IMG_0042.CR3`, capt
 
    You should see: unsaved General settings expose **Save** and **Discard**; Immich settings show
    the connection and sync status without exposing the database secret.
+
+## Install as an app
+
+Open OPM over HTTPS (or localhost during development), then use your browser's **Install app**
+command. On iPhone or iPad, use Safari's **Share > Add to Home Screen**. A NAS accessed through
+a plain HTTP LAN address is not a secure context: configure HTTPS before installing.
+
+The installed app still needs the OPM server. Only an offline notice is cached, never library
+media or API responses; file changes are not queued while offline.
+
+## Interrupted background work
+
+New tasks keep their saved requests and checkpoints across server restarts, including file-changing
+tasks. They resume automatically using the same task ID. Completed file operations are recognized
+from the filesystem journal, rather than applied twice. Scans resume directory batches and pipeline
+stages, Immich resumes committed pages, and plan/trash operations resume completed items.
+An unfinished file copy may be retried from its beginning; byte-offset copy resumption is not supported.
+Explicitly cancelled tasks do not restart. Tasks created by an older version without saved requests
+remain interrupted and must be submitted again.

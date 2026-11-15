@@ -83,9 +83,7 @@ async fn grouped_counts_match_rust_for_adversarial_children_at_root_and_unicode_
                 path.strip_prefix(base).unwrap().strip_prefix('/').unwrap()
             };
             let name = rest.split('/').next().unwrap();
-            if paths.contains(&dir.join(name).unwrap().as_str().to_owned())
-                && children.iter().any(|c| c == name)
-            {
+            if children.iter().any(|c| c == name) {
                 *expected.entry(name.to_owned()).or_default() += 1;
             }
         }
@@ -113,7 +111,10 @@ async fn grouped_counts_match_rust_for_adversarial_children_at_root_and_unicode_
             .per_child
             .into_iter()
             .map(|(name, info)| {
-                assert!(info.overlay.will_delete);
+                assert_eq!(
+                    info.overlay.will_delete,
+                    paths.contains(&view.dir.join(&name).unwrap().as_str().to_owned())
+                );
                 (name, info.matches.unwrap())
             })
             .collect();

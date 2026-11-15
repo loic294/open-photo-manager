@@ -20,6 +20,61 @@ test.use({
   ],
 });
 
+test('scan split menu remembers its action and explains options with DaisyUI help', async ({
+  app,
+  page,
+  shell,
+}) => {
+  await page.goto(`${app.url}/browse`);
+  const split = shell.menu().locator('opm-split-button');
+  await expect(shell.reindexButton()).toHaveText('Scan current folders for changes');
+  await split.getByRole('button', { name: 'Choose scan action', exact: true }).click();
+  const menu = split.getByRole('menu', { name: 'Choose scan action', exact: true });
+  await expect(menu.getByRole('menuitemradio')).toHaveCount(4);
+  const before = await app.api.tasks();
+  const info = menu.getByRole('menuitem', { name: 'About Re-index all assets', exact: true });
+  await info.focus();
+  const tooltip = page.getByRole('tooltip');
+  await expect(tooltip).toContainText('metadata, checksums and thumbnails');
+  await expect(tooltip).toContainText('Asks for confirmation');
+  await expect(tooltip).toBeVisible();
+  const helpBounds = await tooltip.boundingBox();
+  const desktopMenuBounds = await menu.boundingBox();
+  expect((helpBounds?.y ?? 0) + (helpBounds?.height ?? 0)).toBeLessThanOrEqual(
+    desktopMenuBounds?.y ?? 0,
+  );
+  expect(await tooltip.evaluate((element) => element.parentElement?.matches(':popover-open'))).toBe(
+    true,
+  );
+  await info.click();
+  await expect(menu).toBeVisible();
+  await expectNoSeriousA11yViolations(page);
+  await captureScreens(page, 'scan-menu-desktop');
+  await menu.getByRole('menuitemradio', { name: 'Re-index current folders', exact: true }).click();
+  await expect(shell.reindexButton()).toHaveText('Re-index current folders');
+  expect(await app.api.tasks()).toEqual(before);
+  await page.reload();
+  await expect(shell.reindexButton()).toHaveText('Re-index current folders');
+  await page.setViewportSize({ width: 390, height: 844 });
+  await page.getByRole('button', { name: 'Menu', exact: true }).click();
+  await split.getByRole('button', { name: 'Choose scan action', exact: true }).click();
+  await info.focus();
+  await expect(tooltip).toBeVisible();
+  const menuBounds = await menu.boundingBox();
+  expect(menuBounds?.x).toBeGreaterThanOrEqual(0);
+  expect((menuBounds?.x ?? 0) + (menuBounds?.width ?? 0)).toBeLessThanOrEqual(390);
+  expect(await page.locator('.drawer-side').evaluate((element) => element.scrollLeft)).toBe(0);
+  await expectNoSeriousA11yViolations(page);
+  await captureScreens(page, 'scan-menu-mobile');
+  await menu
+    .getByRole('menuitemradio', { name: 'Scan current folders for changes', exact: true })
+    .click();
+  await expect(shell.reindexButton()).toBeVisible();
+  await expect(page.getByRole('dialog')).toHaveCount(0);
+  await shell.reindexButton().click();
+  await expect(shell.toasts()).toContainText('Open a folder first');
+});
+
 test('current re-index scopes both panes; all-assets confirmation and coalescing', async ({
   app,
   page,
@@ -172,12 +227,15 @@ test('forced re-index rereads same-size same-mtime sidecar edits', async ({
   page,
   shell,
   source,
+  comparison,
   filterBar,
 }) => {
   const owner = manifest.filesOf('stale.touch_xmp').find((file) => file.kind !== 'sidecar');
   const sidecar = manifest.filesOf('stale.touch_xmp').find((file) => file.kind === 'sidecar');
   if (!owner || !sidecar) throw new Error('Missing sidecar mutation fixtures');
   await page.goto(`${app.url}/browse?src=photos/stale&cmp=photos/stale`);
+  await source.waitReady();
+  await comparison.waitReady();
   const original = await readFile(app.volumePath(`photos/${sidecar.path}`), 'utf8');
   const edited = original
     .replace(/Rating="2"/, 'Rating="5"')
@@ -192,6 +250,8 @@ test('forced re-index rereads same-size same-mtime sidecar edits', async ({
   expect((await taskAction(app, page, '/api/index/rescan', () => shell.reindex())).state).toBe(
     'done',
   );
+  await source.waitReady();
+  await comparison.waitReady();
   await filterBar.rating(5);
   await expect(source.card(basename(owner.path)).element).toBeVisible();
   expect((await indexedFile(app, 'photos', owner.path)).item.rating).toBe(5);

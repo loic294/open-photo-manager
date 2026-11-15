@@ -74,6 +74,14 @@ export const routes: readonly AppRoute[] = [
     load: () => import('@/tools/rename/opm-rename-page'),
   },
   {
+    path: '/statistics',
+    tag: 'opm-statistics-page',
+    load: () => import('@/tools/statistics/opm-statistics-page'),
+    label: 'Statistics',
+    icon: 'database',
+    menu: 'footer',
+  },
+  {
     path: '/trash',
     tag: 'opm-trash-page',
     load: () => import('@/tools/trash/opm-trash-page'),

@@ -23,9 +23,9 @@ import {
   syncFromLocation,
 } from '@/stores/nav';
 import { INVALIDATE_DEBOUNCE_MS } from '@/stores/paged-items';
-import { GRID_SIZE, setGridSize, setSort, sort } from '@/stores/prefs';
+import { folderView, GRID_SIZE, setGridSize, setSort, sort } from '@/stores/prefs';
 import { activePane, resetSelectionForTests, selection } from '@/stores/selection';
-import { includeFolder } from '@/stores/settings';
+import { includeFolder, softExcludeFolder } from '@/stores/settings';
 import { clearToasts, toasts } from '@/stores/toasts';
 import { loadVolumes } from '@/stores/volumes';
 import {
@@ -66,6 +66,7 @@ afterEach(() => {
   vi.unstubAllGlobals();
   clearToasts();
   resetSelectionForTests();
+  folderView.value = { source: 'list', comparison: 'list' };
   for (const pane of ['source', 'comparison'] as const) {
     setSort(pane, { key: 'name', order: 'asc' });
     setGridSize(pane, GRID_SIZE.default);
@@ -131,6 +132,25 @@ const upButton = (pane: OpmPane) =>
 const baseRow = (pane: OpmPane) => pane.querySelector('[role="group"][aria-label="Base folder"]');
 const buttonNamed = (root: ParentNode, name: string) =>
   [...root.querySelectorAll('button')].find((button) => text(button) === name);
+
+it('switches folder views with icon-only controls without changing the other pane or location', async () => {
+  const source = await mountPane();
+  const comparison = await mountPane({ pane: 'comparison' });
+  const before = locations.source.value;
+  const toggle = part<HTMLButtonElement>(source, 'button[aria-label="Folder thumbnails"]');
+  expect(toggle.textContent?.trim()).toBe('');
+  expect(toggle.getAttribute('aria-pressed')).toBe('false');
+  toggle.click();
+  await settle(source);
+  expect(toggle.getAttribute('aria-pressed')).toBe('true');
+  expect(toggle.classList.contains('btn-primary')).toBe(true);
+  expect(folderList(source).view).toBe('thumbnails');
+  expect(folderList(comparison).view).toBe('list');
+  expect(locations.source.value).toEqual(before);
+  part<HTMLButtonElement>(source, 'button[aria-label="Folder list"]').click();
+  await settle(source);
+  expect(folderList(source).view).toBe('list');
+});
 
 /**
  * Clicks a link the way a user does and reports whether the page took the click over. The
@@ -525,11 +545,9 @@ describe('the breadcrumbs and the up button', () => {
       'page',
     ]);
     expect(part(pane, '[data-crumbs]').getAttribute('aria-label')).toBe('Source folder path');
-    expect(part(pane, '[data-crumbs]').getAttribute('title')).toBe('photos/trip/2024');
+    expect(part(pane, '[data-crumbs]').getAttribute('data-tooltip')).toBe('photos/trip/2024');
     expect(
-      [...pane.querySelectorAll('[data-crumbs] .tooltip')].map((tip) =>
-        tip.getAttribute('data-tip'),
-      ),
+      [...pane.querySelectorAll('[data-crumbs] a')].map((tip) => tip.getAttribute('data-tooltip')),
     ).toEqual(Array(4).fill('photos/trip/2024'));
   });
 
@@ -545,7 +563,7 @@ describe('the breadcrumbs and the up button', () => {
     await settle(pane);
 
     expect(text(part(nav, 'summary'))).toBe('...');
-    expect(part(nav, 'summary').getAttribute('data-tip')).toBe('photos/trip/2024');
+    expect(part(nav, 'summary').getAttribute('data-tooltip')).toBe('photos/trip/2024');
     expect([...nav.querySelectorAll(':scope > ul > li > span > a')].map(text)).toEqual([
       'Volumes',
       '2024',
@@ -566,7 +584,7 @@ describe('the breadcrumbs and the up button', () => {
     goTo('comparison', { volume: 'backup', dir: 'old' });
     const pane = await mountPane();
 
-    const result = clickLink(part(pane, '[data-crumbs] a[title="trip"]'));
+    const result = clickLink(part(pane, '[data-crumbs] li:nth-child(3) a'));
     await settle(pane);
 
     expect(result.claimed).toBe(true);
@@ -579,7 +597,7 @@ describe('the breadcrumbs and the up button', () => {
     goTo('source', { volume: 'photos', dir: 'trip/2024' });
     const pane = await mountPane();
 
-    const result = clickLink(part(pane, '[data-crumbs] a[title="trip"]'), { ctrlKey: true });
+    const result = clickLink(part(pane, '[data-crumbs] li:nth-child(3) a'), { ctrlKey: true });
 
     expect(result.claimed).toBe(false);
     expect(locations.source.value).toEqual({ volume: 'photos', dir: 'trip/2024' });
@@ -641,7 +659,7 @@ describe('the sort controls', () => {
     expect(toggle.getAttribute('aria-label')).toBe(
       'Sort order (Backup): descending. Switch to ascending',
     );
-    expect(toggle.getAttribute('title')).toBe(toggle.getAttribute('aria-label'));
+    expect(toggle.getAttribute('data-tooltip')).toBe(toggle.getAttribute('aria-label'));
   });
 
   it('are named after the pane when it has no heading', async () => {
@@ -1189,6 +1207,19 @@ describe('the selection', () => {
     expect(selection.source.toArray()).toEqual([]);
   });
 
+  it('clears existing selection and never selects originals in a proposed-name preview', async () => {
+    goTo('comparison', TRIP);
+    const pane = await mountPane({ pane: 'comparison' });
+    selection.comparison.set([1, 2]);
+    pane.plannedOnly = true;
+    await settle(pane);
+
+    expect(selection.comparison.toArray()).toEqual([]);
+    await selection.comparison.selectAll();
+    expect(server.calls.ids).toEqual([]);
+    expect(selection.comparison.toArray()).toEqual([]);
+  });
+
   it('is served by the pane of its own id', async () => {
     goTo('comparison', { volume: 'backup', dir: 'old' });
     await mountPane({ pane: 'comparison' });
@@ -1283,7 +1314,7 @@ describe('the base folder row', () => {
       const row = baseRow(pane) as Element;
 
       expect(text(row)).toContain('photos/trip/raw');
-      expect(row.querySelector('[title="photos/trip/raw"]')).not.toBeNull();
+      expect(row.querySelector('[data-tooltip="photos/trip/raw"]')).not.toBeNull();
       expect(buttonNamed(row, 'Reset')).toBeUndefined();
 
       buttonNamed(row, 'Use this folder')?.click();
@@ -1336,7 +1367,7 @@ describe('the base folder row', () => {
 
       const row = baseRow(pane) as Element;
       expect(text(row)).toContain('Source folder');
-      expect(row.querySelector('[title="Source folder"]')).not.toBeNull();
+      expect(row.querySelector('[data-tooltip="Source folder"]')).not.toBeNull();
       expect(buttonNamed(row, 'Reset')).toBeUndefined();
       // Picking the folder that is the default pins it for good.
       goTo('source', base);
@@ -1357,7 +1388,7 @@ describe('the base folder row', () => {
       });
 
       const reset = buttonNamed(baseRow(pane) as Element, 'Reset');
-      expect(reset?.getAttribute('title')).toBe('Use again: Source folder');
+      expect(reset?.getAttribute('data-tooltip')).toBe('Use again: Source folder');
       reset?.click();
       expect(changes).toEqual([{ pane: 'source', base: null }]);
     });
@@ -1545,6 +1576,73 @@ describe('a pane that left the page', () => {
 describe('the folder context menu', () => {
   const PRIVATE = { name: 'private-x', path: 'trip/private-x' };
 
+  it('explains inherited exclusions and keeps excluded unmatched folders navigable', async () => {
+    const saved = sampleSettings({ soft_excluded_folders: [{ volume_id: 1, path: 'trip' }] });
+    const realPost = api.post.bind(api);
+    vi.spyOn(api, 'post').mockImplementation((path, init) =>
+      path === '/api/settings/soft-excluded-folders'
+        ? Promise.resolve(saved)
+        : realPost(path, init),
+    );
+    await softExcludeFolder({ volume_id: 1, path: 'trip' });
+    goTo('source', TRIP);
+    serveFolders({ ...PRIVATE, count: 0, matches: 0 });
+    const pane = await mountPane({ hideUnmatched: true, showMatches: true });
+    expect(text(row(pane, PRIVATE.name))).toContain('Soft exclude');
+    expect(pane.querySelector('[role="separator"]')).not.toBeNull();
+    expect(pane.querySelector('opm-file-grid')?.emptyText).toBe('No files in this folder');
+    rightClick(row(pane, PRIVATE.name));
+    await settle(pane);
+    expect(buttonNamed(menu(pane) as HTMLElement, 'Soft excluded by parent')?.disabled).toBe(true);
+    expect(document.activeElement?.textContent?.trim()).toBe('Exclude folder…');
+  });
+
+  it('reports a failed soft exclusion without changing the folder', async () => {
+    goTo('source', TRIP);
+    serveFolders(PRIVATE);
+    const pane = await mountPane();
+    vi.spyOn(api, 'post').mockRejectedValue(new Error('Cannot save exclusions'));
+    rightClick(row(pane, PRIVATE.name));
+    await settle(pane);
+    buttonNamed(menu(pane) as HTMLElement, 'Soft exclude folder')?.click();
+    await settle(pane);
+    expect(toasts.value.some((toast) => toast.message.includes('Cannot save exclusions'))).toBe(
+      true,
+    );
+    expect(text(row(pane, PRIVATE.name))).not.toContain('Soft exclude');
+  });
+
+  it('soft-excludes and includes a folder through right-click without hiding it or rescanning', async () => {
+    goTo('source', TRIP);
+    serveFolders(PRIVATE);
+    const pane = await mountPane();
+    const folder = { volume_id: 1, path: PRIVATE.path };
+    const realPost = api.post.bind(api);
+    const post = vi.spyOn(api, 'post').mockImplementation((path, init) => {
+      if (path === '/api/settings/soft-excluded-folders')
+        return Promise.resolve(sampleSettings({ soft_excluded_folders: [folder] }));
+      if (path === '/api/settings/soft-excluded-folders/remove')
+        return Promise.resolve(sampleSettings());
+      return realPost(path, init);
+    });
+    const calls = server.calls.folders.length;
+    rightClick(row(pane, PRIVATE.name));
+    await settle(pane);
+    buttonNamed(menu(pane) as HTMLElement, 'Soft exclude folder')?.click();
+    await settle(pane);
+    expect(text(row(pane, PRIVATE.name))).toContain('Soft exclude');
+    expect(server.calls.folders).toHaveLength(calls);
+    expect(post).toHaveBeenCalledWith('/api/settings/soft-excluded-folders', { body: folder });
+    rightClick(row(pane, PRIVATE.name));
+    await settle(pane);
+    buttonNamed(menu(pane) as HTMLElement, 'Remove soft exclusion')?.click();
+    await settle(pane);
+    expect(text(row(pane, PRIVATE.name))).not.toContain('Soft exclude');
+    expect(post).toHaveBeenCalledWith('/api/settings/soft-excluded-folders/remove', {
+      body: folder,
+    });
+  });
+
   afterEach(async () => {
     // The settings store is shared: leave it without exclusions for the next tests.
     vi.spyOn(api, 'post').mockResolvedValue(sampleSettings());
@@ -1595,7 +1693,7 @@ describe('the folder context menu', () => {
 
     rightClick(row(pane, PRIVATE.name));
     await settle(pane);
-    menu(pane)?.querySelector('button')?.click();
+    buttonNamed(menu(pane) as HTMLElement, 'Exclude folder…')?.click();
     const shown = await shownConfirm();
     expect(shown.message).toContain('The files on disk stay untouched');
     await pressConfirm('Exclude folder');
@@ -1619,7 +1717,7 @@ describe('the folder context menu', () => {
 
     rightClick(row(pane, PRIVATE.name));
     await settle(pane);
-    menu(pane)?.querySelector('button')?.click();
+    buttonNamed(menu(pane) as HTMLElement, 'Exclude folder…')?.click();
     await pressConfirm('Cancel');
     await settle(pane);
 

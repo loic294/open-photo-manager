@@ -4,7 +4,9 @@ import { api } from '@/api/client';
 import { ApiError } from '@/api/errors';
 import type { PlanDto } from '@/api/generated/PlanDto';
 import { events } from '@/api/sse';
+import { saveSettings } from '@/stores/settings';
 import { FakeEventSource } from '@/test/fake-event-source';
+import { sampleSettings } from '@/test/settings-fixtures';
 import { taskEvent } from '@/test/task-fixtures';
 import { plainPane, toolConfig } from '@/test/tool-config';
 import {
@@ -76,6 +78,32 @@ describe('paramsKey', () => {
 });
 
 describe('build lifecycle', () => {
+  it('rebuilds when shared soft exclusions change, but not for unrelated settings', async () => {
+    const { controller, post } = setup();
+    await vi.advanceTimersByTimeAsync(300);
+    expect(controller.ready.value).toBe(true);
+    const put = vi.spyOn(api, 'put').mockResolvedValue(
+      sampleSettings({
+        soft_excluded_folders: [{ volume_id: 1, path: 'a/private' }],
+      }),
+    );
+    await saveSettings(sampleSettings());
+    expect(controller.ready.value).toBe(false);
+    await vi.advanceTimersByTimeAsync(300);
+    expect(post).toHaveBeenCalledTimes(2);
+    put.mockResolvedValue(
+      sampleSettings({
+        soft_excluded_folders: [{ volume_id: 1, path: 'a/private' }],
+        name_max_len: 143,
+      }),
+    );
+    await saveSettings(sampleSettings());
+    await vi.advanceTimersByTimeAsync(300);
+    expect(post).toHaveBeenCalledTimes(2);
+    controller.dispose();
+    put.mockResolvedValue(sampleSettings());
+    await saveSettings(sampleSettings());
+  });
   it('contains parameter errors and drops an obsolete preview when inputs become not-ready', async () => {
     const { ctx, controller, params } = setup();
     await vi.advanceTimersByTimeAsync(300);

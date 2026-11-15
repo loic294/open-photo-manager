@@ -52,6 +52,56 @@ fn moved(outcome: &MoveOutcome) -> (&opm_server::fsops::Loc, bool, bool) {
 // --- the happy paths ---------------------------------------------------------------------------
 
 #[tokio::test]
+async fn resumed_transfers_refuse_a_deleted_and_reused_destination_identity() {
+    let fx = Fx::new().await;
+    fx.ta.write("source.jpg", b"one");
+    fx.scan().await;
+    let original = fx.row_id(fx.a, "source.jpg").await;
+    let id = fx
+        .app
+        .state
+        .tasks
+        .submit(
+            opm_server::tasks::TaskSpec::new(opm_core::dto::TaskKind::FsMove, "Recovery receipt")
+                .resumable(),
+            |_| async { Ok(serde_json::json!({})) },
+        )
+        .await
+        .unwrap();
+    fx.app.state.tasks.wait_finished(id).await.unwrap();
+    let mut context = cx();
+    context.task_id = Some(id);
+    let make_request = || {
+        request(
+            loc(fx.a, "source.jpg"),
+            loc(fx.a, "destination.jpg"),
+            ConflictPolicy::Rename,
+        )
+    };
+    fx.ops.move_file(make_request(), &context).await.unwrap();
+    let replayed = fx.ops.move_file(make_request(), &context).await.unwrap();
+    assert_eq!(moved(&replayed).0, &loc(fx.a, "destination.jpg"));
+    sqlx::query("DELETE FROM files WHERE id = ?")
+        .bind(original)
+        .execute(fx.app.state.db.write())
+        .await
+        .unwrap();
+    fx.scan().await;
+    assert_eq!(
+        fx.row_id(fx.a, "destination.jpg").await,
+        original,
+        "SQLite reused the id"
+    );
+    let outcome = fx
+        .ops
+        .move_file(make_request(), &context)
+        .await
+        .unwrap_err();
+    assert_eq!(outcome.code(), "source_changed");
+    assert_eq!(fs::read(fx.ta.path("destination.jpg")).unwrap(), b"one");
+}
+
+#[tokio::test]
 async fn a_move_keeps_the_row_and_the_index_matches_the_disk() {
     let fx = Fx::new().await;
     fx.ta.write("x/IMG_1.jpg", b"one");

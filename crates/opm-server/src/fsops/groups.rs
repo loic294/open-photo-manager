@@ -29,14 +29,14 @@ use super::executor::{Companion, Job, MoveOutcome, MoveRequest, SkipReason, Tran
 use super::{FsOps, Loc};
 
 /// What to do with one sidecar.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
 pub enum SidecarAction {
     Move,
     /// The sidecar is shared with an owner that stays behind: copy it, keep the original.
     Copy,
 }
 
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
 pub struct SidecarItem {
     /// The index row of the sidecar when the caller knows it (a hint, ignored).
     pub file_id: Option<FileId>,

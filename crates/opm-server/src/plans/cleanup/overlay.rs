@@ -1,4 +1,4 @@
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
 
 use opm_core::dto::{CleanupParams, Overlay, PlanSide};
 use sqlx::{QueryBuilder, Sqlite};
@@ -61,13 +61,17 @@ pub(super) async fn folders(
     qb.push(" AND path <> ")
         .push_bind(view.dir.as_str().to_owned())
         .push(" GROUP BY child COLLATE BINARY");
+    let visible_children: HashSet<_> = children.iter().map(String::as_str).collect();
     for (name, count) in qb
         .build_query_as::<(String, i64)>()
         .fetch_all(db.read())
         .await?
     {
-        if let Some(info) = flagged.get_mut(&name) {
-            info.matches = Some(count);
+        if visible_children.contains(name.as_str()) {
+            flagged
+                .entry(name)
+                .or_insert_with(FolderPlanInfo::default)
+                .matches = Some(count);
         }
     }
     Ok(FolderOverlay {

@@ -17,11 +17,13 @@
 
 mod build;
 mod execute;
+mod files;
 mod overlay;
 
 use futures_util::future::BoxFuture;
 use opm_core::dto::{
-    DuplicateAction, DuplicateExecuteOptions, Overlay, PlanKind, PlanResult, PlanSide,
+    DuplicateAction, DuplicateExecuteOptions, DuplicateFileParams, DuplicateParams, Overlay,
+    PlanKind, PlanResult, PlanSide, Scope,
 };
 use opm_core::paths::FileId;
 use serde_json::Value;
@@ -32,9 +34,42 @@ use super::{BuildContext, Built, ExecContext, ExecutePrep, Plan, PlanDeps, PlanE
 use crate::db::Db;
 
 pub(crate) use build::{OverlapPolicy, PairVisitor, candidate_pairs};
+pub use files::groups;
 
 pub const MAX_PAIRS: u64 = 2_000_000;
 pub const MAX_MATCHED_PER_SIDE: usize = 1_000_000;
+pub const MAX_FILE_VIEW_MATCHES: usize = 20_000;
+
+fn parameters(value: Value) -> Result<(DuplicateParams, Option<DuplicateFileParams>), PlanError> {
+    if value.get("matching").is_some() {
+        let file: DuplicateFileParams =
+            serde_json::from_value(value).map_err(|err| PlanError::invalid(err.to_string()))?;
+        if file.excluded.len() > 100 {
+            return Err(PlanError::invalid_field(
+                "excluded",
+                "at most 100 excluded folders",
+            ));
+        }
+        if file.matching.comparison.scope
+            != (Scope {
+                volume_id: None,
+                dir: String::new(),
+                recursive: true,
+            })
+            || file.matching.comparison.filter != Default::default()
+        {
+            return Err(PlanError::invalid_field(
+                "matching.comparison",
+                "file view must search all volumes without a comparison filter",
+            ));
+        }
+        Ok((file.matching.clone(), Some(file)))
+    } else {
+        serde_json::from_value(value)
+            .map(|params| (params, None))
+            .map_err(|err| PlanError::invalid(err.to_string()))
+    }
+}
 
 #[derive(Clone)]
 pub struct DuplicatesPlanner {
@@ -128,7 +163,12 @@ impl Planner for DuplicatesPlanner {
     ) -> BoxFuture<'a, Result<Vec<FileId>, PlanError>> {
         Box::pin(overlay::ids(&self.db, plan.id, side))
     }
-    fn prepare_execute(&self, _plan: &Plan, value: &Value) -> Result<ExecutePrep, PlanError> {
+    fn prepare_execute(&self, plan: &Plan, value: &Value) -> Result<ExecutePrep, PlanError> {
+        if parameters(plan.params()?)?.1.is_some() {
+            execute::keepers(value)?;
+            return Ok(ExecutePrep::new("Moving selected duplicates to the trash")
+                .summary("Trashed", "file", "files"));
+        }
         let side = if options(value)?.action == DuplicateAction::DeleteSource {
             "source"
         } else {

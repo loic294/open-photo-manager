@@ -6,13 +6,20 @@ import type { FieldError } from '@/api/generated/FieldError';
 import type { SettingsDto } from '@/api/generated/SettingsDto';
 import { OpmElement } from '@/base/opm-element';
 import { type ChipValuesChange, OpmChipInput } from '@/components/opm-chip-input';
+import { tooltip } from '@/components/tooltip';
 import '@/components/opm-icon';
 import '@/components/opm-save-bar';
 import '@/components/opm-select';
 import { toast } from '@/components/toast';
 import { UnsavedGuard } from '@/controllers/unsaved-guard';
 import { indexStatus } from '@/stores/index-status';
-import { includeFolder, loadSettings, saveSettings, settings } from '@/stores/settings';
+import {
+  includeFolder,
+  loadSettings,
+  saveSettings,
+  settings,
+  softIncludeFolder,
+} from '@/stores/settings';
 import { volumes } from '@/stores/volumes';
 import {
   DEFAULT_TRASH_RETENTION_DAYS,
@@ -46,12 +53,13 @@ type NumberField =
   | 'index.thumbnail_concurrency'
   | 'index.rescan_interval_minutes';
 /** The fields the server can refuse, and so the ones a validation error is mapped onto. */
-type FieldId = ListField | NumberField;
+type FieldId = ListField | NumberField | 'statistics_timezone';
 
 const LIST_FIELDS: readonly ListField[] = ['sidecar_extensions', 'junk_names', 'junk_prefixes'];
 
 /** The fields in page order: after a refused save the first one with a problem gets the focus. */
 const FIELD_ORDER: readonly FieldId[] = [
+  'statistics_timezone',
   ...LIST_FIELDS,
   'name_max_len',
   'trash_retention_days',
@@ -486,7 +494,7 @@ export class OpmSettingsGeneral extends OpmElement {
         @submit=${(event: Event) => event.preventDefault()}
       >
         ${this.renderAlert()} ${this.renderFiles(doc)} ${this.renderMoving(doc)}
-        ${this.renderIndexing(doc)} ${this.renderVolumes()} ${this.renderExcluded()}
+        ${this.renderStatistics(doc)} ${this.renderIndexing(doc)} ${this.renderVolumes()} ${this.renderExcluded()} ${this.renderExcluded(true)}
         ${this.dirty ? this.renderActionBar() : nothing}
       </form>
     `;
@@ -499,6 +507,35 @@ export class OpmSettingsGeneral extends OpmElement {
         <div class="skeleton h-72 w-full"></div>
         <div class="skeleton h-72 w-full"></div>
       </div>
+    `;
+  }
+
+  private renderStatistics(doc: SettingsDto) {
+    const problem = this.fieldProblems.get('statistics_timezone')?.message;
+    return html`
+      <fieldset class=${CARD} ?disabled=${this.saving}>
+        <legend class="fieldset-legend text-base">Library statistics</legend>
+        <label class="flex flex-col gap-2" for="statistics-timezone">
+          <span class="font-medium">Reporting timezone</span>
+          <input id="statistics-timezone" data-field="statistics_timezone"
+            class="input w-full max-w-sm" type="text"
+            .value=${live(doc.statistics_timezone)}
+            aria-invalid=${problem ? 'true' : nothing}
+            aria-describedby="statistics-timezone-help"
+            @input=${(event: Event) =>
+              this.change(
+                (current) => ({
+                  ...current,
+                  statistics_timezone: (event.target as HTMLInputElement).value,
+                }),
+                'statistics_timezone',
+              )}
+          />
+        </label>
+        <p id="statistics-timezone-help" class="text-sm">
+          ${problem ?? 'Use an IANA name such as America/Los_Angeles. Historical days keep their original timezone; changing this starts a new reporting segment.'}
+        </p>
+      </fieldset>
     `;
   }
 
@@ -711,21 +748,22 @@ export class OpmSettingsGeneral extends OpmElement {
     `;
   }
 
-  private renderExcluded() {
-    const excluded = settings.value?.excluded_folders ?? [];
+  private renderExcluded(soft = false) {
+    const excluded =
+      (soft ? settings.value?.soft_excluded_folders : settings.value?.excluded_folders) ?? [];
     return html`
-      <fieldset class=${CARD} data-excluded-folders>
-        <legend class="fieldset-legend text-base">Excluded folders</legend>
+      <fieldset class=${CARD} ?data-excluded-folders=${!soft} ?data-soft-excluded-folders=${soft}>
+        <legend class="fieldset-legend text-base">${soft ? 'Soft-excluded folders' : 'Excluded folders'}</legend>
         <p class="text-base-content/70">
-          Excluded folders are left out of the index and of every tool; their files stay on disk.
+          ${soft ? 'Soft-excluded folders and their subfolders remain indexed and visible, but are left out of all tool plans.' : 'Excluded folders are left out of the index and of every tool; their files stay on disk.'}
           Right-click a folder in a pane to exclude it.
         </p>
         ${
           excluded.length === 0
-            ? html`<p class="text-base-content/70">No folder is excluded.</p>`
+            ? html`<p class="text-base-content/70">${soft ? 'No folder is soft-excluded.' : 'No folder is excluded.'}</p>`
             : html`
               <ul class="list rounded-box bg-base-100">
-                ${excluded.map((folder) => this.renderExcludedRow(folder))}
+                ${excluded.map((folder) => this.renderExcludedRow(folder, soft))}
               </ul>
             `
         }
@@ -733,13 +771,13 @@ export class OpmSettingsGeneral extends OpmElement {
     `;
   }
 
-  private renderExcludedRow(folder: ExcludedFolder) {
+  private renderExcludedRow(folder: ExcludedFolder, soft = false) {
     const volume = volumes.value.find((candidate) => candidate.id === folder.volume_id);
-    const busy = this.including.has(excludedKey(folder));
+    const busy = this.including.has(`${soft ? 'soft:' : ''}${excludedKey(folder)}`);
     return html`
       <li class="list-row items-center gap-2 py-2">
         <opm-icon name="folder-x" size="sm" class="text-base-content/60"></opm-icon>
-        <span class="list-col-grow min-w-0 truncate" title=${folder.path}>
+        <span class="list-col-grow min-w-0 truncate" ${tooltip(folder.path)}>
           <span class="font-medium">${volume?.name ?? `Volume ${folder.volume_id}`}</span>
           <span class="font-mono">/${folder.path}</span>
         </span>
@@ -747,21 +785,26 @@ export class OpmSettingsGeneral extends OpmElement {
           type="button"
           class="btn btn-sm"
           ?disabled=${busy}
-          @click=${() => this.onInclude(folder)}
+          @click=${() => this.onInclude(folder, soft)}
         >
           ${busy ? html`<span class="loading loading-spinner loading-xs"></span>` : nothing}
-          Include again
+          ${soft ? 'Include in tools' : 'Include again'}
         </button>
       </li>
     `;
   }
 
-  private async onInclude(folder: ExcludedFolder): Promise<void> {
-    const key = excludedKey(folder);
+  private async onInclude(folder: ExcludedFolder, soft = false): Promise<void> {
+    const key = `${soft ? 'soft:' : ''}${excludedKey(folder)}`;
     this.including = new Set([...this.including, key]);
     try {
-      await includeFolder(folder);
-      toast.success(`Included ${folder.path} again; it is being indexed`);
+      if (soft) await softIncludeFolder(folder);
+      else await includeFolder(folder);
+      toast.success(
+        soft
+          ? `Removed soft exclusion for ${folder.path}`
+          : `Included ${folder.path} again; it is being indexed`,
+      );
     } catch (error) {
       toast.error(errorMessage(error, 'Could not include the folder'));
     } finally {

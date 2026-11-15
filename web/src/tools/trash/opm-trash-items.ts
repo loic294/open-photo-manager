@@ -6,6 +6,7 @@ import type { TrashItemDto } from '@/api/generated/TrashItemDto';
 import type { TrashSort } from '@/api/generated/TrashSort';
 import type { TrashVolumeSummary } from '@/api/generated/TrashVolumeSummary';
 import { OpmElement } from '@/base/opm-element';
+import { tooltip } from '@/components/tooltip';
 import {
   renderEmpty,
   renderPager,
@@ -181,7 +182,7 @@ export class OpmTrashItems extends OpmElement {
                     type="button"
                     class="btn btn-circle btn-ghost btn-xs"
                     aria-label="Show every deletion"
-                    title="Show every deletion"
+                    ${tooltip('Show every deletion')}
                     @click=${() => this.emit('trash-clear-batch')}
                   >
                     <opm-icon name="x" size="xs"></opm-icon>
@@ -226,12 +227,12 @@ export class OpmTrashItems extends OpmElement {
     const checked = this.selected.has(item.id);
     return html`
       <tr class=${checked ? 'bg-base-200' : ''}>
-        <td class="w-8">
+        <td class="w-8" ${tooltip(blocked)}>
           <input
             type="checkbox"
             class="checkbox checkbox-sm"
             aria-label=${`Select ${item.name}`}
-            title=${ifDefined(blocked ?? undefined)}
+            ${tooltip(ifDefined(blocked ?? undefined))}
             .checked=${checked}
             ?disabled=${blocked !== null}
             @change=${(event: Event) =>
@@ -244,26 +245,26 @@ export class OpmTrashItems extends OpmElement {
         <td>
           <div class="flex max-w-xs items-center gap-2">
             <opm-icon name=${item.is_dir ? 'folder' : 'file'} size="sm"></opm-icon>
-            <span class="truncate" title=${item.name}>${item.name}</span>
+            <span class="truncate" ${tooltip(item.name)}>${item.name}</span>
           </div>
         </td>
         <td>
-          <div class="max-w-xs truncate" title=${item.dir}>
+          <div class="max-w-xs truncate" ${tooltip(item.dir)}>
             ${item.dir === '' ? html`<span class="text-base-content/60">Volume root</span>` : item.dir}
           </div>
         </td>
         <td>${item.volume}</td>
         <td class="whitespace-nowrap text-right tabular-nums">${formatFileSize(item.size)}</td>
         <td class="whitespace-nowrap">
-          <span title=${formatFileTime(item.trashed_at)}>${relativeTime(item.trashed_at)}</span>
+          <span ${tooltip(formatFileTime(item.trashed_at))}>${relativeTime(item.trashed_at)}</span>
         </td>
         <td>${renderReasonBadge(item.reason)}</td>
         <td class="whitespace-nowrap text-right">
-          <span class="inline-block" title=${ifDefined(blocked ?? undefined)}>
+          <span class="inline-block" ${tooltip(ifDefined(blocked ?? undefined))}>
             <button
               type="button"
               class="btn btn-sm btn-ghost"
-              title=${ifDefined(blocked ?? undefined)}
+              ${tooltip(ifDefined(blocked ?? undefined))}
               ?disabled=${blocked !== null || this.busy}
               @click=${() => this.emit('trash-restore-items', { ids: [item.id] })}
             >

@@ -43,7 +43,7 @@ impl Names {
         Ok(Self {
             compiled,
             junk: JunkRules::new(&settings.junk_names, &settings.junk_prefixes),
-            excluded: Exclusions::new(&settings.excluded_folders),
+            excluded: Exclusions::for_tools(settings),
             timezone: opm_core::datetime::tz_or_utc(std::env::var("TZ").ok().as_deref()),
             name_max_len: usize::from(settings.name_max_len),
             uses_dates: parsed

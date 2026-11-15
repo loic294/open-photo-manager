@@ -2,6 +2,7 @@ import { html, nothing, type TemplateResult } from 'lit';
 import { contentUrl } from '@/api/files';
 import type { FileDetail } from '@/api/generated/FileDetail';
 import type { FileItem } from '@/api/generated/FileItem';
+import { tooltip } from '@/components/tooltip';
 import '@/components/opm-icon';
 import { renderInfoTable } from '@/components/viewer-info';
 import type { NavAction } from '@/components/viewer-nav';
@@ -50,14 +51,14 @@ function renderPosition({ idsStatus, index, count }: ChromeView): TemplateResult
       return html`<span
         class="badge badge-warning"
         data-viewer-notice
-        title="The list of files could not be loaded, so there is nothing to step to"
+        ${tooltip('The list of files could not be loaded, so there is nothing to step to')}
         >Couldn't load the list</span
       >`;
     case 'missing':
       return html`<span
         class="badge badge-warning"
         data-viewer-notice
-        title="This file is not in the list any more, so there is nothing to step to"
+        ${tooltip('This file is not in the list any more, so there is nothing to step to')}
         >Not in the list anymore</span
       >`;
   }
@@ -79,7 +80,7 @@ export function renderToolbar(view: ChromeView, actions: ChromeActions): Templat
           class="btn btn-sm btn-ghost ${view.infoOpen ? 'btn-active' : ''}"
           aria-pressed=${view.infoOpen}
           aria-label="Info"
-          title="Info (I)"
+          ${tooltip('Info (I)')}
           @click=${actions.toggleInfo}
         >
           <opm-icon name="info" size="sm"></opm-icon>
@@ -90,7 +91,7 @@ export function renderToolbar(view: ChromeView, actions: ChromeActions): Templat
           class="btn btn-sm btn-ghost ${zoomed ? 'btn-active' : ''}"
           aria-pressed=${zoomed}
           aria-label="100% zoom"
-          title="Zoom to 100% (Z)"
+          ${tooltip('Zoom to 100% (Z)')}
           ?disabled=${!canZoom}
           @click=${actions.toggleZoom}
         >
@@ -107,7 +108,7 @@ export function renderToolbar(view: ChromeView, actions: ChromeActions): Templat
                 target="_blank"
                 rel="noopener"
                 aria-label="Open original"
-                title="Open the original in a new tab"
+                ${tooltip('Open the original in a new tab')}
               >
                 <opm-icon name="external-link" size="sm"></opm-icon>
                 <span class="hidden sm:inline">Open original</span>
@@ -117,7 +118,7 @@ export function renderToolbar(view: ChromeView, actions: ChromeActions): Templat
                 href=${contentUrl(view.id, { download: true })}
                 download
                 aria-label="Download"
-                title="Download the original"
+                ${tooltip('Download the original')}
               >
                 <opm-icon name="download" size="sm"></opm-icon>
                 <span class="hidden sm:inline">Download</span>
@@ -142,7 +143,7 @@ export function renderStepButtons(
       type="button"
       class="${STEP_BUTTON} left-2"
       aria-label="Previous file"
-      title="Previous (←)"
+      ${tooltip('Previous (←)')}
       ?disabled=${index <= 0}
       @click=${() => actions.step('previous')}
     >
@@ -152,7 +153,7 @@ export function renderStepButtons(
       type="button"
       class="${STEP_BUTTON} right-2"
       aria-label="Next file"
-      title="Next (→)"
+      ${tooltip('Next (→)')}
       ?disabled=${index >= count - 1}
       @click=${() => actions.step('next')}
     >

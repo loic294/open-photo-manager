@@ -26,13 +26,16 @@ pub(crate) async fn preview(
             });
         }
     };
-    let query = source_query(&request.source)?;
+    let settings = state.settings.get();
+    let query = source_query(&request.source)?.excluding(
+        &crate::query::FileQuery::folder_exclusions(&settings.soft_excluded_folders)?,
+    );
     validate_volume(
         "source.scope.volume_id",
         request.source.scope.volume_id,
         &state.volumes,
     )?;
-    let names = Names::new(compiled, &request.rules.pattern, &state.settings.get())?;
+    let names = Names::new(compiled, &request.rules.pattern, &settings)?;
     let limit = request.limit.unwrap_or(30).clamp(1, 200) as usize;
     let mut read = state.db.read().begin().await?;
     let mut statement = source_statement(&query);

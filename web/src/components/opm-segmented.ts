@@ -1,6 +1,7 @@
 import { html, nothing } from 'lit';
 import { OpmElement } from '@/base/opm-element';
 import type { IconName } from '@/components/opm-icon';
+import { tooltip } from '@/components/tooltip';
 import '@/components/opm-icon';
 import { toggleIn } from '@/util/filter';
 import { formatCount } from '@/util/format-count';
@@ -161,7 +162,7 @@ export class OpmSegmented extends OpmElement {
         aria-checked=${single ? (on ? 'true' : 'false') : nothing}
         aria-pressed=${single ? nothing : on ? 'true' : 'false'}
         aria-label=${name ?? nothing}
-        title=${option.title ?? nothing}
+        ${tooltip(option.title ?? nothing)}
         tabindex=${single ? (option.value === tabStop ? '0' : '-1') : nothing}
         ?disabled=${this.isLocked(option)}
         @click=${() => this.select(option)}

@@ -12,7 +12,10 @@ pub async fn preview(
     state: &AppState,
     request: FormatPreviewRequest,
 ) -> Result<FormatPreviewResponse, PlanError> {
-    let query = params::source_query(&request.source)?;
+    let settings = state.settings.get();
+    let query = params::source_query(&request.source)?.excluding(
+        &crate::query::FileQuery::folder_exclusions(&settings.soft_excluded_folders)?,
+    );
     let limit = request.limit.unwrap_or(5);
     if limit == 0 || limit > 20 {
         return Err(PlanError::invalid_field(
@@ -48,7 +51,7 @@ pub async fn preview(
         strict_prefix: false,
     };
     state.volumes.get(p.destination.volume_id)?;
-    let rules = params::rules(&p, &state.settings.get())?;
+    let rules = params::rules(&p, &settings)?;
     let mut statement = source_statement(&query);
     statement.push(" LIMIT ").push_bind(i64::from(limit));
     let rows: Vec<Source> = statement

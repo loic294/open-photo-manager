@@ -2,6 +2,7 @@ import { html, nothing } from 'lit';
 import type { MatchMode } from '@/api/generated/MatchMode';
 import { OpmElement } from '@/base/opm-element';
 import type { SelectChangeEvent } from '@/components/opm-select';
+import { tooltip } from '@/components/tooltip';
 import '@/components/opm-select';
 import { isMatchMode, MATCH_MODES } from '@/util/match-modes';
 
@@ -65,7 +66,7 @@ export class OpmMatchMode extends OpmElement {
         this.mode === 'name_prefix'
           ? html`<label
               class="label gap-2 text-base-content"
-              title="Also match when the next character continues a number or word, so IMG_0001 matches IMG_00012"
+              ${tooltip('Also match when the next character continues a number or word, so IMG_0001 matches IMG_00012')}
             >
               <input
                 type="checkbox"

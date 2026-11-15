@@ -6,7 +6,7 @@
 
 use std::collections::{HashMap, HashSet};
 
-use crate::dto::ExcludedFolder;
+use crate::dto::{ExcludedFolder, SettingsDto};
 use crate::paths::{RelPath, VolumeId};
 
 #[derive(Debug, Clone, Default, PartialEq, Eq)]
@@ -15,6 +15,17 @@ pub struct Exclusions {
 }
 
 impl Exclusions {
+    /// Tool plans respect both kinds; indexing and manual file operations use only hard exclusions.
+    pub fn for_tools(settings: &SettingsDto) -> Self {
+        let folders: Vec<_> = settings
+            .excluded_folders
+            .iter()
+            .chain(&settings.soft_excluded_folders)
+            .cloned()
+            .collect();
+        Self::new(&folders)
+    }
+
     /// Entries whose path does not parse, or is the root, are ignored (validated settings have none).
     pub fn new(folders: &[ExcludedFolder]) -> Self {
         let mut by_volume: HashMap<VolumeId, HashSet<String>> = HashMap::new();

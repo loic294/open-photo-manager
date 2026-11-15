@@ -33,6 +33,41 @@ afterEach(() => {
 });
 
 describe('settings store', () => {
+  it('surfaces a startup load failure instead of silently hiding exclusion tags', async () => {
+    const { store, get } = await setup();
+    const { toasts } = await import('@/stores/toasts');
+    get.mockRejectedValue(new Error('Cannot load exclusions'));
+    const stop = store.startSettings();
+    await vi.waitFor(() =>
+      expect(toasts.value.some((toast) => toast.message.includes('Cannot load exclusions'))).toBe(
+        true,
+      ),
+    );
+    stop();
+    expect(store.settings.value).toBeNull();
+  });
+
+  it('loads persisted folder exclusions at startup, refreshes on reconnect and stops listening', async () => {
+    const { store, get } = await setup();
+    const { events } = await import('@/api/sse');
+    let reconnect = () => {};
+    const unsubscribe = vi.fn();
+    vi.spyOn(events, 'onResync').mockImplementation((callback) => {
+      reconnect = callback;
+      return unsubscribe;
+    });
+    const doc = sampleSettings({ soft_excluded_folders: [{ volume_id: 1, path: 'Protected' }] });
+    get.mockResolvedValue(doc);
+    const stop = store.startSettings();
+    await vi.waitFor(() => expect(store.settings.value).toEqual(doc));
+    get.mockResolvedValue(sampleSettings());
+    reconnect();
+    await vi.waitFor(() => expect(store.settings.value?.soft_excluded_folders).toEqual([]));
+    expect(get).toHaveBeenCalledTimes(2);
+    stop();
+    expect(unsubscribe).toHaveBeenCalledOnce();
+  });
+
   it('is empty until something has been loaded', async () => {
     const { store } = await setup();
 

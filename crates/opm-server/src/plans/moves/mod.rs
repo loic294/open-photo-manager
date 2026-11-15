@@ -3,6 +3,8 @@
 //!
 //! Smart hashing is bounded by 1 GiB and 20 seconds per build. Unknown content is renamed.
 //! Snapshot source facts revalidate location, size, mtime and derived destinations before execution.
+//! Custom-format destination folder counts project the completed plan: add incoming files and
+//! subtract outgoing/replaced files. Source counts and non-custom move previews stay unchanged.
 //!
 //! Release scale (200k sources, n=3; all values min/median/max milliseconds):
 //! | Type | Build | Ghost page + total | Flags | Preview |
@@ -36,7 +38,9 @@ mod sidecars;
 use std::collections::HashMap;
 
 use futures_util::future::BoxFuture;
-use opm_core::dto::{MoveExecuteOptions, Overlay, PlanKind, PlanResult, PlanSide};
+use opm_core::dto::{
+    MoveExecuteOptions, MoveParams, MoveType, Overlay, PlanKind, PlanResult, PlanSide,
+};
 use opm_core::paths::FileId;
 use serde_json::Value;
 
@@ -113,13 +117,17 @@ impl Planner for MovePlanner {
         view: &'a GhostView,
         real_children: &'a [String],
     ) -> BoxFuture<'a, Result<FolderOverlay, PlanError>> {
-        Box::pin(overlay::folders(
-            &self.db,
-            plan.id,
-            side,
-            view,
-            real_children,
-        ))
+        Box::pin(async move {
+            overlay::folders(
+                &self.db,
+                plan.id,
+                side,
+                view,
+                real_children,
+                plan.params::<MoveParams>()?.move_type == MoveType::Custom,
+            )
+            .await
+        })
     }
     fn involved_ids<'a>(
         &'a self,

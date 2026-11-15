@@ -96,14 +96,15 @@ pub(super) async fn insert_queued(
         spec.params.to_string()
     };
     let id: i64 = sqlx::query_scalar(
-        "INSERT INTO tasks (kind, title, lane, state, params_json, created_at) \
-         VALUES (?, ?, ?, 'queued', ?, ?) RETURNING id",
+        "INSERT INTO tasks (kind, title, lane, state, params_json, created_at, resumable) \
+         VALUES (?, ?, ?, 'queued', ?, ?, ?) RETURNING id",
     )
     .bind(kind_to_db(spec.kind))
     .bind(&spec.title)
     .bind(spec.lane.as_str())
     .bind(params)
     .bind(created_at)
+    .bind(spec.resumable)
     .fetch_one(db.write())
     .await?;
     Ok(id)
@@ -200,7 +201,8 @@ pub(super) async fn recover_interrupted(db: &Db, now: i64) -> Result<u64, DbErro
 /// `keep` finished ones. Active tasks are never touched. Returns the number of rows removed.
 pub(super) async fn prune(db: &Db, cutoff: i64, keep: i64) -> Result<u64, DbError> {
     let removed = sqlx::query(
-        "DELETE FROM tasks WHERE state NOT IN ('queued', 'running') AND ( \
+        "DELETE FROM tasks WHERE state NOT IN ('queued', 'running') \
+         AND NOT (state = 'interrupted' AND resumable = 1) AND ( \
              COALESCE(finished_at, created_at) < ? \
              OR id NOT IN ( \
                  SELECT id FROM tasks WHERE state NOT IN ('queued', 'running') \

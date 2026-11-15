@@ -130,7 +130,7 @@ pub use thumbs::{ThumbError, ThumbOutcome, ThumbTarget, Thumbnailer};
 pub use volumes::VolumeRegistry;
 
 /// A part of a volume to index.
-#[derive(Debug, Clone, PartialEq, Eq)]
+#[derive(Debug, Clone, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
 pub struct ScanTarget {
     pub volume_id: VolumeId,
     /// The directory to start at; the root of the volume for the whole volume.
@@ -170,7 +170,7 @@ impl ScanTarget {
 }
 
 /// What to index.
-#[derive(Debug, Clone, Default)]
+#[derive(Debug, Clone, Default, serde::Serialize, serde::Deserialize)]
 pub struct ScanRequest {
     /// The parts to scan. Empty means every online volume, completely.
     pub targets: Vec<ScanTarget>,
@@ -184,6 +184,7 @@ pub struct ScanRequest {
 /// What a run needs besides its request.
 #[derive(Clone)]
 pub struct RunContext {
+    pub(crate) checkpoint: Option<crate::tasks::Checkpoint>,
     /// Cancelling stops the run at the next directory or write batch; what was committed stays.
     pub cancel: CancellationToken,
     pub progress: Arc<dyn ProgressSink>,
@@ -197,6 +198,7 @@ impl RunContext {
         changes: Arc<dyn ChangeSink>,
     ) -> Self {
         Self {
+            checkpoint: None,
             cancel,
             progress,
             changes,
@@ -265,7 +267,7 @@ impl From<IndexError> for AppError {
 }
 
 /// What a run did, as counts (the result of the index task). Stages fill their own fields.
-#[derive(Debug, Clone, Default, PartialEq, Eq, Serialize)]
+#[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, serde::Deserialize)]
 pub struct IndexSummary {
     /// Files found on disk that the index did not have.
     pub added: u64,
@@ -406,19 +408,38 @@ impl Indexer {
         req: &ScanRequest,
         ctx: &RunContext,
     ) -> Result<IndexSummary, IndexError> {
-        let mut summary = IndexSummary::default();
+        let saved = match &ctx.checkpoint {
+            Some(checkpoint) => checkpoint.load::<(u8, IndexSummary)>("index-phase").await?,
+            None => None,
+        };
+        let (phase, mut summary) = saved.unwrap_or_default();
 
         // THE STAGES, in order. A new stage adds one line, implemented as an `impl Indexer`
         // block in its own file; it reads the rows the previous stages left pending.
-        let scan = self.scan(req, ctx).await?; // 1. scanner.rs
-        summary.absorb_scan(&scan);
-        let extract = self.extract_pending(req, ctx).await?; // 2. extract.rs
-        summary.absorb_extract(&extract);
-        let hashed = self
-            .hash_pending(req, ctx, hash::HashLimits::default())
-            .await?; // 3. hash.rs
-        summary.hashed += hashed.hashed;
-        summary.failed += hashed.failed;
+        if phase < 1 {
+            let scan = self.scan(req, ctx).await?; // 1. scanner.rs
+            summary.absorb_scan(&scan);
+            if let Some(checkpoint) = &ctx.checkpoint {
+                checkpoint.save("index-phase", &(1_u8, &summary)).await?;
+            }
+        }
+        if phase < 2 {
+            let extract = self.extract_pending(req, ctx).await?; // 2. extract.rs
+            summary.absorb_extract(&extract);
+            if let Some(checkpoint) = &ctx.checkpoint {
+                checkpoint.save("index-phase", &(2_u8, &summary)).await?;
+            }
+        }
+        if phase < 3 {
+            let hashed = self
+                .hash_pending(req, ctx, hash::HashLimits::default())
+                .await?; // 3. hash.rs
+            summary.hashed += hashed.hashed;
+            summary.failed += hashed.failed;
+            if let Some(checkpoint) = &ctx.checkpoint {
+                checkpoint.save("index-phase", &(3_u8, &summary)).await?;
+            }
+        }
         if ctx.cancel.is_cancelled() {
             return Err(IndexError::Cancelled);
         }

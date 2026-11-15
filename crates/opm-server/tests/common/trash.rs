@@ -227,20 +227,32 @@ impl TrashFx {
     /// Starts a task that keeps the `fs` lane busy until the gate is opened, so the tasks queued
     /// after it stay queued.
     pub async fn hold_the_queue(&self) -> Gate {
-        let notify = Arc::new(Notify::new());
-        let waiting = Arc::clone(&notify);
-        let spec = TaskSpec::new(TaskKind::FsMove, "Holding the queue");
-        let task = self
-            .app
-            .state
-            .tasks
-            .submit(spec, move |_| async move {
-                waiting.notified().await;
-                Ok(json!({}))
-            })
-            .await
-            .unwrap();
-        Gate { task, notify }
+        let mut notify = Vec::new();
+        let mut tasks = Vec::new();
+        for _ in 0..3 {
+            let signal = Arc::new(Notify::new());
+            let waiting = Arc::clone(&signal);
+            let spec = TaskSpec::new(TaskKind::FsMove, "Holding the queue");
+            let task = self
+                .app
+                .state
+                .tasks
+                .submit(spec, move |ctx| async move {
+                    tokio::select! {
+                        () = waiting.notified() => {}
+                        () = ctx.cancel.cancelled() => {}
+                    }
+                    Ok(json!({}))
+                })
+                .await
+                .unwrap();
+            tasks.push(task);
+            notify.push(signal);
+        }
+        Gate {
+            task: tasks[0],
+            notify,
+        }
     }
 
     pub async fn post(&self, path: &str, body: Value) -> (StatusCode, Value) {
@@ -403,13 +415,19 @@ pub enum Outage {
 /// The task [`TrashFx::hold_the_queue`] started.
 pub struct Gate {
     pub task: TaskId,
-    notify: Arc<Notify>,
+    notify: Vec<Arc<Notify>>,
 }
 
 impl Gate {
     /// Lets the holding task finish, and the queue go on.
     pub fn open(&self) {
-        self.notify.notify_one();
+        for notify in &self.notify {
+            notify.notify_one();
+        }
+    }
+
+    pub fn open_one(&self) {
+        self.notify[0].notify_one();
     }
 }
 

@@ -213,7 +213,7 @@ impl TrashService {
                     report.fail(Failure {
                         id: 0,
                         path: format!("item {id}"),
-                        code: "not_in_trash",
+                        code: "not_in_trash".to_owned(),
                         message: "the item is not in the sync manager trash (any more)".to_owned(),
                     });
                     ctx.progress.add(1, 0);
@@ -264,7 +264,7 @@ impl TrashService {
                         Err(err) => report.fail(Failure {
                             id: 0,
                             path: entry.item.path.clone(),
-                            code: err.code(),
+                            code: err.code().to_owned(),
                             message: err.to_string(),
                         }),
                     }

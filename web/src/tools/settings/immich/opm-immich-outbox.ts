@@ -7,6 +7,7 @@ import type { OutboxState } from '@/api/generated/OutboxState';
 import { dismissImmichOutbox, fetchImmichOutbox, retryImmichOutbox } from '@/api/immich';
 import { OpmElement } from '@/base/opm-element';
 import { confirmDialog } from '@/components/confirm-dialog';
+import { tooltip } from '@/components/tooltip';
 import { immichStatus, loadImmichStatus } from '@/stores/immich';
 import { describeImmichError } from '@/tools/settings/immich/immich-errors';
 import { relativeTime } from '@/tools/trash/trash-text';
@@ -158,11 +159,11 @@ export class OpmImmichOutbox extends OpmElement {
         .checked=${live(this.selected.has(item.id))} ?disabled=${this.busy}
         @change=${(event: Event) => this.toggle(item.id, (event.target as HTMLInputElement).checked)} /></td>
       <td><span class="badge badge-outline badge-sm">${LABELS[item.kind]}</span></td>
-      <td><div class="max-w-56 truncate" title=${item.from ?? ''}>${item.from ?? '—'}</div></td>
-      <td><div class="max-w-56 truncate" title=${item.to ?? ''}>${item.to ?? '—'}</div></td>
+      <td><div class="max-w-56 truncate" ${tooltip(item.from ?? '')}>${item.from ?? '—'}</div></td>
+      <td><div class="max-w-56 truncate" ${tooltip(item.to ?? '')}>${item.to ?? '—'}</div></td>
       <td>${item.attempts}</td>
       <td class="min-w-48 whitespace-normal">${item.last_error ? describeImmichError(item.last_error).message : 'None'}</td>
-      <td class="whitespace-nowrap" title=${new Date(item.created_at * 1000).toLocaleString()}>${relativeTime(item.created_at)}</td>
+      <td class="whitespace-nowrap" ${tooltip(new Date(item.created_at * 1000).toLocaleString())}>${relativeTime(item.created_at)}</td>
     </tr>`;
   }
 

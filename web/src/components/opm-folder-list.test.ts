@@ -50,6 +50,96 @@ async function mountList(props: Partial<OpmFolderList> = {}): Promise<OpmFolderL
   return mount('opm-folder-list', { folders: [folderEntry({ name: 'trip' })], ...props });
 }
 
+describe('folder thumbnails', () => {
+  it.each(['list', 'thumbnails'] as const)(
+    'keeps soft-excluded subtrees visible with tags in %s mode',
+    async (view) => {
+      const host = await mountList({
+        view,
+        hideUnmatched: true,
+        showMatches: true,
+        softExcludedFolders: [{ volume_id: 1, path: 'trip' }],
+        folders: [
+          folderEntry({ name: 'trip', path: 'trip', matches: 0 }),
+          folderEntry({ name: 'nested', path: 'trip/nested', matches: 0 }),
+          folderEntry({ name: 'sibling', path: 'trip.old', matches: 0 }),
+          folderEntry({ name: 'other-volume', path: 'trip', volume_id: 2, matches: 0 }),
+        ],
+      });
+      expect(names(host)).toEqual(['trip', 'nested']);
+      expect(badges(row(host, 'trip'))).toContain('Soft exclude');
+      expect(badges(row(host, 'nested'))).toContain('Soft exclude');
+      expect(click(row(host, 'nested')).defaultPrevented).toBe(true);
+    },
+  );
+  it('shows lazy, aspect-preserving previews with counts and the same navigation', async () => {
+    const entry = folderEntry({ name: 'trip', matches: 2, preview: { id: 42, mtime: 123 } });
+    const host = await mountList({
+      folders: [entry],
+      view: 'thumbnails',
+      showMatches: true,
+      hrefFor: () => '/browse?source=photos/trip',
+    });
+    const opened = vi.fn();
+    host.addEventListener('folder-open', opened);
+    const anchor = row(host, 'trip');
+    const image = anchor.querySelector('img');
+    expect(image?.getAttribute('src')).toBe('/api/files/42/thumb?size=sm&v=123');
+    expect(image?.getAttribute('loading')).toBe('lazy');
+    expect(image?.classList.contains('object-contain')).toBe(true);
+    expect(badges(anchor)).toEqual(['3', '2 matches']);
+    expect(anchor.getAttribute('href')).toBe('/browse?source=photos/trip');
+    expect(click(image as HTMLImageElement).defaultPrevented).toBe(true);
+    expect(opened).toHaveBeenCalledOnce();
+    expect(click(anchor, { ctrlKey: true }).defaultPrevented).toBe(false);
+    const menu = vi.fn();
+    host.addEventListener('folder-menu', menu);
+    anchor.dispatchEvent(new MouseEvent('contextmenu', { bubbles: true, cancelable: true }));
+    expect(menu).toHaveBeenCalledOnce();
+    host.view = 'list';
+    await host.updateComplete;
+    expect(host.querySelector('img')).toBeNull();
+    expect(row(host, 'trip').classList.contains('list-row')).toBe(true);
+  });
+
+  it('falls back for empty and planned folders, and reports unavailable previews', async () => {
+    const host = await mountList({
+      view: 'thumbnails',
+      folders: [
+        folderEntry({ name: 'empty', count: 0, total: 0 }),
+        folderEntry({ name: 'planned', overlay: { planned: true } }),
+        folderEntry({ name: 'photo', preview: { id: 7, mtime: 12 } }),
+      ],
+    });
+    expect(iconOf(row(host, 'empty'))).toBe('folder');
+    expect(iconOf(row(host, 'planned'))).toBe('folder-plus');
+    expect(badges(row(host, 'planned'))).toContain('new');
+    row(host, 'photo').querySelector('img')?.dispatchEvent(new Event('error'));
+    await host.updateComplete;
+    expect(row(host, 'photo').querySelector('img')).toBeNull();
+    expect(iconOf(row(host, 'photo'))).toBe('image-off');
+    expect(srText(row(host, 'photo'))).toContain('Photo preview unavailable');
+    host.folders = [folderEntry({ name: 'photo', preview: { id: 7, mtime: 13 } })];
+    await host.updateComplete;
+    expect(row(host, 'photo').querySelector('img')?.getAttribute('src')).toContain('v=13');
+  });
+
+  it('keeps hide-unmatched and plan-state semantics in thumbnail mode', async () => {
+    const host = await mountList({
+      view: 'thumbnails',
+      hideUnmatched: true,
+      folders: [
+        folderEntry({ name: 'unmatched', matches: 0 }),
+        folderEntry({ name: 'deleted', matches: 0, overlay: { will_delete: true } }),
+        folderEntry({ name: 'matched', matches: 1 }),
+      ],
+    });
+    expect(names(host)).toEqual(['deleted', 'matched']);
+    expect(srText(row(host, 'deleted'))).toContain('will be deleted');
+    expect(row(host, 'deleted').classList.contains('border-error')).toBe(true);
+  });
+});
+
 describe('opm-folder-list structure', () => {
   it('is a named list with one row per folder, in order', async () => {
     const host = await mountList({
@@ -108,11 +198,11 @@ describe('opm-folder-list structure', () => {
       ],
     });
 
-    const label = (name: string) => row(host, name).querySelector<HTMLElement>('[title]');
+    const label = (name: string) => row(host, name).querySelector<HTMLElement>('[data-tooltip]');
     expect(label('Été 日本語')?.textContent).toBe('Été 日本語');
-    expect(label('.hidden')?.getAttribute('title')).toBe('.hidden');
+    expect(label('.hidden')?.getAttribute('data-tooltip')).toBe('.hidden');
     expect(label(nasty)?.textContent).toBe(nasty);
-    expect(label(nasty)?.getAttribute('title')).toBe(nasty);
+    expect(label(nasty)?.getAttribute('data-tooltip')).toBe(nasty);
     expect(host.querySelector('img')).toBeNull();
   });
 
@@ -254,7 +344,9 @@ describe('opm-folder-list plan overlay', () => {
     expect(anchor.classList.contains('border-dashed')).toBe(true);
     expect(anchor.classList.contains('border-info')).toBe(true);
     expect(badges(anchor)).toEqual(['new', '4']);
-    expect(anchor.querySelector('.badge-info')?.getAttribute('title')).toBe('Will be created');
+    expect(anchor.querySelector('.badge-info')?.getAttribute('data-tooltip')).toBe(
+      'Will be created',
+    );
   });
 
   it('marks a folder the plan deletes with a red border and icon, and says so in words', async () => {

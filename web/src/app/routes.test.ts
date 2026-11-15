@@ -12,6 +12,7 @@ describe('route table', () => {
       '/format',
       '/cleanup',
       '/rename',
+      '/statistics',
       '/trash',
       '/settings',
     ]);
@@ -27,6 +28,7 @@ describe('route table', () => {
       'Batch rename',
     ]);
     expect(routes.filter((route) => route.menu === 'footer').map((route) => route.label)).toEqual([
+      'Statistics',
       'Trash',
       'Settings',
     ]);

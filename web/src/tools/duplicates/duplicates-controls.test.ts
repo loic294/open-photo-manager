@@ -59,7 +59,9 @@ it('only summarizes ready stats, with sizes in the tooltip and a distinct empty 
   expect(container.querySelector('[role="status"]')?.textContent).toBe(
     `${formatCount(2988)} comparison and 1 source files have a match`,
   );
-  expect(container.querySelector('[role="status"]')?.getAttribute('title')).toContain('1 KB');
+  expect(container.querySelector('[role="status"]')?.getAttribute('data-tooltip')).toContain(
+    '1 KB',
+  );
   plan.statsSignal.value = { source_matched: 0, comparison_matched: 0 };
   update();
   expect(container.textContent).toContain('No duplicates found');
@@ -75,7 +77,7 @@ it('always exposes unhashed counts and background explanation, and retries', () 
   expect(container.querySelector('.badge-warning')?.textContent).toBe(
     `${formatCount(1234)} files not hashed yet`,
   );
-  expect(container.querySelector('[title]')?.getAttribute('title')).toContain(
+  expect(container.querySelector('[data-tooltip]')?.getAttribute('data-tooltip')).toContain(
     'matches update by themselves',
   );
   container.querySelector('button')?.click();

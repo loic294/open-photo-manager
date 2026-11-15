@@ -4,6 +4,7 @@ import { repeat } from 'lit/directives/repeat.js';
 import type { TrashBatchDto } from '@/api/generated/TrashBatchDto';
 import type { TrashVolumeSummary } from '@/api/generated/TrashVolumeSummary';
 import { OpmElement } from '@/base/opm-element';
+import { tooltip } from '@/components/tooltip';
 import { renderReasonBadge } from '@/tools/trash/trash-parts';
 import { blockedReason, relativeTime } from '@/tools/trash/trash-text';
 import { formatFileSize, formatFileTime } from '@/util/format';
@@ -67,7 +68,7 @@ export class OpmTrashDeletions extends OpmElement {
     return html`
       <tr>
         <td class="whitespace-nowrap">
-          <span title=${formatFileTime(batch.trashed_at)}>${relativeTime(batch.trashed_at)}</span>
+          <span ${tooltip(formatFileTime(batch.trashed_at))}>${relativeTime(batch.trashed_at)}</span>
         </td>
         <td>${batch.volume}</td>
         <td class="text-right tabular-nums">${formatCount(batch.items)}</td>
@@ -82,11 +83,11 @@ export class OpmTrashDeletions extends OpmElement {
           </div>
         </td>
         <td class="whitespace-nowrap text-right">
-          <span class="inline-block" title=${ifDefined(blocked ?? undefined)}>
+          <span class="inline-block" ${tooltip(ifDefined(blocked ?? undefined))}>
             <button
               type="button"
               class="btn btn-sm btn-ghost"
-              title=${ifDefined(blocked ?? undefined)}
+              ${tooltip(ifDefined(blocked ?? undefined))}
               ?disabled=${blocked !== null || this.busy}
               @click=${() => this.emit('trash-restore-batch', batch)}
             >

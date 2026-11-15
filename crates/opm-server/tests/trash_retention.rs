@@ -157,7 +157,13 @@ async fn the_task_says_what_it_removes() {
     assert_eq!(queued.title, "Removing trash older than 30 days");
     assert_eq!(
         params_of(&fx, id).await,
-        json!({ "op": "trash_retention", "retention_days": 30, "cutoff": NOW - 30 * DAY })
+        json!({
+            "op": "trash_retention",
+            "retention_days": 30,
+            "cutoff": NOW - 30 * DAY,
+            "selector": { "older_than": { "cutoff": NOW - 30 * DAY } },
+            "title": "Removing trash older than 30 days",
+        })
     );
     gate.open();
     let done = fx.finished(id).await;

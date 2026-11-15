@@ -14,6 +14,7 @@ import type { VolumeDto } from '@/api/generated/VolumeDto';
 import { events, type ServerEventOf } from '@/api/sse';
 import { OpmElement } from '@/base/opm-element';
 import type { OpmFileGrid } from '@/components/opm-file-grid';
+import { tooltip } from '@/components/tooltip';
 import '@/components/opm-file-grid';
 import { confirmDialog } from '@/components/confirm-dialog';
 import type {
@@ -40,9 +41,23 @@ import {
   sameLocation,
   setLocation,
 } from '@/stores/nav';
-import { gridSize, SORT_KEYS, type SortSpec, setSort, sort } from '@/stores/prefs';
+import {
+  FOLDER_VIEWS,
+  folderView,
+  gridSize,
+  SORT_KEYS,
+  type SortSpec,
+  setSort,
+  sort,
+} from '@/stores/prefs';
 import { selection, selectionContextKey } from '@/stores/selection';
-import { excludeFolder, isExcluded, settings } from '@/stores/settings';
+import {
+  excludeFolder,
+  isExcluded,
+  settings,
+  softExcludeFolder,
+  softIncludeFolder,
+} from '@/stores/settings';
 import { loadVolumes, volumeByName, volumesError, volumesStatus } from '@/stores/volumes';
 import {
   type Crumb,
@@ -188,6 +203,8 @@ export class OpmPane extends OpmElement {
     baseDefault: { attribute: false },
     disabled: { type: Boolean },
     disabledReason: { type: String, attribute: 'disabled-reason' },
+    syncNavigation: { type: Boolean, attribute: 'sync-navigation' },
+    plannedOnly: { type: Boolean, attribute: 'planned-only' },
     crumbsCollapsed: { state: true },
     folderMenu: { state: true },
   };
@@ -203,6 +220,8 @@ export class OpmPane extends OpmElement {
   declare baseDefault: BaseDefault | null;
   declare disabled: boolean;
   declare disabledReason: string;
+  syncNavigation = false;
+  plannedOnly = false;
 
   private readonly subfolders = new FoldersController(this);
   private readonly selecting = new SelectionController(this, { pane: () => this.pane });
@@ -319,7 +338,7 @@ export class OpmPane extends OpmElement {
   private async loadIds(signal: AbortSignal): Promise<readonly number[]> {
     const { request } = this;
     // The volumes root lists volumes only: there are no files to select.
-    if (request === null || request.volume_id === null) return [];
+    if (request === null || request.volume_id === null || this.plannedOnly) return [];
     const { key, order } = this.sortSpec;
     return fetchIds(request, key, order, { signal });
   }
@@ -341,6 +360,7 @@ export class OpmPane extends OpmElement {
     // A pane that left the page (an update can still be queued) must not touch the shared store.
     if (!this.isConnected) return;
     if (this.listingKey !== null) selection[this.pane].setContext(this.listingKey);
+    if (this.plannedOnly) selection[this.pane].clear();
     if (this.providerPane !== this.pane) this.bindIdsProvider();
   }
 
@@ -399,7 +419,7 @@ export class OpmPane extends OpmElement {
       this.walkedUp = true;
       toast.info(`The folder ${locationName(location)} no longer exists`);
     }
-    setLocation(this.pane, parentLocation(location), { replace: true });
+    setLocation(this.pane, parentLocation(location), { replace: true, sync: this.syncNavigation });
   }
 
   private canWalkUp(location: PaneLocation): boolean {
@@ -471,16 +491,18 @@ export class OpmPane extends OpmElement {
   private follow(event: MouseEvent, location: PaneLocation): void {
     if (!isPlainClick(event)) return;
     event.preventDefault();
-    setLocation(this.pane, location);
+    setLocation(this.pane, location, { sync: this.syncNavigation });
   }
 
   private readonly onUp = (): void => {
-    setLocation(this.pane, parentLocation(locations[this.pane].peek()));
+    setLocation(this.pane, parentLocation(locations[this.pane].peek()), {
+      sync: this.syncNavigation,
+    });
   };
 
   private readonly onFolderOpen = (event: FolderOpenEvent): void => {
     this.refocus = this.contains(document.activeElement);
-    setLocation(this.pane, this.entryLocation(event.detail.entry));
+    setLocation(this.pane, this.entryLocation(event.detail.entry), { sync: this.syncNavigation });
   };
 
   private readonly onFolderMenu = (event: FolderMenuEvent): void => {
@@ -489,7 +511,7 @@ export class OpmPane extends OpmElement {
     document.addEventListener('pointerdown', this.onOutsideMenu, true);
     window.addEventListener('blur', this.onWindowBlur);
     void this.updateComplete.then(() =>
-      this.querySelector<HTMLElement>('[data-folder-menu] button')?.focus(),
+      this.querySelector<HTMLElement>('[data-folder-menu] button:not(:disabled)')?.focus(),
     );
   };
 
@@ -545,6 +567,29 @@ export class OpmPane extends OpmElement {
     if (isSortKey(key)) setSort(this.pane, { ...this.sortSpec, key });
   };
 
+  private readonly onSoftExcludeFolder = async (): Promise<void> => {
+    const entry = this.folderMenu?.entry;
+    this.closeFolderMenu();
+    if (!entry) return;
+    const folder = { volume_id: entry.volume_id, path: entry.path };
+    const excluded = settings
+      .peek()
+      ?.soft_excluded_folders.some(
+        (candidate) => candidate.volume_id === folder.volume_id && candidate.path === folder.path,
+      );
+    try {
+      if (excluded) await softIncludeFolder(folder);
+      else await softExcludeFolder(folder);
+      toast.success(
+        excluded
+          ? `Removed soft exclusion for ${entry.name}`
+          : `Soft-excluded ${entry.name} from all tools`,
+      );
+    } catch (error) {
+      toast.error(errorMessage(error, 'Could not change the soft exclusion'));
+    }
+  };
+
   private readonly onSortOrder = (): void => {
     const spec = this.sortSpec;
     setSort(this.pane, { ...spec, order: spec.order === 'asc' ? 'desc' : 'asc' });
@@ -556,7 +601,7 @@ export class OpmPane extends OpmElement {
   };
 
   private readonly onGoToBase = (): void => {
-    if (this.base) setLocation(this.pane, this.base);
+    if (this.base) setLocation(this.pane, this.base, { sync: this.syncNavigation });
   };
 
   private readonly onResetBase = (): void => {
@@ -579,7 +624,7 @@ export class OpmPane extends OpmElement {
 
   /** Read by the folder list while it renders, so the links follow the other pane's moves too. */
   private readonly hrefFor = (entry: FolderEntry): string =>
-    linkToLocation(this.pane, this.entryLocation(entry));
+    linkToLocation(this.pane, this.entryLocation(entry), this.syncNavigation);
 
   private renderAlert(
     tone: AlertTone,
@@ -604,7 +649,7 @@ export class OpmPane extends OpmElement {
     return html`
       <a
         class="link"
-        href=${linkToLocation(this.pane, ROOT_LOCATION)}
+        href=${linkToLocation(this.pane, ROOT_LOCATION, this.syncNavigation)}
         @click=${(event: MouseEvent) => this.follow(event, ROOT_LOCATION)}
         >Show all volumes</a
       >
@@ -615,11 +660,11 @@ export class OpmPane extends OpmElement {
     const path = formatLocation(locations[this.pane].value) ?? ROOT_CRUMB_LABEL;
     return html`
       <li class=${last ? 'min-w-0 flex-1 before:shrink-0' : 'shrink-0 before:shrink-0'}>
-        <span class="tooltip tooltip-bottom ${crumb.location.volume === null ? 'tooltip-start' : ''} block min-w-0 max-w-full before:break-all" data-tip=${path}>
+        <span class="block min-w-0 max-w-full">
         <a
-          href=${linkToLocation(this.pane, crumb.location)}
+          href=${linkToLocation(this.pane, crumb.location, this.syncNavigation)}
           class="block min-w-0 truncate"
-          title=${crumb.label}
+          ${tooltip(path)}
           aria-current=${last ? 'page' : nothing}
           @click=${(event: MouseEvent) => this.follow(event, crumb.location)}
           >${crumb.label}</a
@@ -649,7 +694,7 @@ export class OpmPane extends OpmElement {
           type="button"
           class="btn btn-ghost btn-square btn-xs"
           aria-label=${orderLabel}
-          title=${orderLabel}
+          ${tooltip(orderLabel)}
           @click=${this.onSortOrder}
         >
           <opm-icon name=${ascending ? 'arrow-up' : 'arrow-down'} size="sm"></opm-icon>
@@ -671,7 +716,7 @@ export class OpmPane extends OpmElement {
           type="button"
           class="btn btn-ghost btn-xs"
           aria-label="Up one folder"
-          title="Up one folder"
+          ${tooltip('Up one folder')}
           ?disabled=${location.volume === null}
           @click=${this.onUp}
         >
@@ -682,7 +727,7 @@ export class OpmPane extends OpmElement {
           data-crumbs
           aria-label="${this.paneName} folder path"
           class="breadcrumbs min-w-56 flex-1 overflow-visible py-0 text-sm"
-          title=${path}
+          ${tooltip(path)}
         >
           <ul class=${collapsed ? 'w-full min-w-0' : 'w-max'}>
             ${
@@ -698,15 +743,15 @@ export class OpmPane extends OpmElement {
                         details.open = false;
                         details.querySelector('summary')?.focus();
                       }}>
-                        <summary class="tooltip tooltip-bottom cursor-pointer list-none rounded px-1 before:break-all focus-visible:outline"
-                          data-tip=${path} aria-label="Show parent folders">...</summary>
+                        <summary class="cursor-pointer list-none rounded px-1 focus-visible:outline"
+                          ${tooltip(path)} aria-label="Show parent folders">...</summary>
                         <ul class="menu dropdown-content z-20 mt-2 max-h-64 w-64 max-w-[80vw] flex-col overflow-y-auto rounded-box border border-base-300 bg-base-100 p-2 shadow-lg">
                           ${crumbs.slice(1, -1).map(
                             (crumb) => html`
                             <li>
-                              <a class="tooltip tooltip-bottom before:break-all" data-tip=${path}
-                                href=${linkToLocation(this.pane, crumb.location)}
-                                title=${formatLocation(crumb.location) ?? ROOT_CRUMB_LABEL}
+                              <a
+                                href=${linkToLocation(this.pane, crumb.location, this.syncNavigation)}
+                                ${tooltip(formatLocation(crumb.location) ?? ROOT_CRUMB_LABEL)}
                                 @click=${(event: MouseEvent) => this.follow(event, crumb.location)}>
                                 <span class="truncate">${crumb.label}</span>
                               </a>
@@ -731,6 +776,20 @@ export class OpmPane extends OpmElement {
               ></span>`
             : nothing
         }
+        <div class="join flex-none" role="group" aria-label=${`${this.paneName} folder view`}>
+          ${FOLDER_VIEWS.map((view) => {
+            const label = view === 'list' ? 'Folder list' : 'Folder thumbnails';
+            const selected = folderView.value[this.pane] === view;
+            return html`<button type="button"
+              class="btn btn-square btn-xs join-item max-sm:min-h-11 max-sm:min-w-11 ${selected ? 'btn-primary' : 'btn-ghost'}"
+              aria-label=${label} ${tooltip(label)} aria-pressed=${String(selected)}
+              @click=${() => {
+                folderView.value = { ...folderView.peek(), [this.pane]: view };
+              }}>
+              <opm-icon name=${view === 'list' ? 'list' : 'layout-grid'} size="sm"></opm-icon>
+            </button>`;
+          })}
+        </div>
         ${this.renderSortControls()}
       </header>
     `;
@@ -745,7 +804,7 @@ export class OpmPane extends OpmElement {
     return html`
       <span
         class="badge badge-outline min-w-0 max-w-full gap-1"
-        title=${activeDefault ? activeDefault.label : text}
+        ${tooltip(activeDefault ? activeDefault.label : text)}
       >
         <opm-icon name="pin" size="xs"></opm-icon>
         <span class="truncate">${text}</span>
@@ -771,7 +830,7 @@ export class OpmPane extends OpmElement {
           ? html`<button
               type="button"
               class="btn btn-ghost btn-xs"
-              title=${`Use again: ${baseDefault.label}`}
+              ${tooltip(`Use again: ${baseDefault.label}`)}
               @click=${this.onResetBase}
             >
               Reset
@@ -809,7 +868,7 @@ export class OpmPane extends OpmElement {
         .size=${gridSize.value[this.pane]}
         .selectedIds=${this.selecting.selectedIds}
         .selectionActive=${this.selecting.active}
-        .emptyText=${emptyText}
+        .emptyText=${this.plannedOnly ? 'No files would be renamed in this folder' : emptyText}
         .label=${`${this.paneName} files`}
       ></opm-file-grid>
     `;
@@ -820,6 +879,9 @@ export class OpmPane extends OpmElement {
       <opm-folder-list
         pane=${this.pane}
         .folders=${this.visibleFolders()}
+        .view=${folderView.value[this.pane]}
+        .size=${gridSize.value[this.pane]}
+        .softExcludedFolders=${settings.value?.soft_excluded_folders ?? []}
         ?hide-unmatched=${this.hideUnmatched}
         ?show-matches=${this.showMatches}
         .hrefFor=${this.hrefFor}
@@ -841,8 +903,13 @@ export class OpmPane extends OpmElement {
   private renderFolderMenu(): TemplateResult | typeof nothing {
     const menu = this.folderMenu;
     if (!menu) return nothing;
+    const soft = settings.value?.soft_excluded_folders ?? [];
+    const exact = soft.some(
+      (folder) => folder.volume_id === menu.entry.volume_id && folder.path === menu.entry.path,
+    );
+    const inherited = !exact && isExcluded(soft, menu.entry.volume_id, menu.entry.path);
     const left = Math.max(0, Math.min(menu.x, window.innerWidth - 232));
-    const top = Math.max(0, Math.min(menu.y, window.innerHeight - 48));
+    const top = Math.max(0, Math.min(menu.y, window.innerHeight - 96));
     const position = { left: `${left}px`, top: `${top}px` };
     return html`
       <ul
@@ -853,6 +920,14 @@ export class OpmPane extends OpmElement {
         style=${styleMap(position)}
         @keydown=${this.onFolderMenuKey}
       >
+        <li role="none">
+          <button type="button" role="menuitem" ?disabled=${inherited}
+            ${tooltip(inherited ? 'Remove the soft exclusion on the parent folder or in Settings' : 'Keep indexed and visible, but leave out of all tool plans')}
+            @click=${this.onSoftExcludeFolder}>
+            <opm-icon name="folder-x" size="sm"></opm-icon>
+            ${exact ? 'Remove soft exclusion' : inherited ? 'Soft excluded by parent' : 'Soft exclude folder'}
+          </button>
+        </li>
         <li role="none">
           <button type="button" role="menuitem" @click=${this.onExcludeFolder}>
             <opm-icon name="folder-x" size="sm"></opm-icon>
@@ -903,7 +978,11 @@ export class OpmPane extends OpmElement {
     const atRoot = request.volume_id === null;
     const folders = subfolders.folders;
     const filterActive = isFilterActive(this.filter);
-    const visible = folders.some((entry) => folderState(entry, hideUnmatched) !== 'hide');
+    const keepVisible = (entry: FolderEntry) =>
+      isExcluded(settings.value?.soft_excluded_folders ?? [], entry.volume_id, entry.path);
+    const visible = folders.some(
+      (entry) => keepVisible(entry) || folderState(entry, hideUnmatched) !== 'hide',
+    );
     const alerts = html`
       ${
         volume !== undefined && !volume.online
@@ -927,7 +1006,14 @@ export class OpmPane extends OpmElement {
 
     const foldersKnown = subfolders.status === 'ready';
     if (atRoot) {
-      const text = emptyTextFor({ folders, hideUnmatched, filterActive, atRoot, foldersKnown });
+      const text = emptyTextFor({
+        folders,
+        hideUnmatched,
+        filterActive,
+        atRoot,
+        foldersKnown,
+        keepVisible,
+      });
       return html`
         ${alerts}${this.renderFolders(subfolders.status === 'loading')}
         ${
@@ -937,7 +1023,13 @@ export class OpmPane extends OpmElement {
         }
       `;
     }
-    const emptyText = emptyTextFor({ folders, hideUnmatched, filterActive, foldersKnown });
+    const emptyText = emptyTextFor({
+      folders,
+      hideUnmatched,
+      filterActive,
+      foldersKnown,
+      keepVisible,
+    });
     return html`
       ${alerts}${this.renderFolders(subfolders.status === 'loading')}
       ${visible ? html`<div role="separator" class="divider my-0"></div>` : nothing}
@@ -953,6 +1045,7 @@ export class OpmPane extends OpmElement {
         data-pane-body
         class="min-h-0 flex-1 overflow-y-auto"
         aria-busy=${this.subfolders.refreshing ? 'true' : nothing}
+        @scroll=${() => this.emit('pane-scroll', { pane: this.pane })}
       >
         ${
           request === null

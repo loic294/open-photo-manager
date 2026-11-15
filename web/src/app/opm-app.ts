@@ -5,6 +5,7 @@ import { live } from 'lit/directives/live.js';
 import { createRef, ref } from 'lit/directives/ref.js';
 import { events } from '@/api/sse';
 import { type ReindexScope, requestReindex } from '@/app/app-actions';
+import { registerPwa } from '@/app/pwa';
 import { reindexDisabled, reindexPending, startReindex } from '@/app/reindex';
 import { type AppRouter, createAppRouter } from '@/app/router';
 import { type AppRoute, routes as appRoutes, notFound, redirects, routeAt } from '@/app/routes';
@@ -13,6 +14,7 @@ import { OpmElement } from '@/base/opm-element';
 import { startImmich } from '@/stores/immich';
 import { startIndexStatus } from '@/stores/index-status';
 import { currentPath, currentTool, linkTo, startNavSync } from '@/stores/nav';
+import { startSettings } from '@/stores/settings';
 import { startTasks } from '@/stores/tasks';
 import { filtersOpen, toolHelpOpen } from '@/stores/tool-chrome';
 import { startVolumes } from '@/stores/volumes';
@@ -21,6 +23,7 @@ import { startVolumes } from '@/stores/volumes';
 import '@/app/opm-theme-toggle';
 import '@/components/opm-icon';
 import '@/components/opm-index-notices';
+import '@/components/opm-split-button';
 import '@/components/opm-task-indicator';
 import '@/components/opm-toast-host';
 
@@ -31,12 +34,34 @@ const MENU_ID = 'opm-menu';
 /** DaisyUI reveals the drawer with a short delay, and a hidden element cannot take focus. */
 const FOCUS_DELAY_MS = 150;
 
-const REINDEX_ITEMS: readonly { scope: ReindexScope; label: string }[] = [
-  { scope: 'current-changed', label: 'Scan current folders for changes' },
-  { scope: 'all-changed', label: 'Scan all assets for changes' },
-  { scope: 'current', label: 'Re-index current folders' },
-  { scope: 'all', label: 'Re-index all assets' },
+const REINDEX_ITEMS: readonly { scope: ReindexScope; label: string; hint: string }[] = [
+  {
+    scope: 'current-changed',
+    label: 'Scan current folders for changes',
+    hint: 'Scan the folders in both panes, including subfolders, for added and removed files. Reprocess only new files or files whose size or modification time changed.',
+  },
+  {
+    scope: 'all-changed',
+    label: 'Scan all assets for changes',
+    hint: 'Scan every volume for added and removed files. Reprocess only new files or files whose size or modification time changed. Asks for confirmation.',
+  },
+  {
+    scope: 'current',
+    label: 'Re-index current folders',
+    hint: "Re-read metadata, checksums and thumbnails for every file in both panes' folders, including subfolders, even when size and modification time are unchanged.",
+  },
+  {
+    scope: 'all',
+    label: 'Re-index all assets',
+    hint: 'Re-read metadata, checksums and thumbnails for every file in every volume, even unchanged files. Asks for confirmation and can take a long time.',
+  },
 ];
+const REINDEX_OPTIONS = REINDEX_ITEMS.map(({ scope, label, hint }) => ({
+  id: scope,
+  label,
+  hint,
+  icon: 'refresh-cw' as const,
+}));
 
 /**
  * The application shell, the one element in `index.html`: a viewport-fixed layout that never
@@ -81,6 +106,7 @@ export class OpmApp extends OpmElement {
     this.stopServices = [
       startTheme(),
       startNavSync(),
+      startSettings(),
       startTasks(),
       startVolumes(),
       startIndexStatus(),
@@ -91,6 +117,7 @@ export class OpmApp extends OpmElement {
       }),
     ];
     events.start();
+    void registerPwa();
     this.router = createAppRouter(this, { routes: this.routes });
   }
 
@@ -124,6 +151,7 @@ export class OpmApp extends OpmElement {
   /** Moves the focus into the opened drawer: onto the current page's entry, else the first link. */
   private focusMenu() {
     const menu = this.querySelector(`#${MENU_ID}`);
+    if (menu?.contains(document.activeElement)) return;
     const target =
       menu?.querySelector<HTMLElement>('a[aria-current="page"]') ??
       menu?.querySelector<HTMLElement>('a');
@@ -150,6 +178,7 @@ export class OpmApp extends OpmElement {
 
   /** Choosing an entry closes the drawer (it only exists below the `lg` breakpoint). */
   private onMenuClick(event: Event) {
+    if (event.target instanceof Element && event.target.closest('opm-split-button')) return;
     if (event.target instanceof Element && event.target.closest('a[href], button')) {
       this.closeMenu();
     }
@@ -168,22 +197,6 @@ export class OpmApp extends OpmElement {
           ${route.label}
           ${route.attention?.() ? html`<span class="status status-warning" role="img" aria-label="Needs attention"></span>` : nothing}
         </a>
-      </li>
-    `;
-  }
-
-  private renderReindex(item: { scope: ReindexScope; label: string }) {
-    const disabled = reindexDisabled.value;
-    return html`
-      <li class=${classMap({ 'menu-disabled': disabled })}>
-        <button type="button" class="transition-shadow" ?disabled=${disabled} @click=${() => requestReindex(item.scope)}>
-          ${
-            reindexPending.value === item.scope
-              ? html`<span class="loading loading-spinner loading-xs"></span>`
-              : html`<opm-icon name="refresh-cw" size="sm"></opm-icon>`
-          }
-          ${item.label}
-        </button>
       </li>
     `;
   }
@@ -286,8 +299,21 @@ export class OpmApp extends OpmElement {
                 ${this.routes.filter((route) => route.menu === 'tools').map((r) => this.renderLink(r))}
               </ul>
               <div class="divider my-0 flex-none"></div>
+              <div class="flex-none p-2">
+                <opm-split-button class="w-full" persist-key="indexing" default-id="current-changed"
+                  menu-label="Choose scan action" info-icons menu-start .options=${REINDEX_OPTIONS}
+                  .disabled=${reindexDisabled.value} .busy=${reindexPending.value !== null}
+                  @split-action=${(event: CustomEvent<{ optionId: string }>) => {
+                    const item = REINDEX_ITEMS.find(
+                      (entry) => entry.scope === event.detail.optionId,
+                    );
+                    if (item) {
+                      requestReindex(item.scope);
+                      this.closeMenu();
+                    }
+                  }}></opm-split-button>
+              </div>
               <ul class="menu w-full flex-none">
-                ${REINDEX_ITEMS.map((item) => this.renderReindex(item))}
                 ${this.routes.filter((route) => route.menu === 'footer').map((r) => this.renderLink(r))}
               </ul>
             </nav>

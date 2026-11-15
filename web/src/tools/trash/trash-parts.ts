@@ -1,5 +1,6 @@
 import { html, nothing } from 'lit';
 import type { TrashVolumeSummary } from '@/api/generated/TrashVolumeSummary';
+import { tooltip } from '@/components/tooltip';
 import { itemsLabel, rangeText, reasonStyle } from '@/tools/trash/trash-text';
 import { formatFileSize } from '@/util/format';
 import '@/components/opm-icon';
@@ -9,7 +10,7 @@ import type { SelectChangeEvent, SelectOption } from '@/components/opm-select';
 /** Why an item was trashed, as a badge; the tooltip says it in a sentence. */
 export function renderReasonBadge(reason: string | null) {
   const { label, badge, hint } = reasonStyle(reason);
-  return html`<span class="badge badge-sm ${badge}" title=${hint}>${label}</span>`;
+  return html`<span class="badge badge-sm ${badge}" ${tooltip(hint)}>${label}</span>`;
 }
 
 /** The entries of the volume filter: every volume, then the volumes that hold trash. */
@@ -55,7 +56,7 @@ export function renderVolumeBadges(volumes: readonly TrashVolumeSummary[]) {
         return html`
           <li
             class=${note === null ? 'badge badge-outline' : 'badge badge-outline badge-warning gap-1'}
-            title=${itemsLabel(volume.items)}
+            ${tooltip(itemsLabel(volume.items))}
           >
             ${
               note === null
@@ -91,7 +92,7 @@ export function renderPager(state: PagerState, onPage: (offset: number) => void)
           type="button"
           class="btn btn-sm join-item"
           aria-label="Previous page"
-          title="Previous page"
+          ${tooltip('Previous page')}
           ?disabled=${offset <= 0}
           @click=${() => onPage(Math.max(0, offset - limit))}
         >
@@ -101,7 +102,7 @@ export function renderPager(state: PagerState, onPage: (offset: number) => void)
           type="button"
           class="btn btn-sm join-item"
           aria-label="Next page"
-          title="Next page"
+          ${tooltip('Next page')}
           ?disabled=${offset + limit >= total}
           @click=${() => onPage(offset + limit)}
         >

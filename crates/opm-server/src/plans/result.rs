@@ -16,7 +16,7 @@ use crate::indexer::VolumeRegistry;
 pub const MAX_FAILURE_DETAILS: usize = 200;
 
 /// Accumulates the outcome of the items of one execution.
-#[derive(Debug, Default)]
+#[derive(Debug, Default, serde::Serialize, serde::Deserialize)]
 pub struct ResultBuilder {
     result: PlanResult,
 }
@@ -103,6 +103,10 @@ impl ResultBuilder {
     /// Items counted so far: done, skipped and failed.
     pub fn counted(&self) -> u64 {
         self.result.done + self.result.skipped + self.result.failed
+    }
+
+    pub(crate) fn bytes_done(&self) -> u64 {
+        self.result.bytes
     }
 
     pub fn finish(self) -> PlanResult {

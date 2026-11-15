@@ -32,6 +32,7 @@ struct Row {
     duration_ms: Option<i64>,
     mime: Option<String>,
     size: i64,
+    has_description: bool,
 }
 
 struct Fixture {
@@ -59,7 +60,7 @@ impl Fixture {
         let (dir, name) = path.rsplit_once('/').unwrap_or(("", path));
         sqlx::query_as(
             "SELECT f.meta_state, f.capture_ts, f.capture_offset_min, f.capture_src, c.name AS camera, \
-                    f.rating, f.flag, f.width, f.height, f.duration_ms, f.mime, f.size \
+                    f.rating, f.flag, f.width, f.height, f.duration_ms, f.mime, f.size, f.has_description \
              FROM files f LEFT JOIN cameras c ON c.id = f.camera_id \
              WHERE f.volume_id = ? AND f.dir_path = ? AND f.name = ?",
         )
@@ -107,6 +108,7 @@ fn photo(width: i64, height: i64) -> Embedded {
             offset_time_original: Some("+02:00".into()),
             rating: Some(4),
             keywords: Some(vec!["Paris".into(), "trip".into()]),
+            description: Some("A trip to Paris".into()),
             ..SourceMetadata::default()
         },
         width: Some(width),
@@ -143,9 +145,33 @@ async fn a_photo_gets_every_column() {
     assert_eq!((row.width, row.height), (Some(6000), Some(4000)));
     assert_eq!(row.mime.as_deref(), Some("image/jpeg"));
     assert_eq!(row.duration_ms, None);
+    assert!(row.has_description);
     assert_eq!(fx.tags_of("a.jpg").await, ["Paris", "trip"]);
 }
 
+#[tokio::test]
+async fn sidecar_description_presence_overrides_embedded_and_empty_descriptions_clear_it() {
+    let fx = Fixture::new().await;
+    for (name, description) in [
+        (
+            "described",
+            "<rdf:Alt><rdf:li xml:lang=\"x-default\">A view</rdf:li></rdf:Alt>",
+        ),
+        ("cleared", ""),
+    ] {
+        fx.tree.write(&format!("{name}.jpg"), b"jpeg bytes");
+        fx.tree.write(&format!("{name}.jpg.xmp"), format!(
+            "<rdf:RDF xmlns:rdf=\"http://www.w3.org/1999/02/22-rdf-syntax-ns#\"><rdf:Description xmlns:dc=\"http://purl.org/dc/elements/1.1/\"><dc:description>{description}</dc:description></rdf:Description></rdf:RDF>"
+        ).as_bytes());
+    }
+    let fake = Arc::new(FakeExtractor::new(|_| Ok(photo(100, 50))));
+    fx.indexer(&fake)
+        .run(&ScanRequest::default(), &ctx())
+        .await
+        .unwrap();
+    assert!(fx.row("described.jpg").await.has_description);
+    assert!(!fx.row("cleared.jpg").await.has_description);
+}
 #[tokio::test]
 async fn a_sidecar_overrides_the_embedded_values() {
     let fx = Fixture::new().await;

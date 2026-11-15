@@ -17,6 +17,7 @@ use crate::ism;
 use crate::media;
 use crate::plans;
 use crate::settings;
+use crate::statistics;
 use crate::tasks;
 use crate::trash;
 
@@ -38,6 +39,7 @@ pub struct AppState {
     pub settings: settings::SettingsService,
     /// Cancelled by `begin_shutdown`: background services and open streams stop on it.
     pub shutdown: CancellationToken,
+    pub statistics: statistics::StatisticsService,
     pub tasks: tasks::TaskEngine,
     pub trash: trash::TrashService,
     pub volumes: indexer::VolumeRegistry,
@@ -58,6 +60,7 @@ impl AppState {
         let managed_volumes = fsops::ManagedVolumeSnapshot::load(&db).await?;
 
         let settings = settings::SettingsService::load(db.clone(), &config).await?;
+        let statistics = statistics::StatisticsService::new(db.clone(), settings.clone()).await?;
 
         let shutdown = CancellationToken::new();
 
@@ -157,7 +160,7 @@ impl AppState {
             shutdown: shutdown.clone(),
         });
 
-        Ok(Self {
+        let state = Self {
             config,
             db,
             fsops,
@@ -171,11 +174,14 @@ impl AppState {
             plans,
             settings,
             shutdown,
+            statistics,
             tasks,
             trash,
             volumes,
             watcher,
-        })
+        };
+        state.tasks.recover_services(&state).await?;
+        Ok(state)
     }
 
     /// Called synchronously when a termination signal arrives, before the HTTP
@@ -193,6 +199,7 @@ impl AppState {
         self.watcher.shutdown().await;
         self.tasks.shutdown().await;
         self.plans.shutdown().await;
+        self.statistics.shutdown().await;
         // Keep last: every other service may still write while it stops.
         self.db.close().await;
     }

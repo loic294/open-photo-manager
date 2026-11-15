@@ -8,6 +8,9 @@
 //! `/excluded-folders/remove` change them, so a stale Settings page never re-includes a folder.
 //! Both queue a user index task of the folder: an excluded scope is purged from the index, an
 //! included one is indexed again.
+//!
+//! The parallel `/soft-excluded-folders` add/remove endpoints manage a shared tool-only list.
+//! They never queue index work or hide files. `PUT` preserves this list too.
 
 use axum::extract::State;
 use axum::http::StatusCode;
@@ -30,6 +33,8 @@ pub fn routes() -> Router<AppState> {
         .route("/settings", get(read).put(update))
         .route("/settings/excluded-folders", post(exclude))
         .route("/settings/excluded-folders/remove", post(include))
+        .route("/settings/soft-excluded-folders", post(soft_exclude))
+        .route("/settings/soft-excluded-folders/remove", post(soft_include))
 }
 
 async fn read(State(state): State<AppState>) -> Json<SettingsDto> {
@@ -46,7 +51,48 @@ async fn update(
         .modify(move |current| {
             let mut proposed = proposed;
             proposed.excluded_folders = current.excluded_folders.clone();
+            proposed.soft_excluded_folders = current.soft_excluded_folders.clone();
             Ok(proposed)
+        })
+        .await?;
+    Ok(Json(saved.as_ref().clone()))
+}
+
+async fn soft_exclude(
+    State(state): State<AppState>,
+    ApiJson(folder): ApiJson<ExcludedFolder>,
+) -> Result<Json<SettingsDto>, Rejection> {
+    let path = excludable_path(&state, &folder)?;
+    let entry = ExcludedFolder {
+        volume_id: folder.volume_id,
+        path: path.as_str().to_owned(),
+    };
+    let saved = state
+        .settings
+        .modify(move |current| {
+            let mut next = current.clone();
+            next.soft_excluded_folders.push(entry);
+            Ok(next)
+        })
+        .await?;
+    Ok(Json(saved.as_ref().clone()))
+}
+
+async fn soft_include(
+    State(state): State<AppState>,
+    ApiJson(folder): ApiJson<ExcludedFolder>,
+) -> Result<Json<SettingsDto>, Rejection> {
+    if !state.settings.get().soft_excluded_folders.contains(&folder) {
+        return Err(
+            AppError::not_found("exclusion_not_found", "this folder is not soft-excluded").into(),
+        );
+    }
+    let saved = state
+        .settings
+        .modify(move |current| {
+            let mut next = current.clone();
+            next.soft_excluded_folders.retain(|entry| entry != &folder);
+            Ok(next)
         })
         .await?;
     Ok(Json(saved.as_ref().clone()))

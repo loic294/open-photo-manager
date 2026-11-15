@@ -3,6 +3,7 @@ import type { CaptureSource } from '@/api/generated/CaptureSource';
 import type { FileDetail } from '@/api/generated/FileDetail';
 import type { FileItem } from '@/api/generated/FileItem';
 import type { FileKind } from '@/api/generated/FileKind';
+import { tooltip } from '@/components/tooltip';
 import { isBoolean, persistedSignal } from '@/stores/persisted';
 import { volumes } from '@/stores/volumes';
 import {
@@ -79,7 +80,7 @@ function capture(item: FileItem): InfoValue {
   return html`${date} <span class="badge badge-ghost badge-xs">${CAPTURE_SOURCE_LABEL[item.capture_src]}</span>`;
 }
 
-function rating(item: FileItem): InfoValue {
+export function renderRating(item: FileItem): InfoValue {
   const stars = Math.min(RATING_MAX, Math.max(0, Math.round(item.rating)));
   if (stars === 0) return 'Not rated';
   return html`<div class="rating rating-xs" role="img" aria-label=${`${stars} out of ${RATING_MAX} stars`}>
@@ -87,7 +88,7 @@ function rating(item: FileItem): InfoValue {
   </div>`;
 }
 
-function flag(item: FileItem): InfoValue {
+export function renderFlag(item: FileItem): InfoValue {
   if (item.flag > 0) return html`<span class="badge badge-success badge-sm">Selected</span>`;
   if (item.flag < 0) return html`<span class="badge badge-error badge-sm">Rejected</span>`;
   return 'None';
@@ -98,7 +99,7 @@ function hash(value: string | null): InfoValue {
   const shown =
     value.length > HASH_SHOWN_CHARS ? `${value.slice(0, HASH_SHOWN_CHARS)}\u2026` : value;
   // A native tooltip: the panel scrolls, so a CSS one would be clipped at its edge.
-  return html`<span class="font-mono text-xs" title=${value}>${shown}</span>`;
+  return html`<span class="font-mono text-xs" ${tooltip(value)}>${shown}</span>`;
 }
 
 /**
@@ -119,7 +120,7 @@ export const INFO_ROWS: readonly InfoRow[] = [
     id: 'size',
     label: 'Size',
     value: ({ item }) =>
-      html`<span title=${`${item.size.toLocaleString()} bytes`}>${formatFileSize(item.size)}</span>`,
+      html`<span ${tooltip(`${item.size.toLocaleString()} bytes`)}>${formatFileSize(item.size)}</span>`,
   },
   {
     id: 'kind',
@@ -135,8 +136,8 @@ export const INFO_ROWS: readonly InfoRow[] = [
   },
   { id: 'captured', label: 'Captured', value: ({ item }) => capture(item) },
   { id: 'camera', label: 'Camera', value: ({ item }) => item.camera ?? EM_DASH },
-  { id: 'rating', label: 'Rating', value: ({ item }) => rating(item) },
-  { id: 'flag', label: 'Flag', value: ({ item }) => flag(item) },
+  { id: 'rating', label: 'Rating', value: ({ item }) => renderRating(item) },
+  { id: 'flag', label: 'Flag', value: ({ item }) => renderFlag(item) },
   {
     id: 'tags',
     label: 'Tags',

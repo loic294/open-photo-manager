@@ -7,6 +7,7 @@ import type { RenameIssue } from '@/api/generated/RenameIssue';
 import type { RenameRules } from '@/api/generated/RenameRules';
 import type { SideParams } from '@/api/generated/SideParams';
 import { OpmElement } from '@/base/opm-element';
+import { tooltip } from '@/components/tooltip';
 import '@/components/opm-icon';
 import {
   formatPreviewAdapter,
@@ -256,7 +257,7 @@ export class OpmPatternEditor extends OpmElement {
     }
     return html`<div class="flex min-w-0 flex-col gap-1 text-xs">
       <label class="input input-sm w-full ${issue ? 'input-error validator' : ''}" for=${this.inputId}>
-        ${this.basePrefix ? html`<span class="label max-w-40 truncate" title=${this.basePrefix}>${this.basePrefix}</span>` : nothing}
+        ${this.basePrefix ? html`<span class="label max-w-40 truncate" ${tooltip(this.basePrefix)}>${this.basePrefix}</span>` : nothing}
         <input id=${this.inputId} class="font-mono min-w-0" aria-label=${this.label}
           .value=${live(this.value)} ?disabled=${this.disabled} spellcheck="false" autocapitalize="off"
           aria-invalid=${issue ? 'true' : 'false'} aria-describedby="${this.inputId}-hint"
@@ -311,9 +312,9 @@ export class OpmPatternEditor extends OpmElement {
             ${tokens.map(
               (
                 token,
-              ) => html`<span class="tooltip" data-tip="${token.description} (${token.example})">
+              ) => html`<span ${tooltip(this.disabled ? `${token.description} (${token.example})` : undefined)}>
               <button class="btn btn-xs font-mono" type="button" ?disabled=${this.disabled}
-                title="${token.description} (${token.example})"
+                ${tooltip(`${token.description} (${token.example})`)}
                 @pointerdown=${(event: PointerEvent) => event.preventDefault()}
                 @click=${(event: Event) => {
                   this.insert(`{${token.name}}`);

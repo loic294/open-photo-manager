@@ -82,7 +82,9 @@ describe('plan result', () => {
     expect(table?.parentElement?.classList.contains('overflow-y-auto')).toBe(true);
     expect(el.querySelectorAll('tbody tr')).toHaveLength(3);
     expect(el.textContent).toContain('Photos/a.jpg');
-    expect(el.querySelector('td[title]')?.getAttribute('title')).toBe('Technical detail A');
+    expect(el.querySelector('td[data-tooltip]')?.getAttribute('data-tooltip')).toBe(
+      'Technical detail A',
+    );
     expect(el.textContent).toContain('Showing the first 3 of 13');
     expect(
       [...el.querySelectorAll('li')].map((node) =>
@@ -136,7 +138,9 @@ describe('plan result', () => {
     expect(el.querySelector('img')).toBeNull();
     expect(el.querySelector('script')).toBeNull();
     expect(el.textContent).toContain('New error');
-    expect(el.querySelector('td[title]')?.getAttribute('title')).toBe('<script>danger</script>');
+    expect(el.querySelector('td[data-tooltip]')?.getAttribute('data-tooltip')).toBe(
+      '<script>danger</script>',
+    );
   });
 
   it('openPlanResult reuses one host, updates content and closes normally', async () => {

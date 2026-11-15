@@ -1,10 +1,16 @@
 import { html, nothing } from 'lit';
 import { repeat } from 'lit/directives/repeat.js';
+import { styleMap } from 'lit/directives/style-map.js';
+import { thumbSizeFor, thumbUrl } from '@/api/files';
+import type { ExcludedFolder } from '@/api/generated/ExcludedFolder';
 import type { FolderEntry } from '@/api/generated/FolderEntry';
 import { OpmElement } from '@/base/opm-element';
 import type { IconName } from '@/components/opm-icon';
+import { tooltip } from '@/components/tooltip';
 import '@/components/opm-icon';
 import type { PaneId } from '@/stores/nav';
+import { type FolderView, GRID_SIZE } from '@/stores/prefs';
+import { isExcluded } from '@/stores/settings';
 import { type FolderState, folderState } from '@/util/folder-state';
 import { formatCount } from '@/util/format-count';
 import { isPlainClick } from '@/util/plain-click';
@@ -107,6 +113,7 @@ function matchesText(matches: number): string {
  *   without matches are greyed. The rule is `folderState`: a folder of the plan is never hidden.
  * - `showMatches` (attribute `show-matches`): show the plan matches of the folders that have them.
  * - `pane`: only for the accessible name of the list.
+ * - `view`: compact `list` (default) or photo `thumbnails`; `size` follows the pane thumbnail scale.
  * - `hrefFor`: the real address of a row. Optional: a row without one links to `#`.
  * - `loading`: skeleton rows, but only while there are no folders to show yet: a refresh keeps the
  *   rows on screen.
@@ -130,6 +137,9 @@ export class OpmFolderList extends OpmElement {
     pane: { type: String },
     hrefFor: { attribute: false },
     loading: { type: Boolean },
+    view: { type: String },
+    size: { type: Number },
+    softExcludedFolders: { attribute: false },
   };
 
   declare folders: readonly FolderEntry[];
@@ -138,6 +148,12 @@ export class OpmFolderList extends OpmElement {
   declare pane: PaneId;
   declare hrefFor: ((entry: FolderEntry) => string) | undefined;
   declare loading: boolean;
+  declare view: FolderView;
+  declare size: number;
+  /** Tool-only exclusions stay visible, including when unmatched folders are hidden. */
+  declare softExcludedFolders: readonly ExcludedFolder[];
+
+  private failedPreviews = new Set<string>();
 
   constructor() {
     super();
@@ -147,11 +163,32 @@ export class OpmFolderList extends OpmElement {
     this.pane = 'source';
     this.hrefFor = undefined;
     this.loading = false;
+    this.view = 'list';
+    this.size = GRID_SIZE.default;
+    this.softExcludedFolders = [];
   }
 
   override connectedCallback(): void {
     super.connectedCallback();
     this.classList.add('block');
+  }
+
+  protected override willUpdate(): void {
+    const urls = new Set(
+      this.folders.flatMap((entry) =>
+        entry.preview ? [thumbUrl(entry.preview, thumbSizeFor(this.size))] : [],
+      ),
+    );
+    for (const url of this.failedPreviews) {
+      if (!urls.has(url)) this.failedPreviews.delete(url);
+    }
+  }
+
+  private onPreviewError(event: Event): void {
+    const url = (event.currentTarget as HTMLImageElement).getAttribute('src');
+    if (url === null) return;
+    this.failedPreviews.add(url);
+    this.requestUpdate();
   }
 
   private onClick(event: MouseEvent): void {
@@ -203,29 +240,57 @@ export class OpmFolderList extends OpmElement {
   private renderRow(entry: FolderEntry, state: FolderState) {
     const { overlay, matches } = entry;
     const href = this.hrefFor ? this.hrefFor(entry) : '#';
+    const thumbnails = this.view === 'thumbnails';
+    const frame = thumbnails
+      ? 'flex h-full flex-col overflow-hidden rounded-box border hover:bg-base-200 focus-visible:outline-2 focus-visible:-outline-offset-2 focus-visible:outline-primary'
+      : ROW_CLASS;
+    const name = html`
+      <opm-icon name=${iconFor(entry)} size="sm"
+        class=${overlay.will_delete ? 'text-error' : nothing}></opm-icon>
+      <span class="list-col-grow min-w-0 truncate" ${tooltip(entry.name)}>${entry.name}</span>`;
     return html`
-      <li class=${ITEM_CLASS}>
-        <a href=${href} data-name=${entry.name} class="${ROW_CLASS} ${toneClass(entry, state)}">
-          <opm-icon
-            name=${iconFor(entry)}
-            size="sm"
-            class=${overlay.will_delete ? 'text-error' : nothing}
-          ></opm-icon>
-          <span class="list-col-grow min-w-0 truncate" title=${entry.name}>${entry.name}</span>
-          <span class="flex shrink-0 items-center gap-1">
+      <li class=${thumbnails ? 'min-w-0' : ITEM_CLASS}>
+        <a href=${href} data-name=${entry.name} class="${frame} ${toneClass(entry, state)}">
+          ${thumbnails ? this.renderPreview(entry) : nothing}
+          ${thumbnails ? html`<span class="flex min-w-0 items-center gap-1 px-2 pt-2">${name}</span>` : name}
+          <span class=${thumbnails ? 'flex flex-wrap items-center gap-1 px-2 pt-1 pb-2' : 'flex shrink-0 items-center gap-1'}>
             ${overlay.will_delete ? html`<span class="sr-only">will be deleted</span>` : nothing}
             ${
               overlay.planned
-                ? html`<span class="badge badge-info badge-sm" title="Will be created">new</span>`
+                ? html`<span class="badge badge-info badge-sm" ${tooltip('Will be created')}>new</span>`
                 : nothing
             }
             <span class="badge badge-ghost badge-sm" aria-hidden="true">${countText(entry)}</span>
             <span class="sr-only">${countSentence(entry)}</span>
+            ${this.isSoftExcluded(entry) ? html`<span class="badge badge-outline badge-sm" ${tooltip('Excluded from all tool plans; still indexed and browsable')}>Soft exclude</span>` : nothing}
             ${this.showMatches && matches !== null ? this.renderMatches(matches) : nothing}
           </span>
         </a>
       </li>
     `;
+  }
+
+  private isSoftExcluded(entry: FolderEntry): boolean {
+    return isExcluded(this.softExcludedFolders, entry.volume_id, entry.path);
+  }
+
+  private renderPreview(entry: FolderEntry) {
+    const url = entry.preview ? thumbUrl(entry.preview, thumbSizeFor(this.size)) : null;
+    const failed = url !== null && this.failedPreviews.has(url);
+    return html`
+      <span class="relative flex aspect-4/3 w-full items-center justify-center bg-base-200"
+        ${tooltip(failed ? 'Photo preview unavailable' : nothing)}>
+        <opm-icon name=${failed ? 'image-off' : iconFor(entry)} size="xl"
+          class="text-base-content/60"></opm-icon>
+        ${
+          url && !failed
+            ? html`<img class="absolute inset-0 h-full w-full object-contain bg-base-200"
+                src=${url} alt="" loading="lazy" decoding="async" draggable="false"
+                @error=${this.onPreviewError} />`
+            : nothing
+        }
+        ${failed ? html`<span class="sr-only">Photo preview unavailable</span>` : nothing}
+      </span>`;
   }
 
   private renderMatches(matches: number) {
@@ -236,14 +301,22 @@ export class OpmFolderList extends OpmElement {
   protected override render() {
     const rows: { entry: FolderEntry; state: FolderState }[] = [];
     for (const entry of this.folders) {
-      const state = folderState(entry, this.hideUnmatched);
+      const state = folderState(entry, this.hideUnmatched && !this.isSoftExcluded(entry));
       if (state !== 'hide') rows.push({ entry, state });
     }
     if (rows.length === 0) {
       return this.loading && this.folders.length === 0 ? this.renderSkeleton() : nothing;
     }
     return html`
-      <ul class="list" role="list" aria-label=${LIST_LABEL[this.pane] ?? 'Folders'} @click=${this.onClick}
+      <ul class=${this.view === 'thumbnails' ? 'grid gap-2 p-2' : 'list'}
+        style=${styleMap(
+          this.view === 'thumbnails'
+            ? {
+                gridTemplateColumns: `repeat(auto-fill, minmax(min(100%, ${this.size}px), 1fr))`,
+              }
+            : {},
+        )}
+        role="list" aria-label=${LIST_LABEL[this.pane] ?? 'Folders'} @click=${this.onClick}
         @contextmenu=${this.onContextMenu}>
         ${repeat(
           rows,

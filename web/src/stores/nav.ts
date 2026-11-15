@@ -87,9 +87,15 @@ function readable(search: string): string {
   return search.replaceAll('%2F', '/');
 }
 
-function withPaneParams(url: URL, override?: { pane: PaneId; location: PaneLocation }): string {
+function withPaneParams(
+  url: URL,
+  override?: { pane: PaneId; location: PaneLocation; sync?: boolean },
+): string {
   for (const pane of PANES) {
-    const location = override?.pane === pane ? override.location : locations[pane].value;
+    const location =
+      override && (override.sync || override.pane === pane)
+        ? override.location
+        : locations[pane].value;
     const text = formatLocation(location);
     if (text === null) url.searchParams.delete(PANE_QUERY_KEYS[pane]);
     else url.searchParams.set(PANE_QUERY_KEYS[pane], text);
@@ -105,10 +111,14 @@ function withPaneParams(url: URL, override?: { pane: PaneId; location: PaneLocat
 export function setLocation(
   pane: PaneId,
   next: PaneLocation,
-  options: { replace?: boolean } = {},
+  options: { replace?: boolean; sync?: boolean } = {},
 ): void {
   const normalised = parseLocation(formatLocation(next));
-  if (!sameLocation(locations[pane].peek(), normalised)) locations[pane].value = normalised;
+  batch(() => {
+    for (const id of options.sync ? PANES : [pane]) {
+      if (!sameLocation(locations[id].peek(), normalised)) locations[id].value = normalised;
+    }
+  });
 
   const inUrl = locationsFromUrl();
   if (PANES.every((id) => sameLocation(inUrl[id], locations[id].peek()))) return;
@@ -132,9 +142,9 @@ export function linkTo(path: string): string {
  * is the address `setLocation(pane, location)` would put in the address bar. Reads the signals, so
  * call it inside `render()` and the link stays current.
  */
-export function linkToLocation(pane: PaneId, location: PaneLocation): string {
+export function linkToLocation(pane: PaneId, location: PaneLocation, sync = false): string {
   const url = new URL(currentPath.value, window.location.origin);
-  return withPaneParams(url, { pane, location: parseLocation(formatLocation(location)) });
+  return withPaneParams(url, { pane, location: parseLocation(formatLocation(location)), sync });
 }
 
 /**

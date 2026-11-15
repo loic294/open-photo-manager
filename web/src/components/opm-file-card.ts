@@ -5,6 +5,7 @@ import type { FileItem } from '@/api/generated/FileItem';
 import type { FileKind } from '@/api/generated/FileKind';
 import type { Overlay } from '@/api/generated/Overlay';
 import { OpmElement } from '@/base/opm-element';
+import { tooltip } from '@/components/tooltip';
 import '@/components/opm-icon';
 import type { IconName } from '@/components/opm-icon';
 import { GRID_SIZE } from '@/stores/prefs';
@@ -273,6 +274,9 @@ export class OpmFileCard extends OpmElement {
     item: { attribute: false },
     index: { type: Number },
     selected: { type: Boolean },
+    asButton: { type: Boolean, attribute: 'as-button' },
+    highlightSelection: { type: Boolean, attribute: 'highlight-selection' },
+    showCaption: { type: Boolean, attribute: 'show-caption' },
     selectionActive: { type: Boolean, attribute: 'selection-active' },
     size: { type: Number },
     focused: { type: Boolean },
@@ -282,6 +286,9 @@ export class OpmFileCard extends OpmElement {
   declare item: FileItem | undefined;
   declare index: number;
   declare selected: boolean;
+  asButton = false;
+  highlightSelection = true;
+  showCaption = true;
   declare selectionActive: boolean;
   declare size: number;
   declare focused: boolean;
@@ -335,7 +342,7 @@ export class OpmFileCard extends OpmElement {
   }
 
   private option(): HTMLElement | null {
-    return this.querySelector<HTMLElement>('[role="option"]');
+    return this.querySelector<HTMLElement>('[role="option"], [role="button"]');
   }
 
   protected override willUpdate(): void {
@@ -403,7 +410,7 @@ export class OpmFileCard extends OpmElement {
       data-badge=${badge.id}
       role="img"
       aria-label=${badge.label}
-      title=${badge.label}
+      ${tooltip(badge.label)}
     >${badge.icon ? html`<opm-icon name=${badge.icon} size="xs"></opm-icon>` : nothing}${badge.text ?? nothing}</span>`;
   }
 
@@ -474,14 +481,14 @@ export class OpmFileCard extends OpmElement {
     const date = cardDate(item);
     return html`
       <div
-        class="truncate text-xs leading-4 font-medium"
+        class="tooltip tooltip-top tooltip-start block min-w-0 text-left text-xs leading-4 font-medium before:max-w-full before:whitespace-normal before:break-all"
         data-name
-        title=${`${item.name} (${formatFileSize(item.size)})`}
-      >${item.name}</div>
+        data-tip=${item.name}
+      ><span class="block truncate">${item.name}</span></div>
       <div
-        class="flex min-w-0 items-center gap-1 text-xs leading-4 text-base-content/60"
+        class="tooltip tooltip-top tooltip-start flex min-w-0 items-center gap-1 text-left text-xs leading-4 text-base-content/60 before:max-w-full before:whitespace-normal before:break-all"
         data-date
-        title=${date.hint}
+        data-tip=${`${date.text} · ${formatFileSize(item.size)} · ${date.hint}`}
       >
         ${date.icon ? html`<opm-icon name=${date.icon} size="xs"></opm-icon>` : nothing}
         <span class="truncate">${date.text}</span>
@@ -500,15 +507,18 @@ export class OpmFileCard extends OpmElement {
     const { item } = this;
     const ghost = item?.overlay.planned === true;
     const selected = item !== undefined && !ghost && this.selected;
-    const frame = item ? cardFrameClasses(item.overlay, selected) : SKELETON_FRAME;
+    const frame = item
+      ? cardFrameClasses(item.overlay, selected && this.highlightSelection)
+      : SKELETON_FRAME;
     const interactive = item !== undefined && !ghost;
     const positioned = this.index >= 0 && this.setSize > 0;
     return html`
       <div
-        role="option"
-        class="card group h-full w-full overflow-hidden rounded-lg border-2 ${frame} ${interactive ? 'cursor-pointer' : 'cursor-default'}"
+        role=${this.asButton ? 'button' : 'option'}
+        class="card group h-full w-full rounded-lg border-2 hover:z-10 focus-within:z-10 ${frame} ${interactive ? 'cursor-pointer' : 'cursor-default'}"
         tabindex=${this.focused ? '0' : '-1'}
-        aria-selected=${selected ? 'true' : 'false'}
+        aria-selected=${this.asButton ? nothing : String(selected)}
+        aria-pressed=${this.asButton ? String(selected) : nothing}
         aria-label=${item ? cardLabel(item) : 'Loading'}
         aria-posinset=${positioned ? this.index + 1 : nothing}
         aria-setsize=${positioned ? this.setSize : nothing}
@@ -517,12 +527,16 @@ export class OpmFileCard extends OpmElement {
         @click=${this.onClick}
         @keydown=${this.onKeydown}
       >
-        <figure class="relative min-h-0 flex-1 ${item ? 'bg-base-200' : 'skeleton rounded-none'}">
+        <figure class="relative min-h-0 flex-1 overflow-hidden rounded-t-md ${item ? 'bg-base-200' : 'skeleton rounded-none'}">
           ${item ? this.renderFigure(item, selected) : nothing}
         </figure>
-        <div class="flex h-10 shrink-0 flex-col justify-center px-2">
+        ${
+          this.showCaption
+            ? html`<div class="flex h-10 shrink-0 flex-col justify-center px-2">
           ${item ? this.renderCaption(item) : this.renderCaptionPlaceholder()}
-        </div>
+        </div>`
+            : nothing
+        }
       </div>
     `;
   }

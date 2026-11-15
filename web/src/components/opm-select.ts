@@ -1,6 +1,7 @@
 import { html } from 'lit';
 import { ifDefined } from 'lit/directives/if-defined.js';
 import { OpmElement } from '@/base/opm-element';
+import { tooltip } from '@/components/tooltip';
 
 export interface SelectOption {
   value: string;
@@ -112,13 +113,13 @@ export class OpmSelect extends OpmElement {
       <select
         class=${ifDefined(classes)}
         aria-label=${this.label}
-        title=${ifDefined(this.showLabel || !this.label ? undefined : this.label)}
+        ${tooltip(this.options.find((option) => option.value === this.value)?.title ?? (this.showLabel ? undefined : this.label))}
         ?disabled=${this.disabled}
         @change=${this.onChange}
       >
         ${this.options.map(
           (option) =>
-            html`<option value=${option.value} title=${ifDefined(option.title)} ?disabled=${option.disabled === true}>${option.label}</option>`,
+            html`<option value=${option.value} ?disabled=${option.disabled === true}>${option.label}</option>`,
         )}
       </select>
     `;

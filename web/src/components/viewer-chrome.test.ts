@@ -98,7 +98,7 @@ describe('renderToolbar', () => {
 
       expect(button.getAttribute('aria-pressed')).toBe(String(infoOpen));
       expect(button.classList.contains('btn-active')).toBe(infoOpen);
-      expect(button.title).toBe('Info (I)');
+      expect(button.getAttribute('data-tooltip')).toBe('Info (I)');
     });
 
     it('asks to toggle', () => {
@@ -175,8 +175,8 @@ describe('renderStepButtons', () => {
   it('has a previous and a next button, labelled and titled with their key', () => {
     const host = steps();
 
-    expect(control(host, 'Previous file').title).toBe('Previous (←)');
-    expect(control(host, 'Next file').title).toBe('Next (→)');
+    expect(control(host, 'Previous file').getAttribute('data-tooltip')).toBe('Previous (←)');
+    expect(control(host, 'Next file').getAttribute('data-tooltip')).toBe('Next (→)');
     expect(control(host, 'Previous file').disabled).toBe(false);
     expect(control(host, 'Next file').disabled).toBe(false);
   });

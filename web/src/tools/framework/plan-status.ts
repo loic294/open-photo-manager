@@ -1,4 +1,5 @@
 import { html, nothing, type TemplateResult } from 'lit';
+import { tooltip } from '@/components/tooltip';
 import '@/components/opm-icon';
 import { openPlanResult } from '@/components/opm-plan-result';
 import { dismissLastRun, lastRun } from '@/stores/plan-runs';
@@ -48,7 +49,9 @@ function renderProgress(ctx: ToolContext): TemplateResult | null {
         <span class="truncate">${ctx.plan.status === 'building' ? 'Matching...' : 'Working...'}</span>`;
     default: {
       const reason = notReadyReason(ctx);
-      return reason === null ? null : html`<span class="truncate" title=${reason}>${reason}</span>`;
+      return reason === null
+        ? null
+        : html`<span class="truncate" ${tooltip(reason)}>${reason}</span>`;
     }
   }
 }
@@ -75,7 +78,7 @@ function renderWarnings(ctx: ToolContext) {
       </div>
       <ul
         tabindex="0"
-        class="dropdown-content z-10 mt-1 flex w-72 max-w-[calc(100vw-1rem)] flex-col gap-2 rounded-box border border-base-300 bg-base-100 p-3 text-sm shadow-lg"
+        class="dropdown-content z-10 mt-1 w-72 max-w-[calc(100vw-1rem)] space-y-2 rounded-box border border-base-300 bg-base-100 p-3 text-sm shadow-lg"
       >
         ${warnings.map(
           (warning) => html`

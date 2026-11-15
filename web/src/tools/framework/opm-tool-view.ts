@@ -1,4 +1,4 @@
-import { untracked } from '@preact/signals-core';
+import { effect, untracked } from '@preact/signals-core';
 import { html, nothing, type PropertyValues, type TemplateResult } from 'lit';
 import { keyed } from 'lit/directives/keyed.js';
 import { fetchIds } from '@/api/files';
@@ -31,11 +31,24 @@ import { openViewer } from '@/components/opm-viewer';
 import type { ItemOpenEvent } from '@/controllers/selection-controller';
 import { installSelectionShortcuts } from '@/controllers/selection-shortcuts';
 import { setFilter, setScope } from '@/stores/filters';
-import { PANES, type PaneId } from '@/stores/nav';
+import {
+  currentTool,
+  locations,
+  PANES,
+  type PaneId,
+  sameLocation,
+  setLocation,
+} from '@/stores/nav';
 import { GRID_SIZE, gridSize, hideUnmatchedFolders, setGridSize } from '@/stores/prefs';
 import { activePane, clearAllSelections, selection } from '@/stores/selection';
 import { filtersOpen, toolHelpOpen } from '@/stores/tool-chrome';
-import { handoffFor, setHandoff, setRecursive } from '@/stores/tool-state';
+import {
+  handoffFor,
+  navigationSynced,
+  setHandoff,
+  setNavigationSynced,
+  setRecursive,
+} from '@/stores/tool-state';
 import { renderPlanStatus } from '@/tools/framework/plan-status';
 import { renderActions } from '@/tools/framework/tool-actions';
 import type { ToolConfig } from '@/tools/framework/tool-config';
@@ -74,16 +87,20 @@ import { DEFAULT_SCOPE_LABELS } from '@/util/filter';
 export class OpmToolView extends OpmElement {
   static override properties = {
     config: { attribute: false },
+    leadingControls: { attribute: false },
     controlsOpen: { state: true },
   };
 
   declare config: ToolConfig | undefined;
+  declare leadingControls: TemplateResult | undefined;
   private controlsOpen = false;
 
   private ctx: ToolContext | null = null;
   private startedFor: ToolConfig | undefined;
   private stopSetup: (() => void) | null = null;
+  private stopNavigation: (() => void) | null = null;
   private stopShortcuts: (() => void) | null = null;
+  private readonly mirroredScroll = new WeakMap<HTMLElement, number>();
   /** Stable objects for the panes' properties: a new object each render would re-render them. */
   private readonly planRefs: Record<PaneId, PlanRef | null> = { source: null, comparison: null };
   private readonly baseDefaults: Record<PaneId, BaseDefault | null> = {
@@ -130,9 +147,19 @@ export class OpmToolView extends OpmElement {
     this.ctx = ctx;
     const cleanup = config.setup?.(ctx);
     this.stopSetup = typeof cleanup === 'function' ? cleanup : null;
+    this.stopNavigation = effect(() => {
+      if (currentTool.value !== config.id || !navigationSynced(config.id)) return;
+      if (sameLocation(locations.source.value, locations.comparison.value)) return;
+      untracked(() => {
+        const pane = activePane.peek();
+        setLocation(pane, locations[pane].peek(), { sync: true, replace: true });
+      });
+    });
   }
 
   private stop(): void {
+    this.stopNavigation?.();
+    this.stopNavigation = null;
     this.stopSetup?.();
     this.stopSetup = null;
     this.ctx?.dispose();
@@ -215,6 +242,25 @@ export class OpmToolView extends OpmElement {
 
   private readonly onSizeChange = (event: SizeChangeEvent): void => {
     setGridSize(event.detail.pane, event.detail.size);
+    if (event.detail.pane === 'source') setGridSize('comparison', event.detail.size);
+  };
+
+  private readonly onPaneScroll = (event: CustomEvent<{ pane: PaneId }>): void => {
+    const ctx = this.ctx;
+    if (!ctx || !navigationSynced(ctx.tool)) return;
+    const panes = [...this.querySelectorAll<OpmPane>('opm-pane')];
+    const body = panes
+      .find((pane) => pane.pane === event.detail.pane)
+      ?.querySelector<HTMLElement>('[data-pane-body]');
+    const other = panes
+      .find((pane) => pane.pane !== event.detail.pane)
+      ?.querySelector<HTMLElement>('[data-pane-body]');
+    if (!body || !other) return;
+    const mirrored = this.mirroredScroll.get(body);
+    this.mirroredScroll.delete(body);
+    if (body.scrollTop === mirrored || body.scrollTop === other.scrollTop) return;
+    other.scrollTop = body.scrollTop;
+    this.mirroredScroll.set(other, other.scrollTop);
   };
 
   private readonly onSelectAll = (event: SelectAllEvent): void => {
@@ -232,7 +278,7 @@ export class OpmToolView extends OpmElement {
   private renderRecursiveSwitch(ctx: ToolContext) {
     if (ctx.config.recursive !== 'toggle') return nothing;
     return html`
-      <label class="ml-auto flex shrink-0 cursor-pointer items-center gap-2 text-sm">
+      <label class="flex shrink-0 cursor-pointer items-center gap-2 text-sm">
         <input
           type="checkbox"
           class="toggle toggle-sm"
@@ -251,8 +297,9 @@ export class OpmToolView extends OpmElement {
     const controls = config.controls?.(ctx);
     return html`
       <header
-        class="${controls || config.plan || config.recursive === 'toggle' ? 'flex' : 'hidden'} min-h-10 flex-none flex-wrap items-center gap-x-3 gap-y-2 border-b border-base-300 bg-base-100 px-3 py-2"
+        class="flex min-h-10 flex-none flex-wrap items-center gap-x-3 gap-y-2 border-b border-base-300 bg-base-100 px-3 py-2"
       >
+        ${this.leadingControls}
         ${
           controls
             ? html`<div class="flex min-w-56 flex-1 flex-wrap items-center gap-x-3 gap-y-2">${controls}</div>`
@@ -267,7 +314,18 @@ export class OpmToolView extends OpmElement {
             : nothing
         }
         ${config.plan ? renderPlanStatus(ctx) : nothing}
-        ${this.renderRecursiveSwitch(ctx)}
+        <div class="ml-auto flex flex-wrap items-center gap-3">
+          ${this.renderRecursiveSwitch(ctx)}
+          <label class="flex shrink-0 cursor-pointer items-center gap-2 text-sm">
+            <input type="checkbox" class="toggle toggle-sm" role="switch"
+              .checked=${navigationSynced(ctx.tool)}
+              @change=${(event: Event) => {
+                const on = (event.target as HTMLInputElement).checked;
+                setNavigationSynced(ctx.tool, on);
+              }} />
+            Sync navigation
+          </label>
+        </div>
       </header>
     `;
   }
@@ -314,6 +372,8 @@ export class OpmToolView extends OpmElement {
           .baseMode=${spec.baseMode}
           .base=${ctx.base(pane)}
           .baseDefault=${this.stableBaseDefault(ctx, pane)}
+          .syncNavigation=${navigationSynced(ctx.tool)}
+          .plannedOnly=${ctx.tool === 'rename' && pane === 'comparison' && plan !== null}
         ></opm-pane>
       </div>
     `;
@@ -327,6 +387,7 @@ export class OpmToolView extends OpmElement {
         @plan-stale=${this.onPlanStale}
         @base-change=${this.onBaseChange}
         @item-open=${this.onItemOpen}
+        @pane-scroll=${this.onPaneScroll}
       >
         ${PANES.map((pane) => this.renderPane(ctx, pane))}
         ${
@@ -352,6 +413,7 @@ export class OpmToolView extends OpmElement {
       sizeMin: GRID_SIZE.min,
       sizeMax: GRID_SIZE.max,
       sizeStep: GRID_SIZE.step,
+      selectable: !(ctx.tool === 'rename' && pane === 'comparison' && ctx.plan.ref('comparison')),
     };
   }
 

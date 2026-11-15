@@ -11,6 +11,10 @@ import type { IndexSettingsDto } from "./IndexSettingsDto";
  */
 export type SettingsDto = { 
 /**
+ * IANA timezone for daily statistics. Historical daily buckets keep their original timezone.
+ */
+statistics_timezone: string, 
+/**
  * Extensions (lowercase letters and digits, no dot, 1 to 10 characters, at most 50) of the
  * files that count as sidecars of the media file next to them, such as `xmp`. Applies to the next
  * scan.
@@ -56,4 +60,9 @@ trash_retention_days: number | null,
  * list: change it with `POST /api/settings/excluded-folders` and
  * `POST /api/settings/excluded-folders/remove`.
  */
-excluded_folders: Array<ExcludedFolder>, };
+excluded_folders: Array<ExcludedFolder>, 
+/**
+ * Folders left visible and indexed, but excluded from tool plans, with all descendants.
+ * Changed through the soft-excluded-folders endpoints; a settings PUT preserves this list.
+ */
+soft_excluded_folders: Array<ExcludedFolder>, };

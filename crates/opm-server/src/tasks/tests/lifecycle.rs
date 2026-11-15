@@ -72,7 +72,7 @@ async fn the_runner_gets_the_id_of_its_task() {
 
 #[tokio::test]
 async fn submit_returns_while_the_task_waits_or_runs() {
-    let h = Harness::new().await;
+    let h = Harness::serial_fs().await;
     let mut gate = Gate::new();
     let first = h.engine.submit(fs(), gate.runner()).await.unwrap();
     assert_eq!(gate.started().await, first);
@@ -228,7 +228,7 @@ async fn several_waiters_all_see_the_final_state() {
 
 #[tokio::test]
 async fn the_list_shows_running_then_queued_then_the_newest_finished() {
-    let h = Harness::new().await;
+    let h = Harness::serial_fs().await;
     let older = submit_instant(&h.engine, immich()).await;
     h.finished(older).await;
     let newer = submit_instant(&h.engine, immich()).await;

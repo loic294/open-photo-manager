@@ -55,7 +55,7 @@ it('shows caught up, attention and pending/limited summaries without hiding fail
   expect(el.textContent).toContain('3 changes will be sent');
   expect(el.textContent).toContain('cannot trigger a library scan');
   expect(el.textContent).toContain('Rescan its library');
-  expect(el.querySelector('[title="photos/a.jpg"]')).not.toBeNull();
+  expect(el.querySelector('[data-tooltip="photos/a.jpg"]')).not.toBeNull();
 });
 
 it('loads more with exact paging and only loads waiting changes on opening the collapse', async () => {
@@ -169,7 +169,7 @@ it('coalesces status updates during a list load into one non-aborting trailing r
     expect(el.textContent).toContain('No changes needing attention.');
   });
   expect(signal?.aborted).toBe(false);
-  expect(el.querySelector('[title="photos/a.jpg"]')).toBeNull();
+  expect(el.querySelector('[data-tooltip="photos/a.jpg"]')).toBeNull();
 });
 
 it('discards a queued status refresh when removed during a list load', async () => {

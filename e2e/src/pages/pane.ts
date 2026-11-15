@@ -123,7 +123,7 @@ export class PanePage {
   }
   async folderGeometry(name: string) {
     return this.folder(name).evaluate((row) => {
-      const label = row.querySelector('span[title]')?.getBoundingClientRect();
+      const label = row.querySelector('span[data-tooltip]')?.getBoundingClientRect();
       const count = row.querySelector('.badge[aria-hidden="true"]')?.getBoundingClientRect();
       return { nameRight: label?.right, countLeft: count?.left };
     });
@@ -171,6 +171,11 @@ export class PanePage {
     await this.body.evaluate((element) => {
       element.scrollTop = element.scrollHeight;
     });
+  }
+  async scrollTo(top: number) {
+    await this.body.evaluate((element, value) => {
+      element.scrollTop = value;
+    }, top);
   }
   async scrollTop() {
     return this.body.evaluate((element) => element.scrollTop);

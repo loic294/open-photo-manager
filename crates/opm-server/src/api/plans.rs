@@ -10,7 +10,8 @@ use axum::http::StatusCode;
 use axum::routing::{get, post};
 use axum::{Json, Router};
 use opm_core::dto::{
-    CreatePlanRequest, ExecutePlanRequest, PlanDto, PlanSelectionRequest, SelectionDto, TaskDto,
+    CreatePlanRequest, DuplicateFileGroups, ExecutePlanRequest, PlanDto, PlanSelectionRequest,
+    SelectionDto, TaskDto,
 };
 use opm_core::paths::PlanId;
 
@@ -22,8 +23,16 @@ pub fn routes() -> Router<AppState> {
     Router::new()
         .route("/plans", post(create))
         .route("/plans/{id}", get(detail).delete(remove))
+        .route("/plans/{id}/duplicate-files", get(duplicate_files))
         .route("/plans/{id}/execute", post(execute))
         .route("/plans/{id}/selection", post(selection))
+}
+
+async fn duplicate_files(
+    State(state): State<AppState>,
+    ApiPath(id): ApiPath<PlanId>,
+) -> AppResult<Json<DuplicateFileGroups>> {
+    Ok(Json(state.plans.duplicate_files(id).await?))
 }
 
 /// Builds the plan and answers 201 with it (`ready`). 501 `not_implemented` for a kind without a
