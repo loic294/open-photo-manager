@@ -283,6 +283,24 @@ async fn delete_offline(
     let Some(id) = OfflineAssetId::confirm(old_asset) else {
         return Ok(false);
     };
+    if let (Some(old), Some(library)) = (
+        row.effect.old.as_ref(),
+        row.effect
+            .old
+            .as_ref()
+            .and_then(|place| sh.map.library_for(place.volume_id)),
+    ) {
+        let old_path = place_path(sh.map, old);
+        if let Some(old_path) = old_path {
+            match sh.client.remove_library_file(library, &old_path).await {
+                Ok(()) => return Ok(true),
+                Err(err) if err.external_library_api_unavailable() => {}
+                Err(err) => {
+                    return Err(failed(row, sh.now, &err, code::IMMICH_ERROR));
+                }
+            }
+        }
+    }
     match sh.client.delete_assets(&[id], true).await {
         Ok(()) => Ok(true),
         Err(err) if is_gone(&err) => match sh.client.get_asset(&old_asset.id).await {

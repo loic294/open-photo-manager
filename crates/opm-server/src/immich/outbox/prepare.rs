@@ -16,8 +16,9 @@ use std::sync::{Mutex, PoisonError};
 
 use super::carry::Snapshot;
 use super::consts::{SCAN_SETTLE_SECS, SCAN_THROTTLE_SECS, row_backoff_secs};
+use super::decide::Disk;
 use super::merge::{Effect, Place};
-use super::probe::place_path;
+use super::probe::{place_path, probe_exact_file};
 use super::step::{
     Failure, Finish, Note, Shared, Step, Then, classify, code, failed, retry_later, storage_failed,
 };
@@ -44,6 +45,18 @@ pub(super) fn libraries_of(map: &PathMap, effect: &Effect) -> BTreeSet<String> {
 /// phase needs, or the end of the row (nothing of it lives in Immich's world) or a failure.
 pub(super) async fn prepare(sh: Shared<'_>, row: &Row) -> Step {
     let effect = &row.effect;
+    if effect.old.is_none()
+        && let Some(new) = effect.new.as_ref()
+        && let Some(new_path) = place_path(sh.map, new)
+        && let Some(library) = sh.map.library_for(new.volume_id)
+        && probe_exact_file(sh.volumes, new).await == Disk::Present
+    {
+        match sh.client.add_library_file(library, &new_path).await {
+            Ok(()) => return Step::finished(Finish::Scanned),
+            Err(err) if err.external_library_api_unavailable() => {}
+            Err(err) => return *failed(row, sh.now, &err, code::IMMICH_ERROR),
+        }
+    }
     let old_path = effect
         .old
         .as_ref()
@@ -196,10 +209,13 @@ impl ScanThrottle {
 
 /// Asks Immich to scan `library` at `now`, unless the account cannot or a scan was asked for within
 /// the throttle window. `Err` is a failure that ends the pass (the message is fit for a person).
-pub(super) async fn scan_library(
+/// Asks a fork server to scan only `path`; when the route is unavailable, falls back to the
+/// stock full-library scan. 400/409 and all other validation or connection errors remain explicit.
+pub(super) async fn scan_library_path(
     client: &ImmichClient,
     throttle: &ScanThrottle,
     library: &str,
+    path: Option<&str>,
     admin: bool,
     now: i64,
 ) -> Result<Scan, String> {
@@ -209,7 +225,16 @@ pub(super) async fn scan_library(
     if let Some(at) = throttle.recent(library, now) {
         return Ok(Scan::Asked { at, fresh: false });
     }
-    match client.scan_library(library).await {
+    let fork = match path {
+        Some(path) => client.scan_library_folder(library, path).await,
+        None => Err(ImmichError::NotFound),
+    };
+    let requested = match fork {
+        Ok(()) => Ok(()),
+        Err(err) if err.external_library_api_unavailable() => client.scan_library(library).await,
+        Err(err) => Err(err),
+    };
+    match requested {
         Ok(()) => {
             throttle.record(library, now);
             Ok(Scan::Asked {

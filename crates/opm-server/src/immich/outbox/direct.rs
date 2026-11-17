@@ -13,7 +13,7 @@ use super::store::{self, Patch, Row};
 use crate::db::{Db, now_secs};
 use crate::fsops::Loc;
 use crate::immich::direct_db::{DbMoveError, MoveSpec, PreparedMove, SidecarMove};
-use crate::immich::{ImmichService, assets};
+use crate::immich::{ImmichError, ImmichService, assets};
 use crate::indexer::VolumeRegistry;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -144,18 +144,16 @@ pub(super) async fn preflight(
             })
         })
         .collect::<Result<Vec<_>, DbMoveError>>()?;
-    let prepared = immich
-        .move_database()
-        .prepare(MoveSpec {
-            asset_id: asset.id,
-            owner_id: connection.user_id,
-            library_id: library.to_owned(),
-            old,
-            new,
-            new_name: dst.name().to_owned(),
-            sidecars,
-        })
-        .await?;
+    let spec = MoveSpec {
+        asset_id: asset.id,
+        owner_id: connection.user_id,
+        library_id: library.to_owned(),
+        old,
+        new,
+        new_name: dst.name().to_owned(),
+        sidecars,
+    };
+    let prepared = immich.move_database().prepare(spec).await?;
     let json = serde_json::to_string(&prepared).map_err(|_| DbMoveError::Configuration)?;
     let mut tx = db
         .begin_write()
@@ -388,9 +386,61 @@ pub(super) async fn apply(
             } else if !sidecar_matches {
                 Err(DbMoveError::SidecarPending)
             } else {
-                match immich.probe_move_database().await {
-                    Ok(()) => immich.move_database().apply(&prepared).await.map(|_| ()),
-                    Err(error) => Err(error),
+                let destination_library_id =
+                    match (row.effect.new.as_ref(), immich.path_map().await) {
+                        (Some(place), Ok(map)) => {
+                            map.library_for(place.volume_id).map(str::to_owned)
+                        }
+                        _ => None,
+                    };
+                match immich.client().await {
+                    Ok(client) => match client
+                        .move_library_file(
+                            &prepared.spec.library_id,
+                            &prepared.spec.old,
+                            &prepared.spec.new,
+                            destination_library_id.as_deref(),
+                            Some(&prepared.spec.asset_id),
+                        )
+                        .await
+                    {
+                        Ok(()) => Ok(()),
+                        Err(error) if error.external_library_api_unavailable() => {
+                            match immich.probe_move_database().await {
+                                Ok(()) => match immich
+                                    .move_database()
+                                    .prepare(prepared.spec.clone())
+                                    .await
+                                {
+                                    Ok(prepared) => {
+                                        immich.move_database().apply(&prepared).await.map(|_| ())
+                                    }
+                                    Err(error) => Err(error),
+                                },
+                                Err(error) => Err(error),
+                            }
+                        }
+                        Err(ImmichError::Forbidden) => Err(DbMoveError::Identity),
+                        Err(ImmichError::Unauthorized) => Err(DbMoveError::Unavailable),
+                        Err(ImmichError::Upstream { status: 400, .. }) => {
+                            Err(DbMoveError::Destination)
+                        }
+                        Err(ImmichError::Upstream { status: 409, .. }) => {
+                            Err(DbMoveError::Collision)
+                        }
+                        Err(ImmichError::NotFound) => Err(DbMoveError::Stale),
+                        Err(_) => Err(DbMoveError::Unavailable),
+                    },
+                    Err(_) => match immich.probe_move_database().await {
+                        Ok(()) => match immich.move_database().prepare(prepared.spec.clone()).await
+                        {
+                            Ok(prepared) => {
+                                immich.move_database().apply(&prepared).await.map(|_| ())
+                            }
+                            Err(error) => Err(error),
+                        },
+                        Err(error) => Err(error),
+                    },
                 }
             }
         }

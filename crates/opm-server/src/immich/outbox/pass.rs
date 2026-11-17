@@ -28,7 +28,7 @@ use serde::Serialize;
 
 use super::check::check;
 use super::consts::{BREAKER, CHUNK, CONCURRENCY, MAX_ROWS_PER_PASS};
-use super::prepare::{Scan, ScanThrottle, after_scan, conclude, prepare, scan_library};
+use super::prepare::{Scan, ScanThrottle, after_scan, conclude, prepare, scan_library_path};
 use super::step::{Finish, Note, STORAGE_FAILURE, Shared, Step, Then};
 use super::store::{self, Patch, Row};
 use crate::db::{Db, DbError, now_secs};
@@ -464,12 +464,40 @@ async fn ask_scans(
     if libraries.is_empty() {
         return Ok(scans);
     }
+    let map = env.immich.path_map().await.map_err(connection_lost)?;
     ensure_running(env.ctx)?;
     env.ctx
         .progress
         .phase(SCANNING, Some(count(libraries.len())), None);
     for library in libraries {
-        let asked = scan_library(client, env.throttle, library, admin, now_secs());
+        let path = prepared
+            .iter()
+            .filter_map(|item| {
+                item.row
+                    .effect
+                    .new
+                    .as_ref()
+                    .or(item.row.effect.old.as_ref())
+            })
+            .find_map(|place| {
+                if map.library_for(place.volume_id) == Some(library) {
+                    let rel = super::probe::rel_of(place)?;
+                    map.to_immich(place.volume_id, &rel)?
+                        .rsplit_once('/')
+                        .map(|(folder, _)| folder.to_owned())
+                        .or_else(|| Some("/".to_owned()))
+                } else {
+                    None
+                }
+            });
+        let asked = scan_library_path(
+            client,
+            env.throttle,
+            library,
+            path.as_deref(),
+            admin,
+            now_secs(),
+        );
         let scan = cancellable(env.ctx, asked)
             .await?
             .map_err(PassError::Failed)?;
