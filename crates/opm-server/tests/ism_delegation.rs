@@ -724,7 +724,15 @@ async fn servers_with_partial_operations_get_no_preview() {
 
 #[tokio::test]
 async fn an_unknown_submit_outcome_is_looked_up_by_key() {
-    let fx = bound("enabled").await;
+    let fx = bound_with(|app| {
+        info_with(
+            app,
+            json!("enabled"),
+            &["read", "manage", "trash"],
+            &["find_operation_by_key", "cancel_operation_by_key"],
+        )
+    })
+    .await;
     let a = fx.photo("a.jpg").await;
     fx.preview_ok().await;
     Mock::given(method("POST"))
@@ -776,8 +784,89 @@ async fn an_unknown_submit_outcome_is_looked_up_by_key() {
 }
 
 #[tokio::test]
-async fn without_lookup_an_unknown_submit_is_cancelled_by_key() {
+async fn unknown_submit_does_not_use_lookup_or_cancel_when_capabilities_are_absent() {
     let fx = bound("enabled").await;
+    fx.photo("a.jpg").await;
+    fx.preview_ok().await;
+    Mock::given(method("POST"))
+        .and(path(format!("/api/v1/instances/{INSTANCE}/operations")))
+        .respond_with(ResponseTemplate::new(503))
+        .mount(&fx.ism)
+        .await;
+
+    let result = fx.run(None).await;
+    assert_eq!(result.failures[0].code, "ism_unreachable");
+    assert!(
+        fx.requests("GET", &format!("/api/v1/instances/{INSTANCE}/operations"))
+            .await
+            .is_empty()
+    );
+    assert!(
+        fx.requests(
+            "POST",
+            &format!("/api/v1/instances/{INSTANCE}/operations/cancel-by-key")
+        )
+        .await
+        .is_empty()
+    );
+}
+
+#[tokio::test]
+async fn instance_scoped_status_is_used_when_advertised() {
+    let fx = bound_with(|app| {
+        info_with(
+            app,
+            json!("enabled"),
+            &["read", "manage", "trash"],
+            &["instance_scoped_operations"],
+        )
+    })
+    .await;
+    let a = fx.photo("a.jpg").await;
+    fx.preview_ok().await;
+    fx.accept().await;
+    Mock::given(method("GET"))
+        .and(path(format!(
+            "/api/v1/instances/{INSTANCE}/operations/op-1"
+        )))
+        .respond_with(
+            ResponseTemplate::new(200)
+                .set_body_json(json!({"operation_id": "op-1", "status": "completed",
+                   "items": [moved(0, "photos/src/a.jpg", "photos/out/a.jpg")]})),
+        )
+        .mount(&fx.ism)
+        .await;
+
+    let result = fx.run(None).await;
+    assert_eq!(result.done, 1, "{:?}", result.failures);
+    assert_eq!(fx.path_of(a).await.unwrap(), "out/a.jpg");
+    assert_eq!(
+        fx.requests(
+            "GET",
+            &format!("/api/v1/instances/{INSTANCE}/operations/op-1")
+        )
+        .await
+        .len(),
+        1
+    );
+    assert!(
+        fx.requests("GET", "/api/v1/operations/op-1")
+            .await
+            .is_empty()
+    );
+}
+
+#[tokio::test]
+async fn without_lookup_an_unknown_submit_is_cancelled_by_key() {
+    let fx = bound_with(|app| {
+        info_with(
+            app,
+            json!("enabled"),
+            &["read", "manage", "trash"],
+            &["find_operation_by_key", "cancel_operation_by_key"],
+        )
+    })
+    .await;
     let a = fx.photo("a.jpg").await;
     fx.preview_ok().await;
     Mock::given(method("POST"))

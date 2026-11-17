@@ -715,6 +715,131 @@ async fn exclusion_patterns_are_updated_alone_and_a_scan_is_requested() {
     client.scan_library(LIBRARY).await.unwrap();
 }
 
+#[tokio::test]
+async fn fork_external_library_folder_and_file_routes_send_exact_paths() {
+    let server = MockServer::start().await;
+    Mock::given(method("POST"))
+        .and(path(format!("/api/libraries/{LIBRARY}/scan")))
+        .and(header("x-api-key", KEY))
+        .and(body_json(json!({ "path": "/mnt/photo/2024/Trip" })))
+        .respond_with(ResponseTemplate::new(204))
+        .expect(1)
+        .mount(&server)
+        .await;
+    Mock::given(method("POST"))
+        .and(path(format!("/api/libraries/{LIBRARY}/files/add")))
+        .and(header("x-api-key", KEY))
+        .and(body_json(json!({ "path": "/mnt/photo/2024/Trip/a.CR3" })))
+        .respond_with(ResponseTemplate::new(204))
+        .expect(1)
+        .mount(&server)
+        .await;
+    Mock::given(method("POST"))
+        .and(path(format!("/api/libraries/{LIBRARY}/files/remove")))
+        .and(header("x-api-key", KEY))
+        .and(body_json(json!({ "path": "/mnt/photo/2024/Trip/a.CR3" })))
+        .respond_with(ResponseTemplate::new(204))
+        .expect(1)
+        .mount(&server)
+        .await;
+    Mock::given(method("POST"))
+        .and(path(format!("/api/libraries/{LIBRARY}/files/move")))
+        .and(header("x-api-key", KEY))
+        .and(body_json(json!({
+            "sourcePath": "/mnt/photo/2024/Trip/a.CR3",
+            "destinationPath": "/mnt/photo/2024/Album/a.CR3",
+            "assetId": ASSET
+        })))
+        .respond_with(ResponseTemplate::new(204))
+        .expect(1)
+        .mount(&server)
+        .await;
+
+    let client = keyed(&server);
+    client
+        .scan_library_folder(LIBRARY, "/mnt/photo/2024/Trip")
+        .await
+        .unwrap();
+    client
+        .add_library_file(LIBRARY, "/mnt/photo/2024/Trip/a.CR3")
+        .await
+        .unwrap();
+    client
+        .remove_library_file(LIBRARY, "/mnt/photo/2024/Trip/a.CR3")
+        .await
+        .unwrap();
+    client
+        .move_library_file(
+            LIBRARY,
+            "/mnt/photo/2024/Trip/a.CR3",
+            "/mnt/photo/2024/Album/a.CR3",
+            None,
+            Some(ASSET),
+        )
+        .await
+        .unwrap();
+}
+
+#[tokio::test]
+async fn fork_queue_status_is_decoded_tolerantly() {
+    let server = MockServer::start().await;
+    Mock::given(method("GET"))
+        .and(path("/api/queues/library"))
+        .and(header("x-api-key", KEY))
+        .respond_with(ok_json(json!({
+            "name": "library",
+            "isPaused": true,
+            "isRunning": true,
+            "status": "paused",
+            "statistics": {
+                "active": 2,
+                "completed": 10,
+                "failed": 1,
+                "delayed": 0,
+                "waiting": 3,
+                "paused": 4
+            }
+        })))
+        .expect(1)
+        .mount(&server)
+        .await;
+
+    let queue = keyed(&server).queue("library").await.unwrap();
+    assert_eq!(queue.name, "library");
+    assert!(queue.is_paused);
+    assert!(queue.is_running);
+    assert_eq!(queue.status.as_deref(), Some("paused"));
+    assert_eq!(queue.statistics.unwrap().waiting, 3);
+}
+
+#[tokio::test]
+async fn fork_external_library_validation_errors_do_not_look_like_legacy_fallbacks() {
+    let server = MockServer::start().await;
+    Mock::given(method("POST"))
+        .and(path(format!("/api/libraries/{LIBRARY}/files/move")))
+        .respond_with(
+            ResponseTemplate::new(409)
+                .insert_header("content-type", "application/json")
+                .set_body_json(json!({"message": "destination exists"})),
+        )
+        .expect(1)
+        .mount(&server)
+        .await;
+
+    let err = keyed(&server)
+        .move_library_file(
+            LIBRARY,
+            "/mnt/photo/a.jpg",
+            "/mnt/photo/b.jpg",
+            None,
+            Some(ASSET),
+        )
+        .await
+        .unwrap_err();
+    assert!(matches!(err, ImmichError::Upstream { status: 409, .. }));
+    assert!(!err.external_library_api_unavailable());
+}
+
 // ----- assets ---------------------------------------------------------------------------------
 
 #[tokio::test]

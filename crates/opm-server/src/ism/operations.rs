@@ -165,6 +165,9 @@ impl Reporter {
 struct Session {
     client: IsmClient,
     instance_id: String,
+    instance_scoped_operations: bool,
+    find_operation_by_key: bool,
+    cancel_operation_by_key: bool,
 }
 
 impl Session {
@@ -253,15 +256,21 @@ impl Session {
     }
 
     async fn operation(&self, id: &str) -> Result<Operation, Failure> {
-        let value = self
-            .call(Method::GET, &format!("api/v1/operations/{id}"), None)
-            .await?;
+        let path = if self.instance_scoped_operations {
+            format!("api/v1/instances/{}/operations/{}", self.instance_id, id)
+        } else {
+            format!("api/v1/operations/{id}")
+        };
+        let value = self.call(Method::GET, &path, None).await?;
         parse(value).map_err(Failure::Refused)
     }
 
     /// The operation submitted with `key`, from servers that can look it up; `None` when the
     /// server cannot (an older one) or knows no such operation.
     async fn lookup(&self, key: &str) -> Result<Option<Operation>, Failure> {
+        if !self.find_operation_by_key {
+            return Ok(None);
+        }
         let mut path = format!("api/v1/instances/{}/operations?", self.instance_id);
         path.push_str(
             &url::form_urlencoded::Serializer::new(String::new())
@@ -596,6 +605,18 @@ impl IsmService {
             Session {
                 client,
                 instance_id: stored.instance_id,
+                instance_scoped_operations: info
+                    .capabilities
+                    .iter()
+                    .any(|capability| capability == "instance_scoped_operations"),
+                find_operation_by_key: info
+                    .capabilities
+                    .iter()
+                    .any(|capability| capability == "find_operation_by_key"),
+                cancel_operation_by_key: info
+                    .capabilities
+                    .iter()
+                    .any(|capability| capability == "cancel_operation_by_key"),
             },
             info,
         ))
@@ -710,6 +731,10 @@ impl IsmService {
                             reporter,
                         )
                         .await;
+                }
+                if !session.cancel_operation_by_key {
+                    self.note(&key, None, "unknown").await;
+                    return Err(unreachable_error());
                 }
                 let probe = json!({"idempotency_key": key, "expected_request": body});
                 let path = format!(

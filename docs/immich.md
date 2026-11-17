@@ -230,12 +230,16 @@ removed or switched to another ISM instance while a volume is bound or a bind is
   ISM advertises the `partial_submit` capability, OPM skips the preview and submits with
   `allow_partial: true`, so ISM fails blocked items one by one instead of refusing the whole
   batch. If the outcome of a submit stays unknown, OPM looks the operation up by its key
-  (`GET /api/v1/instances/{id}/operations?idempotency_key=`) and follows it; when nothing is found
-  (404, including servers without the lookup) OPM sends a cancel-by-key, which reserves the key so
-  a late submission cannot run without OPM following it. ISM
+(`GET /api/v1/instances/{id}/operations?idempotency_key=`) only when ISM advertises
+`find_operation_by_key`, and follows it; when nothing is found
+  (404, including servers without the lookup) OPM sends a cancel-by-key only when ISM advertises
+  `cancel_operation_by_key`, which reserves the key so a late submission cannot run without OPM
+  following it. If neither recovery capability is advertised, OPM reports the submit as unreachable
+  instead of guessing. ISM
   moves the sidecars with the asset and reports each file; OPM updates its index from ISM's
   streamed events (`progress`, `item`, `finished`, reconnecting with `Last-Event-ID` and reading the
-  operation again on `resync`), and the task shows each item as ISM settles it.
+  operation again on `resync`; servers advertising `instance_scoped_operations` are read through
+  the instance-scoped status route), and the task shows each item as ISM settles it.
 - Every move carries the file's revision (`<size>-<mtime in ns>`) read from the index-checked file.
   If the revision cannot be computed exactly the item fails (`revision_unavailable`) instead of
   being sent without a guard; ISM answers `revision_changed` when the file changed meanwhile.

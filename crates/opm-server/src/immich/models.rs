@@ -608,6 +608,32 @@ pub struct ImmichLibrary {
     pub asset_count: u64,
 }
 
+/// Queue state from the fork external-library API (`GET /queues/{name}`).
+#[derive(Clone, Debug, Default, PartialEq, Eq, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct ImmichQueue {
+    pub name: String,
+    #[serde(default)]
+    pub is_paused: bool,
+    #[serde(default)]
+    pub is_running: bool,
+    #[serde(default)]
+    pub status: Option<String>,
+    #[serde(default)]
+    pub statistics: Option<ImmichQueueStatistics>,
+}
+
+#[derive(Clone, Debug, Default, PartialEq, Eq, Deserialize)]
+#[serde(default, rename_all = "camelCase")]
+pub struct ImmichQueueStatistics {
+    pub active: i64,
+    pub completed: i64,
+    pub failed: i64,
+    pub delayed: i64,
+    pub waiting: i64,
+    pub paused: i64,
+}
+
 /// An album that holds an asset (`GET /albums?assetId=`).
 #[derive(Clone, Debug, Default, PartialEq, Eq, Deserialize)]
 #[serde(rename_all = "camelCase")]

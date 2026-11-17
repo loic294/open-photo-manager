@@ -51,9 +51,9 @@ use crate::security::{Redacted, redact_url, redact_urls_in};
 
 use super::error::{ImmichError, MAX_UPSTREAM_MESSAGE_CHARS, truncate_chars};
 use super::models::{
-    AssetUpdate, BulkIdResult, CreatedApiKey, ImmichAlbum, ImmichAsset, ImmichLibrary, ImmichTag,
-    ImmichUser, ImmichVersion, LoginSession, MetadataSearch, OfflineAssetId, PageToken, SearchPage,
-    ServerAbout,
+    AssetUpdate, BulkIdResult, CreatedApiKey, ImmichAlbum, ImmichAsset, ImmichLibrary, ImmichQueue,
+    ImmichTag, ImmichUser, ImmichVersion, LoginSession, MetadataSearch, OfflineAssetId, PageToken,
+    SearchPage, ServerAbout,
 };
 use search::{Reading, Style};
 
@@ -422,6 +422,65 @@ impl ImmichClient {
     pub async fn scan_library(&self, id: &str) -> Result<(), ImmichError> {
         let id = safe_id(id)?;
         self.call_empty(Request::new(Method::POST, &["libraries", id, "scan"]))
+            .await
+    }
+
+    /// `POST /libraries/{id}/scan` with an optional absolute folder path.
+    /// This is the fork external-library API; compatibility callers try it first and fall back
+    /// to [`Self::scan_library`] only when the stock server does not expose the route.
+    pub async fn scan_library_folder(&self, id: &str, path: &str) -> Result<(), ImmichError> {
+        let id = safe_id(id)?;
+        let request =
+            Request::new(Method::POST, &["libraries", id, "scan"]).json(json!({ "path": path }));
+        self.call_empty(request).await
+    }
+
+    /// `POST /libraries/{id}/files/add`: tells the fork to adopt a host file that now exists.
+    pub async fn add_library_file(&self, id: &str, path: &str) -> Result<(), ImmichError> {
+        let id = safe_id(id)?;
+        let request = Request::new(Method::POST, &["libraries", id, "files", "add"])
+            .json(json!({ "path": path }));
+        self.call_empty(request).await
+    }
+
+    /// `POST /libraries/{id}/files/remove`: tells the fork to remove an asset after the host file
+    /// is absent. Repeating this call is idempotent.
+    pub async fn remove_library_file(&self, id: &str, path: &str) -> Result<(), ImmichError> {
+        let id = safe_id(id)?;
+        let request = Request::new(Method::POST, &["libraries", id, "files", "remove"])
+            .json(json!({ "path": path }));
+        self.call_empty(request).await
+    }
+
+    /// `POST /libraries/{id}/files/move`: after the host file move has settled, synchronizes the
+    /// fork with the source/destination paths. `asset_id` is an optional retry guard.
+    pub async fn move_library_file(
+        &self,
+        id: &str,
+        source_path: &str,
+        destination_path: &str,
+        destination_library_id: Option<&str>,
+        asset_id: Option<&str>,
+    ) -> Result<(), ImmichError> {
+        let id = safe_id(id)?;
+        let mut body = json!({
+            "sourcePath": source_path,
+            "destinationPath": destination_path,
+        });
+        if let Some(destination_library_id) = destination_library_id {
+            body["destinationLibraryId"] = Value::String(destination_library_id.to_owned());
+        }
+        if let Some(asset_id) = asset_id {
+            body["assetId"] = Value::String(asset_id.to_owned());
+        }
+        let request = Request::new(Method::POST, &["libraries", id, "files", "move"]).json(body);
+        self.call_empty(request).await
+    }
+
+    /// `GET /queues/{name}`: reads pause/running state and queue counts.
+    pub async fn queue(&self, name: &str) -> Result<ImmichQueue, ImmichError> {
+        let name = safe_id(name)?;
+        self.call_json(Request::new(Method::GET, &["queues", name]))
             .await
     }
 

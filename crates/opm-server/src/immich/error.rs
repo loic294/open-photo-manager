@@ -93,6 +93,17 @@ fn describe_fields(fields: &[FieldError]) -> String {
 }
 
 impl ImmichError {
+    /// Whether this response is evidence that an external-library API route is unavailable.
+    /// Unknown/unsupported routes are 404 or 405 on stock Immich; 501 is a defensible server
+    /// fallback. Real 400/409 validation must not be collapsed into legacy behavior.
+    pub fn external_library_api_unavailable(&self) -> bool {
+        match self {
+            Self::NotFound => true,
+            Self::Upstream { status, .. } => matches!(*status, 404 | 405 | 501),
+            _ => false,
+        }
+    }
+
     /// A validation error about one field.
     pub fn invalid_field(field: &str, message: impl Into<String>) -> Self {
         Self::Validation(vec![FieldError {
@@ -212,6 +223,32 @@ mod tests {
         ] {
             assert!(!single.affects_every_call(), "{single:?}");
         }
+    }
+
+    #[test]
+    fn external_library_route_unavailability_is_narrow() {
+        assert!(ImmichError::NotFound.external_library_api_unavailable());
+        assert!(
+            ImmichError::Upstream {
+                status: 405,
+                message: "method not allowed".into(),
+            }
+            .external_library_api_unavailable()
+        );
+        assert!(
+            !ImmichError::Upstream {
+                status: 400,
+                message: "invalid path".into(),
+            }
+            .external_library_api_unavailable()
+        );
+        assert!(
+            !ImmichError::Upstream {
+                status: 409,
+                message: "destination exists".into(),
+            }
+            .external_library_api_unavailable()
+        );
     }
 
     #[test]
