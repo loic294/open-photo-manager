@@ -8,7 +8,7 @@ import { toast } from '@/components/toast';
 import { persistedSignal, type Validator } from '@/stores/persisted';
 
 /**
- * The background tasks (indexing, file operations, plan execution, Immich) as the user sees them.
+ * The background tasks (indexing, file operations, plan execution) as the user sees them.
  * `startTasks()` (the shell calls it once) loads `GET /api/tasks`, then follows the `task` events
  * of the event stream; `tasks` is what the task indicator lists. Nothing polls.
  *

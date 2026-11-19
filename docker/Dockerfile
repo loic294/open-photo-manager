@@ -63,7 +63,7 @@ RUN --mount=type=cache,target=/usr/local/cargo/registry,sharing=locked \
 FROM debian:${DEBIAN_RELEASE}-slim AS runtime
 
 # ffmpeg: video thumbnails; exiftool: metadata; vips: image thumbnails (HEIC/AVIF through libheif);
-# curl: HEALTHCHECK; tini: PID 1; tzdata: TZ; ca-certificates: TLS to Immich.
+# curl: HEALTHCHECK; tini: PID 1; tzdata: TZ; ca-certificates: TLS to Sync Manager.
 #
 # Debian's ffmpeg (through SDL) and libvips-tools (through a Python helper script) also pull in Mesa's software
 # OpenGL drivers with LLVM and Z3, and Python: about 185 MB that nothing here uses (the drivers are only loaded

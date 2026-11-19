@@ -11,7 +11,6 @@ import { type AppRouter, createAppRouter } from '@/app/router';
 import { type AppRoute, routes as appRoutes, notFound, redirects, routeAt } from '@/app/routes';
 import { startTheme } from '@/app/theme';
 import { OpmElement } from '@/base/opm-element';
-import { startImmich } from '@/stores/immich';
 import { startIndexStatus } from '@/stores/index-status';
 import { currentPath, currentTool, linkTo, startNavSync } from '@/stores/nav';
 import { startSettings } from '@/stores/settings';
@@ -110,7 +109,6 @@ export class OpmApp extends OpmElement {
       startTasks(),
       startVolumes(),
       startIndexStatus(),
-      startImmich(),
       startReindex(),
       effect(() => {
         document.title = `${this.pageFor(currentPath.value).label} · ${APP_NAME}`;

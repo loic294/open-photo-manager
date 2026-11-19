@@ -38,13 +38,6 @@ export const settingsSections: readonly SettingsSection[] = [
     load: () => import('@/tools/settings/opm-settings-general'),
   },
   {
-    id: 'immich',
-    label: 'Immich',
-    icon: 'plug',
-    tag: 'opm-settings-immich',
-    load: () => import('@/tools/settings/opm-settings-immich'),
-  },
-  {
     id: 'ism',
     label: 'Sync Manager',
     icon: 'plug',

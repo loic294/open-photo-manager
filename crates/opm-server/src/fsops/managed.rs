@@ -1,8 +1,7 @@
 //! Volumes bound to ISM roots. OPM never changes files on them itself: the local paths refuse
 //! with `ism_managed`, and the operations that can be expressed as ISM actions (moves, renames,
 //! new folders, trash) are sent to the sync manager in batches through a [`Delegate`]. The index
-//! follows only what ISM reports as done; it never runs the Immich hooks, because ISM owns the
-//! Immich side of these roots.
+//! follows only what ISM reports as done.
 
 use std::collections::{BTreeSet, HashMap, HashSet};
 use std::sync::Arc;
@@ -58,11 +57,7 @@ impl ManagedVolumeSnapshot {
         let pending: bool = sqlx::query_scalar(
             "SELECT EXISTS(
                 SELECT 1 FROM ism_volume_roots b
-                WHERE EXISTS(SELECT 1 FROM immich_outbox o
-                    WHERE o.old_volume_id = b.volume_id OR o.new_volume_id = b.volume_id)
-                   OR EXISTS(SELECT 1 FROM immich_direct_move d
-                    WHERE d.old_volume_id = b.volume_id OR d.new_volume_id = b.volume_id)
-                   OR EXISTS(SELECT 1 FROM fs_journal j
+                WHERE EXISTS(SELECT 1 FROM fs_journal j
                     WHERE j.state = 'pending'
                     AND (j.src_volume_id = b.volume_id OR j.dst_volume_id = b.volume_id))
             )",

@@ -95,7 +95,7 @@ test('Settings tab switches preserve drafts and Enter in fields never submits th
   expect((await app.api.settings()).name_max_len).toBe(original.name_max_len);
   await settingsPage.addChip('Ignored prefixes', 'system-draft-prefix');
   expect((await app.api.settings()).junk_prefixes).not.toContain('system-draft-prefix');
-  await settingsPage.tab('Immich');
+  await settingsPage.tab('Sync Manager');
   await settingsPage.tab('General');
   await expect(settingsPage.field('Longest generated name')).toHaveValue('144');
   await expect(

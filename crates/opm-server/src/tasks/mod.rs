@@ -1,7 +1,7 @@
 //! Background task engine: queueing, progress, cancellation, persistence of task state and the
 //! live event stream behind `GET /api/events`.
 //!
-//! Every long-running action (indexing, file moves, trash, plan execution, Immich sync) runs as a
+//! Every long-running action (indexing, file moves, trash, plan execution) runs as a
 //! task through this engine; callers only write the runner closure. Nobody else spawns detached
 //! background work for a user-visible operation.
 //!
@@ -50,7 +50,7 @@
 //! function in `model.rs`, unit-tested).
 //!
 //! * At most three tasks run across `fs` (moves, trash, rmdir, plan execution, trash emptying),
-//!   `index` and `immich`. Any lane can use all three slots. The oldest eligible queued task
+//!   and `index`. Any lane can use all three slots. The oldest eligible queued task
 //!   starts next; custom lane limits can narrow concurrency but never raise the global cap.
 //!   [`Lane::for_kind`] picks the default lane, [`TaskSpec::with_lane`] overrides it.
 //! * A runner returning `Ok(value)` makes the task `done`, `Err(TaskError::Failed(message))` makes
@@ -300,8 +300,6 @@ impl TaskEngine {
                 TaskKind::FsMove | TaskKind::FsTrash | TaskKind::TrashEmpty => {
                     state.trash.resume_task(id, params).await?
                 }
-                TaskKind::ImmichSync => state.immich_sync.resume_task(id, params).await?,
-                TaskKind::ImmichCleanup => state.immich_outbox.resume_task(id).await?,
                 _ => {
                     return Err(AppError::internal(anyhow::anyhow!(
                         "no recovery runner for task {id}"
@@ -347,7 +345,6 @@ impl TaskEngine {
         let lane = match lane.as_str() {
             "fs" => Lane::Fs,
             "index" => Lane::Index,
-            "immich" => Lane::Immich,
             _ => return Err(AppError::internal(anyhow::anyhow!("unknown task lane"))),
         };
         let spec = TaskSpec::new(kind, title).with_lane(lane);

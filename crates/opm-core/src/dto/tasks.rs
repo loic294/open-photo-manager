@@ -17,8 +17,6 @@ pub enum TaskKind {
     FsTrash,
     FsRmdir,
     PlanExecute,
-    ImmichSync,
-    ImmichCleanup,
     TrashEmpty,
 }
 
@@ -62,18 +60,24 @@ pub struct TaskDto {
 }
 
 /// Event pushed on `GET /api/events` (server-sent events). The JSON payload is
-/// tagged by a `type` field. There are exactly two types: indexing is a task of
+/// tagged by a `type` field. Indexing is a task of
 /// kind `index`, so its progress arrives as a `task` event.
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize, TS)]
 #[serde(tag = "type", rename_all = "snake_case")]
 #[ts(export)]
 pub enum ServerEvent {
     /// A task was created or its progress or state changed.
-    Task { task: TaskDto },
+    Task {
+        task: TaskDto,
+    },
     /// Directories whose contents changed; open panes should refresh them.
     FsChange {
         volume_id: VolumeId,
         dirs: Vec<String>,
+    },
+    SettingsChanged,
+    ImmichAssetsChanged {
+        volume_id: VolumeId,
     },
 }
 
@@ -104,7 +108,6 @@ mod tests {
 
     #[test]
     fn enums_use_snake_case() {
-        assert_eq!(roundtrip(&TaskKind::ImmichCleanup), json!("immich_cleanup"));
         assert_eq!(roundtrip(&TaskKind::FsRmdir), json!("fs_rmdir"));
         assert_eq!(roundtrip(&TaskState::Interrupted), json!("interrupted"));
     }

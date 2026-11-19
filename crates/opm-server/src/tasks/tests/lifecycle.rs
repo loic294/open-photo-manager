@@ -5,7 +5,7 @@ use opm_core::dto::{ServerEvent, TaskKind, TaskState};
 use serde_json::{Value, json};
 
 use super::support::{
-    Gate, Harness, Outcome, fs, immich, index, states, submit_instant, task_events, within,
+    Gate, Harness, Outcome, fs, index, states, submit_instant, task_events, within,
 };
 use crate::error::AppError;
 use crate::tasks::{Lane, TaskError, TaskSpec};
@@ -177,9 +177,9 @@ async fn a_null_result_is_fine() {
 #[tokio::test]
 async fn an_explicit_lane_is_stored_with_the_task() {
     let h = Harness::new().await;
-    let id = submit_instant(&h.engine, fs().with_lane(Lane::Immich)).await;
+    let id = submit_instant(&h.engine, fs().with_lane(Lane::Index)).await;
     h.finished(id).await;
-    assert_eq!(h.row(id).await.lane, "immich");
+    assert_eq!(h.row(id).await.lane, "index");
 }
 
 #[tokio::test]
@@ -199,7 +199,7 @@ async fn unknown_ids_are_not_found() {
 #[tokio::test]
 async fn waiting_for_a_finished_task_answers_at_once() {
     let h = Harness::new().await;
-    let id = submit_instant(&h.engine, immich()).await;
+    let id = submit_instant(&h.engine, index()).await;
     let first = h.finished(id).await;
     let again = within(h.engine.wait_finished(id)).await.unwrap();
     assert_eq!(again, first);
@@ -229,9 +229,9 @@ async fn several_waiters_all_see_the_final_state() {
 #[tokio::test]
 async fn the_list_shows_running_then_queued_then_the_newest_finished() {
     let h = Harness::serial_fs().await;
-    let older = submit_instant(&h.engine, immich()).await;
+    let older = submit_instant(&h.engine, index()).await;
     h.finished(older).await;
-    let newer = submit_instant(&h.engine, immich()).await;
+    let newer = submit_instant(&h.engine, index()).await;
     h.finished(newer).await;
 
     let mut gate = Gate::new();
@@ -239,7 +239,7 @@ async fn the_list_shows_running_then_queued_then_the_newest_finished() {
     gate.started().await;
     let second = h.engine.submit(fs(), gate.runner()).await.unwrap();
     let third = h.engine.submit(fs(), gate.runner()).await.unwrap();
-    let remote = h.engine.submit(immich(), gate.runner()).await.unwrap();
+    let remote = h.engine.submit(index(), gate.runner()).await.unwrap();
     gate.started().await;
 
     let listed = h.engine.list(100).await.unwrap();
@@ -281,7 +281,7 @@ async fn every_task_event_ends_with_a_terminal_state_and_nothing_follows_it() {
     let mut events = h.events();
     let mut ids = Vec::new();
     for n in 0..6 {
-        let spec = if n % 2 == 0 { fs() } else { immich() };
+        let spec = if n % 2 == 0 { fs() } else { index() };
         ids.push(
             h.engine
                 .submit(spec, move |_ctx| async move {

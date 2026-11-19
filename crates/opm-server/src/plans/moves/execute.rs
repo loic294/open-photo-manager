@@ -728,9 +728,6 @@ pub(crate) async fn run(
                     }
                 }
             }
-            Err(err) if err.code() == "immich_move_refused" => {
-                result.skip_with_detail(Some(item.file_id), display, err.code(), err.to_string());
-            }
             Err(FsOpError::Cancelled) => {
                 result.mark_cancelled();
                 break;

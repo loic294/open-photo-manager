@@ -579,7 +579,6 @@ impl FsOps {
                         .await?;
                 }
             }
-            self.guard_run(run).await?;
             if let Some(existing) = replace.take() {
                 match self.trash_existing(run, existing).await {
                     Ok(()) => {}

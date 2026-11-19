@@ -346,26 +346,39 @@ async fn read_capped(mut response: reqwest::Response) -> Option<Vec<u8>> {
 
 /// One server-sent event.
 #[derive(Debug, Default, PartialEq, Eq)]
-struct Event {
-    id: Option<String>,
-    name: String,
-    data: String,
+pub(super) struct Event {
+    pub(super) id: Option<String>,
+    pub(super) name: String,
+    pub(super) data: String,
 }
 
 /// Splits a server-sent event stream into events.
 #[derive(Default)]
-struct EventParser {
-    buffer: String,
+pub(super) struct EventParser {
+    buffer: Vec<u8>,
 }
 
 impl EventParser {
     /// Adds bytes and returns the events they complete; `None` when an event is too large.
-    fn push(&mut self, chunk: &[u8]) -> Option<Vec<Event>> {
-        self.buffer
-            .push_str(&String::from_utf8_lossy(chunk).replace("\r\n", "\n"));
+    pub(super) fn push(&mut self, chunk: &[u8]) -> Option<Vec<Event>> {
+        self.buffer.extend_from_slice(chunk);
         let mut events = Vec::new();
-        while let Some(end) = self.buffer.find("\n\n") {
-            let block: String = self.buffer.drain(..end + 2).collect();
+        let mut start = 0;
+        let mut line_start = 0;
+        for (i, byte) in self.buffer.iter().enumerate() {
+            if *byte != b'\n' {
+                continue;
+            }
+            let blank = self.buffer[line_start..i].iter().all(|b| *b == b'\r');
+            line_start = i + 1;
+            if !blank {
+                continue;
+            }
+            let block = std::str::from_utf8(&self.buffer[start..i + 1]).ok()?;
+            if block.len() > MAX_EVENT_BYTES {
+                return None;
+            }
+            start = i + 1;
             let mut event = Event::default();
             let mut data = Vec::new();
             for line in block.lines() {
@@ -387,6 +400,7 @@ impl EventParser {
             event.data = data.join("\n");
             events.push(event);
         }
+        self.buffer.drain(..start);
         (self.buffer.len() <= MAX_EVENT_BYTES).then_some(events)
     }
 }
@@ -911,5 +925,20 @@ mod tests {
                 },
             ]
         );
+    }
+
+    #[test]
+    fn event_boundaries_preserve_split_utf8_and_crlf() {
+        let mut parser = EventParser::default();
+        assert!(
+            parser
+                .push(b"event: settings_changed\r\ndata: caf\xc3")
+                .unwrap()
+                .is_empty()
+        );
+        assert!(parser.push(b"\xa9\r\n\r").unwrap().is_empty());
+        let events = parser.push(b"\n").unwrap();
+        assert_eq!(events[0].name, "settings_changed");
+        assert_eq!(events[0].data, "caf\u{e9}");
     }
 }

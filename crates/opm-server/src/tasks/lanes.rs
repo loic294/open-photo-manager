@@ -16,7 +16,6 @@ pub(super) const MAX_RUNNING: usize = 3;
 pub struct LaneLimits {
     pub fs: usize,
     pub index: usize,
-    pub immich: usize,
 }
 
 impl Default for LaneLimits {
@@ -24,7 +23,6 @@ impl Default for LaneLimits {
         Self {
             fs: Lane::Fs.default_concurrency(),
             index: Lane::Index.default_concurrency(),
-            immich: Lane::Immich.default_concurrency(),
         }
     }
 }
@@ -35,7 +33,6 @@ impl LaneLimits {
         let limit = match lane {
             Lane::Fs => self.fs,
             Lane::Index => self.index,
-            Lane::Immich => self.immich,
         };
         limit.max(1)
     }
@@ -60,7 +57,6 @@ pub(super) struct Scheduler<T> {
     limits: LaneLimits,
     fs: LaneState<T>,
     index: LaneState<T>,
-    immich: LaneState<T>,
 }
 
 impl<T> Scheduler<T> {
@@ -69,7 +65,6 @@ impl<T> Scheduler<T> {
             limits,
             fs: LaneState::default(),
             index: LaneState::default(),
-            immich: LaneState::default(),
         }
     }
 
@@ -133,7 +128,6 @@ impl<T> Scheduler<T> {
         match lane {
             Lane::Fs => &mut self.fs,
             Lane::Index => &mut self.index,
-            Lane::Immich => &mut self.immich,
         }
     }
 
@@ -141,7 +135,6 @@ impl<T> Scheduler<T> {
         match lane {
             Lane::Fs => &self.fs,
             Lane::Index => &self.index,
-            Lane::Immich => &self.immich,
         }
     }
 
@@ -150,7 +143,6 @@ impl<T> Scheduler<T> {
         let state = match lane {
             Lane::Fs => &self.fs,
             Lane::Index => &self.index,
-            Lane::Immich => &self.immich,
         };
         state.queue.iter().map(|(id, _)| *id).collect()
     }
@@ -160,7 +152,6 @@ impl<T> Scheduler<T> {
         match lane {
             Lane::Fs => self.fs.running,
             Lane::Index => self.index.running,
-            Lane::Immich => self.immich.running,
         }
     }
 }
@@ -170,17 +161,13 @@ mod tests {
     use super::*;
 
     fn scheduler() -> Scheduler<&'static str> {
-        Scheduler::new(LaneLimits {
-            fs: 1,
-            index: 1,
-            immich: 2,
-        })
+        Scheduler::new(LaneLimits { fs: 1, index: 1 })
     }
 
     #[test]
     fn default_limits_allow_three_in_any_lane() {
         let limits = LaneLimits::default();
-        assert_eq!((limits.fs, limits.index, limits.immich), (3, 3, 3));
+        assert_eq!((limits.fs, limits.index), (3, 3));
     }
 
     #[test]
@@ -188,14 +175,9 @@ mod tests {
         for lanes in [
             [Lane::Fs; 4],
             [Lane::Index; 4],
-            [Lane::Immich; 4],
-            [Lane::Fs, Lane::Index, Lane::Immich, Lane::Fs],
+            [Lane::Fs, Lane::Index, Lane::Index, Lane::Fs],
         ] {
-            let mut scheduler = Scheduler::new(LaneLimits {
-                fs: 10,
-                index: 10,
-                immich: 10,
-            });
+            let mut scheduler = Scheduler::new(LaneLimits { fs: 10, index: 10 });
             for (id, lane) in (1..).zip(lanes) {
                 scheduler.enqueue(lane, id, id);
             }
@@ -216,24 +198,20 @@ mod tests {
             scheduler.enqueue(Lane::Fs, id, id);
             assert_eq!(scheduler.start_next(), Some(id));
         }
-        scheduler.enqueue(Lane::Immich, 4, 4);
+        scheduler.enqueue(Lane::Index, 4, 4);
         scheduler.enqueue(Lane::Fs, 5, 5);
         scheduler.enqueue(Lane::Index, 6, 6);
         scheduler.finish(Lane::Fs);
         assert_eq!(scheduler.start_next(), Some(4));
         scheduler.finish(Lane::Fs);
         assert_eq!(scheduler.start_next(), Some(5));
-        scheduler.finish(Lane::Immich);
+        scheduler.finish(Lane::Index);
         assert_eq!(scheduler.start_next(), Some(6));
     }
 
     #[test]
     fn limits_never_drop_below_one() {
-        let limits = LaneLimits {
-            fs: 0,
-            index: 0,
-            immich: 0,
-        };
+        let limits = LaneLimits { fs: 0, index: 0 };
         for lane in Lane::ALL {
             assert_eq!(limits.get(lane), 1);
         }
@@ -260,33 +238,17 @@ mod tests {
     }
 
     #[test]
-    fn the_immich_lane_runs_two_at_once() {
-        let mut scheduler = scheduler();
-        for (id, label) in [(1, "a"), (2, "b"), (3, "c")] {
-            scheduler.enqueue(Lane::Immich, id, label);
-        }
-        assert_eq!(scheduler.start_next(), Some("a"));
-        assert_eq!(scheduler.start_next(), Some("b"));
-        assert_eq!(scheduler.start_next(), None);
-        assert_eq!(scheduler.running(Lane::Immich), 2);
-        assert_eq!(scheduler.queued(Lane::Immich), vec![3]);
-        scheduler.finish(Lane::Immich);
-        assert_eq!(scheduler.start_next(), Some("c"));
-    }
-
-    #[test]
     fn a_busy_lane_does_not_hold_up_the_others() {
         let mut scheduler = scheduler();
         scheduler.enqueue(Lane::Fs, 1, "fs-1");
         scheduler.enqueue(Lane::Fs, 2, "fs-2");
         scheduler.enqueue(Lane::Index, 3, "index-1");
-        scheduler.enqueue(Lane::Immich, 4, "immich-1");
 
         let mut started = Vec::new();
         while let Some(item) = scheduler.start_next() {
             started.push(item);
         }
-        assert_eq!(started, ["fs-1", "index-1", "immich-1"]);
+        assert_eq!(started, ["fs-1", "index-1"]);
         assert_eq!(scheduler.queued(Lane::Fs), vec![2]);
     }
 
@@ -328,14 +290,10 @@ mod tests {
     #[test]
     fn draining_empties_every_lane_in_order() {
         let mut scheduler = scheduler();
-        scheduler.enqueue(Lane::Immich, 1, "immich");
         scheduler.enqueue(Lane::Fs, 2, "fs-1");
         scheduler.enqueue(Lane::Index, 3, "index");
         scheduler.enqueue(Lane::Fs, 4, "fs-2");
-        assert_eq!(
-            scheduler.drain_queued(),
-            ["fs-1", "fs-2", "index", "immich"]
-        );
+        assert_eq!(scheduler.drain_queued(), ["fs-1", "fs-2", "index"]);
         assert_eq!(scheduler.start_next(), None);
         assert!(scheduler.drain_queued().is_empty());
     }

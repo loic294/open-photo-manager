@@ -1282,7 +1282,6 @@ describe('opm-trash-page refreshing', () => {
     events.emit(taskEvent({ id: 40, kind: 'fs_move', state: 'running' }));
     events.emit(taskEvent({ id: 41, kind: 'trash_empty', state: 'queued' }));
     events.emit(taskEvent({ id: 42, kind: 'index', state: 'done' }));
-    events.emit(taskEvent({ id: 43, kind: 'immich_sync', state: 'done' }));
     await advance(REFRESH_DEBOUNCE_MS * 4);
     expect(requests(BATCHES)).toHaveLength(1);
   });

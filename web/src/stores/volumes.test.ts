@@ -493,8 +493,6 @@ describe('startVolumes', () => {
       'fs_trash',
       'fs_rmdir',
       'plan_execute',
-      'immich_sync',
-      'immich_cleanup',
       'trash_empty',
     ];
 

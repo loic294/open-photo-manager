@@ -10,14 +10,6 @@ Use Node 24+, Rust and the media tools listed in [fixtures](../fixtures/README.m
 `make check-e2e` checks formatting, types and the fixed-sleep guard; `make check-tools` includes it.
 `make e2e-smoke` runs the five quickest acceptance cases. `E2E_ARGS` passes Playwright selectors,
 for example `make e2e E2E_ARGS="specs/selection.spec.ts"`.
-Playwright's `browser` project runs non-backed specs at the global worker limit. The
-`immich-postgres` project contains exactly `backed-*.spec.ts`, `mirror-delete.spec.ts` and
-`mirror-move.spec.ts` under `specs/immich`, and is capped at one worker even when
-`E2E_WORKERS=2`; these projects do not duplicate discovery. Use
-`make e2e E2E_ARGS="--project=immich-postgres"` for only those SQL-backed browser specs or
-`make e2e E2E_ARGS="--project=browser"` to exclude them. The real-schema helper is a Node test
-outside Playwright's `testDir`; run it explicitly with
-`cd e2e && node --test src/immich-postgres.test.ts` when Docker capacity allows.
 
 Use `make e2e-headed` to watch Chromium or `make e2e-report` to inspect failure screenshots,
 videos, traces and backend logs. `E2E_KEEP=1` preserves private instances under `e2e/.cache/instance-*`;
@@ -44,7 +36,7 @@ Snapshots record inaccessible entries and modes without opening them. The golden
 those modes in force. All generated media remains private, including the `outside` symlink targets.
 
 Baseline settings disable `index.watch_enabled`; writing test files must not trigger a racing native
-scan. Periodic rescans default to 360 minutes, trash retention to null and Immich is disconnected.
+scan. Periodic rescans default to 360 minutes, trash retention to null and Sync Manager is disconnected.
 `watcher: true` explicitly enables native watching and waits for the generated watcher status.
 `cold: true` uses an empty data directory and returns after health/settings, without awaiting startup.
 `settings` transforms the complete generated settings document; `env` is passed to an isolated process.
@@ -63,15 +55,7 @@ Paths, port, timezone and production web directory cannot be overridden through 
 | Disk helpers | `snapshotTree(dir,{hash?})`, `diffTrees`, `expectTree`, `trashEntries`, `writeFile`, `touch`, `removeFile`, `makeDir`, `makeSparseFile` (maximum 4 GiB) |
 | Read-only assertions | `captureReadOnly(app)`, `assertReadOnly(app,before)` compare hashed volume trees and complete files/dirs/cameras/tags/sidecar index tables |
 | Browser helpers | `expectStaysFalse(condition,{forMs})`, `expectNoSeriousA11yViolations(page,{include?,exclude?})`, `captureScreens` |
-| Test fixtures | `app` (test-scoped), `sharedApp` (worker-scoped, read-only), `manifest`, `mockImmich(options?)`, page objects, `allowedErrors`, `appOptions` |
-
-`mockImmich()` starts the shared programmatic mock, uses the `fixtures` scenario and mounts
-`/mnt/photos` and `/mnt/archive` on that test's private volumes. It exposes `url`, `control` and
-`state`; teardown stops it and asserts that its violation list is empty. Only this external
-server is fake. The connect acceptance case goes through the real Settings UI, then verifies the API.
-`onApiKeyCreated(secret)` is a programmatic mock option for tests that must verify a generated
-test key is absent from application logs and plaintext storage. It is not retained in mock state
-or request logs and is never exposed through the mock control API.
+| Test fixtures | `app` (test-scoped), `sharedApp` (worker-scoped, read-only), `manifest`, page objects, `allowedErrors`, `appOptions` |
 
 ## Private separate-device fixtures
 
@@ -103,35 +87,6 @@ must return HTTP 200 and valid JSON, and all settle before agent cleanup; no ret
 cleanup. These are host-binary checks, not Docker or actual Windows evidence. This APFS helper
 requires macOS `hdiutil`; tests must explicitly report unsupported platforms without claiming copy
 coverage. Never add a production EXDEV knob, symlink volume or force-detach workaround.
-
-The mock exposes `control.reconcileAssetPaths(rows, associations?)` as a backing-state seam. Each
-asset row includes its stable identity, path, checksum, capture and local dates, update timestamp,
-offline/favorite state, rating, description, visibility, and deletion timestamp. Supply a complete
-snapshot from the disposable PostgreSQL database; mismatched identities, missing rows, duplicate
-paths, invalid rows, or inconsistent associations fail before changing mock state.
-`ImmichPostgres.start()` creates a task-owned Compose project from pinned Immich v3.3.3 images and
-migrations, with a disposable TLS secret and a private loopback port. `seedMock()` writes mock
-identities and assets into that schema; `refreshMock()` reads asset and album/tag state from a
-single SQL snapshot. The `backedImmich` fixture owns the database, app, mock and teardown, and
-requires one Playwright worker. Its focused real-schema test and the backed browser scenarios must
-be run to verify SQL coherence before claiming database-backed acceptance.
-
-The host-verified Immich browser coverage is 10 specs / 18 cases: `immich-a11y`,
-`limited-mode`, `sync-nonblocking`, `connect`, `connect-errors`, `connection-boundaries`, `mapping`,
-`reconnect`, `safety` and `tls`. The `backedImmich` Playwright fixture in `src/immich-test.ts`
-owns PostgreSQL, the OPM process and fixture-mounted mock. Its five browser cases are isolated in
-the `immich-postgres` project capped at one worker; they can run alongside ordinary browser tests
-with `E2E_WORKERS=2`. On 2026-11-09, all five were discovered once and passed with 6.30 GiB free:
-`backed-move-outside`, `backed-rename`, `backed-sync`, `mirror-delete` and `mirror-move` (5/5).
-The separate `src/immich-postgres.test.ts` Node helper passed 1/1 via `node --test`, and the
-documented Rust real-v3.3.3 direct-database gate passed 1/1. These runs verified the real schema,
-same-UUID SQL/mock backing, disk outcomes and UI flows. A run below the 3.00 GiB Docker VM startup
-floor is explicitly skipped and is not a pass; skipped runs do not establish database-backed
-acceptance.
-The fixture fails closed if its pinned PostgreSQL image is not already local, measures Docker VM
-free space without pulling, and tears down its task-owned stack if initialization leaves less than
-1.50 GiB free. Its Docker-free guard tests run with `node --test src/docker-capacity.test.ts`
-from `e2e/`.
 
 ## System coverage
 
@@ -226,4 +181,4 @@ Playwright otherwise interprets a two-element array as a fixture tuple.
    a regression in the product's own suite and report them. Larger issues remain explicit
    findings for the coordinator; a `fixme` is not final acceptance evidence.
 5. Use disposable generated fixture copies and free local ports. Ports 8080, 18080 and 15173,
-   credentials, `.env` files, original fixture mutations and real Immich/media are out of scope.
+   credentials, `.env` files, original fixture mutations and real services/media are out of scope.

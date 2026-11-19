@@ -6,7 +6,7 @@ use std::time::Duration;
 use opm_core::dto::TaskState;
 
 use super::support::{
-    Gate, Harness, QUIET, eventually, fast, finished, fs, immich, index, states, submit_instant,
+    Gate, Harness, QUIET, eventually, fast, finished, fs, index, states, submit_instant,
 };
 use crate::tasks::{Retention, TaskOptions};
 
@@ -71,7 +71,7 @@ async fn a_restart_interrupts_the_tasks_the_previous_run_left_unfinished() {
     let h = Harness::new().await;
     let queued = h.seed_queued(&fs()).await;
     let running = h.seed_running(&index()).await;
-    let done = h.seed_finished(&immich(), 60).await;
+    let done = h.seed_finished(&index(), 60).await;
 
     let second = h.restarted_with(fast()).await;
 

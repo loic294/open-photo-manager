@@ -1,6 +1,7 @@
 //! The sync manager (ISM): authenticated discovery, the encrypted connection, volume bindings,
 //! and the operations client that runs the file changes of bound volumes (`operations`).
 
+mod mirror;
 mod operations;
 pub(crate) mod wire;
 
@@ -14,12 +15,14 @@ use opm_core::dto::{
 };
 use opm_core::paths::{RelPath, VolumeId};
 use reqwest::header::{AUTHORIZATION, HeaderValue};
-use tokio::sync::Mutex;
+use tokio::sync::{Mutex, watch};
 use url::Url;
 
+use crate::crypto::SecretBox;
 use crate::db::{Db, now_secs};
 use crate::error::{AppError, AppResult};
-use crate::immich::crypto::SecretBox;
+use crate::settings::{ManagedFiles, SettingsService};
+use crate::tasks::TaskEngine;
 
 const PURPOSE: &[u8] = b"open-photo-manager/ism-client-token/v1";
 const MAX_INFO_BYTES: usize = 256 * 1024;
@@ -33,6 +36,9 @@ pub struct IsmService {
     db: Db,
     data_dir: PathBuf,
     gate: Arc<Mutex<()>>,
+    connection_changed: watch::Sender<()>,
+    settings: SettingsService,
+    tasks: TaskEngine,
 }
 
 #[derive(sqlx::FromRow)]
@@ -44,11 +50,14 @@ struct StoredConnection {
 }
 
 impl IsmService {
-    pub fn new(db: Db, data_dir: PathBuf) -> Self {
+    pub fn new(db: Db, data_dir: PathBuf, settings: SettingsService, tasks: TaskEngine) -> Self {
         Self {
             db,
             data_dir,
             gate: Arc::new(Mutex::new(())),
+            connection_changed: watch::channel(()).0,
+            settings,
+            tasks,
         }
     }
 
@@ -263,19 +272,50 @@ impl IsmService {
         let encrypted = secrets
             .encrypt_for(&input.token, PURPOSE)
             .map_err(AppError::internal)?;
+        let same_instance = previous
+            .as_ref()
+            .is_some_and(|old| old.instance_id == info.instance_id);
+        let cached: Option<String> =
+            if same_instance && mirror::supports(&info, "shared_file_settings") {
+                sqlx::query_scalar("SELECT file_settings FROM ism_connection WHERE id = 1")
+                    .fetch_one(self.db.read())
+                    .await?
+            } else {
+                None
+            };
+        let cached = if cached.is_none() && mirror::supports(&info, "shared_file_settings") {
+            Some(
+                serde_json::to_string(&ManagedFiles::pending(&info.instance_name))
+                    .map_err(AppError::internal)?,
+            )
+        } else {
+            cached
+        };
+        let mut tx = self.db.begin_write().await?;
         sqlx::query(
-            "INSERT INTO ism_connection (id, base_url, token_enc, instance_id, instance_name)
-             VALUES (1, ?, ?, ?, ?)
+            "INSERT INTO ism_connection (id, base_url, token_enc, instance_id, instance_name, file_settings)
+             VALUES (1, ?, ?, ?, ?, ?)
              ON CONFLICT(id) DO UPDATE SET base_url = excluded.base_url,
                  token_enc = excluded.token_enc, instance_id = excluded.instance_id,
-                 instance_name = excluded.instance_name",
+                 instance_name = excluded.instance_name, file_settings = excluded.file_settings",
         )
         .bind(client.base_url.as_str())
         .bind(encrypted)
         .bind(&info.instance_id)
         .bind(&info.instance_name)
-        .execute(self.db.write())
+        .bind(cached)
+        .execute(&mut *tx)
         .await?;
+        if !same_instance || !mirror::supports(&info, "immich_assets") {
+            sqlx::query("DELETE FROM ism_assets")
+                .execute(&mut *tx)
+                .await?;
+        }
+        tx.commit().await?;
+        self.settings.reload_managed_files().await?;
+        self.tasks
+            .publish(opm_core::dto::ServerEvent::SettingsChanged);
+        self.connection_changed.send_replace(());
         Ok(info)
     }
 
@@ -295,6 +335,10 @@ impl IsmService {
         sqlx::query("DELETE FROM ism_connection WHERE id = 1")
             .execute(self.db.write())
             .await?;
+        self.settings.reload_managed_files().await?;
+        self.tasks
+            .publish(opm_core::dto::ServerEvent::SettingsChanged);
+        self.connection_changed.send_replace(());
         self.status().await
     }
 }
@@ -347,6 +391,18 @@ impl IsmClient {
 
     /// A GET answered with at most `MAX_INFO_BYTES` of JSON.
     async fn get_bytes(&self, url: Url) -> AppResult<Vec<u8>> {
+        self.get_bounded(url, MAX_INFO_BYTES)
+            .await
+            .map_err(|error| {
+                if error.code() == "ism_request_failed" {
+                    AppError::conflict("ism_request_failed", error.message())
+                } else {
+                    error
+                }
+            })
+    }
+
+    async fn get_bounded(&self, url: Url, limit: usize) -> AppResult<Vec<u8>> {
         let mut response = self
             .http
             .get(url)
@@ -356,7 +412,8 @@ impl IsmClient {
             .await
             .map_err(|_| AppError::conflict("ism_unavailable", "Cannot reach ISM."))?;
         if !response.status().is_success() {
-            return Err(AppError::conflict(
+            return Err(AppError::new(
+                response.status(),
                 "ism_request_failed",
                 format!(
                     "ISM rejected the request (HTTP {}).",
@@ -370,7 +427,7 @@ impl IsmClient {
             .await
             .map_err(|_| AppError::conflict("ism_unavailable", "Cannot read ISM response."))?
         {
-            if bytes.len().saturating_add(chunk.len()) > MAX_INFO_BYTES {
+            if bytes.len().saturating_add(chunk.len()) > limit {
                 return Err(AppError::conflict(
                     "ism_invalid_response",
                     "ISM response is too large.",
@@ -457,11 +514,7 @@ pub async fn apply_staged_bindings(db: &Db) -> anyhow::Result<()> {
     .await?;
     for (volume_id, root_id, root_name, root_prefix) in binds {
         let pending: bool = sqlx::query_scalar(
-            "SELECT EXISTS(SELECT 1 FROM immich_outbox
-                     WHERE old_volume_id = ?1 OR new_volume_id = ?1)
-                 OR EXISTS(SELECT 1 FROM immich_direct_move
-                     WHERE old_volume_id = ?1 OR new_volume_id = ?1)
-                 OR EXISTS(SELECT 1 FROM fs_journal WHERE state = 'pending'
+            "SELECT EXISTS(SELECT 1 FROM fs_journal WHERE state = 'pending'
                      AND (src_volume_id = ?1 OR dst_volume_id = ?1))",
         )
         .bind(volume_id)
@@ -476,7 +529,7 @@ pub async fn apply_staged_bindings(db: &Db) -> anyhow::Result<()> {
         .await?;
         let error = if pending {
             Some(
-                "The volume still has unfinished file or Immich work; it is retried at the next start.",
+                "The volume still has unfinished local file work; it is retried at the next start.",
             )
         } else if taken {
             Some("Another volume is bound to this ISM root.")

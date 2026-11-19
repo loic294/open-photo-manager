@@ -16,7 +16,6 @@ pub mod extract;
 mod files;
 mod format;
 mod health;
-mod immich;
 mod index;
 mod ism;
 mod media;
@@ -37,7 +36,6 @@ pub fn router() -> Router<AppState> {
         .merge(files::routes())
         .merge(format::routes())
         .merge(health::routes())
-        .merge(immich::routes())
         .merge(index::routes())
         .merge(ism::routes())
         .merge(media::routes())

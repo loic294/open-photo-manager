@@ -638,30 +638,7 @@ describe('resync and imports', () => {
     expect(server.calls).toHaveLength(0);
   });
 
-  it.each(['done', 'failed', 'cancelled', 'interrupted'] as const)(
-    'refetches when an immich_sync task is %s',
-    async (state) => {
-      const context = setup();
-      await loaded(context);
-      context.bus.task('immich_sync', state);
-      expect(context.server.calls).toHaveLength(1);
-      vi.advanceTimersByTime(INVALIDATE_DEBOUNCE_MS);
-      expect(context.server.calls).toHaveLength(2);
-    },
-  );
-
-  it.each(['queued', 'running'] as const)(
-    'ignores an immich_sync task that is %s',
-    async (state) => {
-      const context = setup();
-      await loaded(context);
-      context.bus.task('immich_sync', state);
-      vi.advanceTimersByTime(INVALIDATE_MAX_WAIT_MS);
-      expect(context.server.calls).toHaveLength(1);
-    },
-  );
-
-  it.each(['index', 'fs_move', 'plan_execute', 'immich_cleanup'] as const)(
+  it.each(['index', 'fs_move', 'plan_execute'] as const)(
     'ignores a finished %s task',
     async (kind) => {
       const context = setup();
@@ -914,9 +891,9 @@ describe('errors and retry', () => {
 });
 
 describe('connection', () => {
-  it('subscribes to fs_change, task and resync while connected, and to nothing after', () => {
+  it('subscribes to fs_change and resync while connected, and to nothing after', () => {
     const { controller, bus } = setup();
-    expect(bus.subscriptions()).toBe(3);
+    expect(bus.subscriptions()).toBe(2);
     controller.hostDisconnected();
     expect(bus.subscriptions()).toBe(0);
   });
@@ -925,7 +902,7 @@ describe('connection', () => {
     const { controller, bus } = setup();
     controller.hostConnected();
     controller.hostConnected();
-    expect(bus.subscriptions()).toBe(3);
+    expect(bus.subscriptions()).toBe(2);
   });
 
   it('aborts what is in flight and ignores events after it disconnected', async () => {

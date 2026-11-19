@@ -1240,7 +1240,7 @@ impl FsOps {
             },
         )
         .await?;
-        // Hooks see the rows while they still exist: the Immich outbox reads their hashes.
+        // Hooks can read the original rows before the index removes them.
         self.run_hooks(
             &mut *conn,
             &AppliedOp::Trashed {

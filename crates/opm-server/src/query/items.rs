@@ -20,13 +20,7 @@ const IN_IMMICH_COLUMN: &str = "in_immich";
 /// [`ITEM_JOINS`]) and the Immich flag (`in_immich`). Decode the rows with [`item_from_row`].
 /// `alias` must be a literal, never user input.
 ///
-/// The Immich flag is true when the Immich sync holds a live asset (neither offline nor trashed)
-/// at the file's location: an `EXISTS` over `immich_assets` by `(volume_id, dir_path, name)`,
-/// answered by its index `immich_assets_location` alone (0.4 ms more for a page of 200 files with
-/// 200,000 assets stored; see the numbers in `immich::sync`). It is empty, so the flag false, until a
-/// sync has run, after a disconnect and for files outside every mapping. Only the item projection
-/// reads that table: counts, id lists, facets and filters never do, and the ghost items of the plan
-/// overlay are not rows of `files` and say false.
+/// The Immich badge uses an exact primary-key lookup in the ISM snapshot. Ghosts never have it.
 pub fn item_columns(alias: &str) -> String {
     format!(
         "{}, cam.name AS {CAMERA_COLUMN}, {} AS {IN_IMMICH_COLUMN}",
@@ -38,9 +32,8 @@ pub fn item_columns(alias: &str) -> String {
 /// The Immich flag for the `files` table aliased `alias`.
 fn in_immich_expression(alias: &str) -> String {
     format!(
-        "EXISTS (SELECT 1 FROM immich_assets ia WHERE ia.volume_id = {alias}.volume_id \
-         AND ia.dir_path = {alias}.dir_path AND ia.name = {alias}.name \
-         AND ia.is_offline = 0 AND ia.is_trashed = 0)"
+        "EXISTS (SELECT 1 FROM ism_assets ia WHERE ia.volume_id = {alias}.volume_id \
+         AND ia.dir_path = {alias}.dir_path AND ia.name = {alias}.name)"
     )
 }
 
@@ -226,38 +219,12 @@ mod tests {
             ),
         )
         .await;
-        let lookup = plan.iter().find(|line| line.contains("immich_assets"));
         assert!(
-            lookup.is_some_and(|line| line.starts_with("SEARCH ia USING COVERING INDEX")
-                && line.contains("immich_assets_location")
-                && line.ends_with(
-                    "(volume_id=? AND dir_path=? AND name=? AND is_offline=? AND is_trashed=?)"
-                )),
-            "the Immich flag must search the location index with all of its columns:\n{plan:#?}"
+            plan.iter()
+                .any(|line| line.starts_with("SEARCH ia USING PRIMARY KEY")
+                    && line.ends_with("(volume_id=? AND dir_path=? AND name=?)")),
+            "{plan:#?}"
         );
-    }
-
-    /// Inserts the asset `id` at `(volume_id, dir_path, name)` with the given flags.
-    async fn insert_asset(
-        db: &Db,
-        id: &str,
-        location: (opm_core::paths::VolumeId, &str, &str),
-        flags: (bool, bool),
-    ) {
-        sqlx::query(
-            "INSERT INTO immich_assets (asset_id, scope, original_path, is_offline, is_trashed, \
-             updated_at, sync_run, volume_id, dir_path, name) VALUES (?, 'all', ?, ?, ?, 0, 1, ?, ?, ?)",
-        )
-        .bind(id)
-        .bind(format!("/mnt/{}/{}", location.1, location.2))
-        .bind(flags.0)
-        .bind(flags.1)
-        .bind(location.0)
-        .bind(location.1)
-        .bind(location.2)
-        .execute(db.write())
-        .await
-        .unwrap();
     }
 
     #[tokio::test]
@@ -273,21 +240,13 @@ mod tests {
         let renamed = insert_file(&db, volume, "trip", "Live.jpg").await;
         let other_volume = insert_file(&db, other, "trip", "live.jpg").await;
         let unknown = insert_file(&db, volume, "trip", "unknown.jpg").await;
-        insert_asset(&db, "live", (volume, "trip", "live.jpg"), (false, false)).await;
-        insert_asset(
-            &db,
-            "offline",
-            (volume, "trip", "offline.jpg"),
-            (true, false),
-        )
-        .await;
-        insert_asset(
-            &db,
-            "trashed",
-            (volume, "trip", "trashed.jpg"),
-            (false, true),
-        )
-        .await;
+        sqlx::query("INSERT INTO ism_volume_roots (volume_id, root_id, root_name) VALUES (?, 'photos', 'Photos')")
+            .bind(volume).execute(db.write()).await.unwrap();
+        sqlx::query("INSERT INTO ism_assets VALUES (?, 'trip', 'live.jpg')")
+            .bind(volume)
+            .execute(db.write())
+            .await
+            .unwrap();
 
         let sql = format!(
             "SELECT {} FROM files f {ITEM_JOINS} ORDER BY f.id",

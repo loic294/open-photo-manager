@@ -412,11 +412,11 @@ menu upwards to select another one.
 with `replaceState`, so no history entry; the other query keys and the hash stay; Back/Forward are
 followed; a missing or unknown id opens the first tab). Today there is one section, `general`
 (`opm-settings-general`: three cards, "Files and sidecars", "Moving and deleting", "Indexing").
-- **Add a section** (for example the Immich connection): append ONE entry to `settingsSections` and change
+- **Add a section** (for example the Sync Manager connection): append ONE entry to `settingsSections` and change
   nothing else, not the page, not `routes.ts`:
   ```ts
-  { id: 'immich', label: 'Immich', icon: 'plug', tag: 'opm-settings-immich',
-    load: () => import('@/tools/settings/opm-settings-immich') },
+  { id: 'ism', label: 'Sync Manager', icon: 'plug', tag: 'opm-settings-ism',
+    load: () => import('@/tools/settings/opm-settings-ism') },
   ```
   The page draws the tab, imports the module the first time the tab opens (a failed import shows a Retry)
   and renders `<tag></tag>` with no properties or children. A section loads and saves its own data and
@@ -446,30 +446,6 @@ followed; a missing or unknown id opens the first tab). Today there is one secti
   re-enables itself in its own, later update: in the parent's `updated()` await the child's
   `updateComplete` before calling `focus()` on it. (3) Do not give a method the name of a native member
   (`remove`, `normalize`, `update`): TypeScript or the DOM will clash with it.
-
-### Immich settings
-`opm-settings-immich` is the lazy Immich tab. Its Connection, Library mapping, Sync and Changes
-waiting for Immich cards use `api/immich.ts` (generated DTOs only) and the shared pure
-`describeImmichError(error)` for actionable errors, including stored sync/outbox reason codes.
-- `stores/immich.ts`: `immichStatus`, `immichStatusError`, `immichAttention` are read-only signals.
-  `loadImmichStatus({ check }?)` resolves on failure without losing the old status; concurrent plain
-  loads share a request and explicit checks are separate. `applyImmichStatus(status)` adopts a
-  connect, disconnect or mapping save immediately and invalidates older loads. The shell owns
-  `startImmich(): () => void`: initial load, SSE resync and a one-second debounced reload after
-  finished `immich_sync`, `immich_cleanup`, `fs_move`, `fs_trash`, `fs_rmdir`, `plan_execute` or
-  `trash_empty` tasks. No polling, including while Settings is hidden.
-- General and mapping forms share `opm-save-bar` (`invalid`, `saving`, `message`,
-  `invalidMessage`; bubbling `save`/`discard` events) and `UnsavedGuard(host, () => dirty)`.
-  Call the guard's `sync()` in `updated()`; it listens for `beforeunload` only while connected
-  and dirty, and removes the listener on disconnect. Keep drafts across tab switches.
-- Mapping saves send the complete set in volume row order, skipping unmapped rows. A validation
-  path `mappings[i].path_prefix` refers to the i-th **sent entry**, not the visible row; retain
-  that index-to-volume association. Successful saves adopt the returned mapping set before
-  requesting a background sync. Detect requests are aborted/ignored on library changes or removal.
-- Passwords belong only to the connect form, are cleared after success/removal, and never enter
-  browser storage or a store. Test cards with `vi.spyOn(api, 'get'/'post'/'put'/'delete')`, real
-  signals and `sampleImmichStatus`, `sampleLibraries`, `sampleOutboxPage` from
-  `test/immich-fixtures.ts`. Await nested elements' `updateComplete` before querying their controls.
 
 ## File grid
 `<opm-file-grid>` (`@/components/opm-file-grid`) shows one listing as cards (`<opm-file-card>`), read

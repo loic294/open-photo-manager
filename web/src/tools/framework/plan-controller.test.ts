@@ -332,7 +332,7 @@ describe('invalidations', () => {
       ]);
       post.mockResolvedValue(plan(1, { warnings: [{ code, count: 2, message: 'Pending' }] }));
       await vi.advanceTimersByTimeAsync(300);
-      events.emit(taskEvent({ kind: 'immich_sync', state: 'done' }));
+      events.emit(taskEvent({ kind: 'fs_move', state: 'done' }));
       events.emit(taskEvent({ kind: 'index', state: 'running' }));
       await vi.advanceTimersByTimeAsync(1500);
       expect(post).toHaveBeenCalledTimes(1);

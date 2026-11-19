@@ -25,8 +25,8 @@
 //! Warnings: `metadata_pending`, `date_from_file_time`, `pattern_failed`,
 //! `reserved_destination`, `skipped_by_policy`, and `hash_unknown`. Execution reuses the move
 //! safety skip codes `file_gone`, `stale_plan`, `stale_match`, `metadata_pending`,
-//! `already_in_place`, `identical_at_destination`, `skipped_by_policy`, `sidecar_conflict`, and
-//! `immich_move_refused`; the shared executor also reports `source_changed` and operation errors.
+//! `already_in_place`, `identical_at_destination`, `skipped_by_policy`, and `sidecar_conflict`;
+//! the shared executor also reports `source_changed` and operation errors.
 //!
 //! The folder overlay is always empty because rename does not change directory membership. Ghost
 //! cards still show the new names and retain the real file ids, while folders and footer counts

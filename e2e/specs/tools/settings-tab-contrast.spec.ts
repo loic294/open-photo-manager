@@ -15,7 +15,7 @@ for (const theme of ['light', 'dark'] as const) {
       element.setAttribute('data-theme', value);
     }, theme);
 
-    const inactive = page.getByRole('tab', { name: 'Immich', exact: true });
+    const inactive = page.getByRole('tab', { name: 'Sync Manager', exact: true });
     await expect(inactive).toHaveAttribute('aria-selected', 'false');
     await expectNoSeriousA11yViolations(page);
     await inactive.hover();

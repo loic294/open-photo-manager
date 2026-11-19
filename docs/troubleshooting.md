@@ -44,8 +44,6 @@ not verified on a DSM device.
 | Symptom | Cause | Fix |
 |---|---|---|
 | Duplicate finder shows no matches | The selected match mode, filters or pane bases exclude the files; hash mode also waits for indexing | Check both pane bases and filters, choose a suitable **Match by** mode, and let hashing finish. |
-| Move refuses an Immich-tracked file; message starts "No file was moved." | PostgreSQL is missing/unreachable or a v3.3.3 schema/preflight check failed | Fix the database configuration or availability, refresh Immich status, rebuild and retry. Untracked files in a mixed move may still proceed; see [direct path updates](immich.md#direct-path-updates-for-tracked-moves). |
-| File moved but its Immich path update is NOT confirmed | PostgreSQL failed after the move passed preflight | Repair database access and retry the durable outbox update before moving the file again or reusing the old path. The filesystem move is not rolled back. |
 | Move or formatting left empty folders | Empty source directories are not automatically removed | Review **Empty folder cleanup** at the source folder; it removes qualifying child folders after confirmation. |
 | Cleanup leaves a folder behind | It contains a file, protected/unrecognized content, or no longer qualifies at execution time | Inspect its contents and index state; cleanup keeps the base folder and anything that is not safely empty. |
 | Move result reports `shared_sidecar_retained` | A matching sidecar was already at that destination | The asset moved; the result names the original sidecar retained at the source. It is not a skipped photo. |
@@ -60,27 +58,10 @@ not verified on a DSM device.
 | Video thumbnail works but playback fails | Browser does not support the original container/codec | Download/open the original in a compatible player. OPM does not transcode video for playback. |
 | Sidecar/unknown file has no preview | No supported viewer rendition for that kind | Use the original download; thumbnails are not a universal preview guarantee. |
 
-## Immich
+## Sync Manager
 
-Connection-code messages and fixes are in the [Immich guide](immich.md#connection-errors).
-Tracked in-library moves use [direct database updates](immich.md#direct-path-updates-for-tracked-moves),
-not delete/recreate.
-
-| Symptom / outbox code | Cause | Fix |
-|---|---|---|
-| Zero **Files matched** | Wrong mapped prefix, unscanned library or different physical share | Compare a test file's exact path in both containers; **Auto-detect** needs existing indexed/scanned samples. |
-| Tracked move refused; warning starts "No file was moved." | Database is missing/unavailable, or exact v3.3.3/schema/identity/boundary checks failed | Read the per-item recovery reason; follow [database setup](../docker/README.md#immich-direct-database-access), refresh and rebuild/retry. Untracked items in a mixed batch may still have moved. |
-| File moved but Immich path update is NOT confirmed | PostgreSQL failed after preflight/movement | Repair access and finish/retry the durable outbox update before moving again or reusing the old path; there is no cross-system rollback guarantee. |
-| Status seems stale | UI refresh is event-driven, not periodic polling | Use **Check connection** for a live connection probe; **Sync now** refreshes asset data. |
-| `immich_unavailable` | Remote server is temporarily unavailable | Restore connectivity; queued updates back off and resume, or use **Retry all** after fixing the cause. |
-| `unreadable` | Volume cannot be safely inspected | Fix the offline mount/permissions before retrying; absence has not been proved. |
-| `not_offline` | Immich still considers the old asset online | Rescan the external library in Immich and retry; never force-delete an online asset to bypass the safeguard. |
-| `scan_timeout` | Immich has not observed/imported a change in time | Check scan completion and library path/exclusions, then **Retry selected**. |
-| `carry_failed` | Immich refused album/metadata transfer | Inspect the replacement asset and permissions before retrying. Permanent carry failure blocks deletion. |
-| `path_mismatch` | Fresh asset path differs from the mapped old location | Correct mapping; do not bypass the path check. |
-| Trash appears as new photos | Immich watcher imported `.opm-trash` | Use **Keep the trash out of Immich** or ask an admin to set exclusions; check [shared paths](immich.md#prerequisites-and-shared-paths). |
-| Changes wait in limited mode | Regular account cannot trigger scans | Wait for or request Immich's own library scan through an admin. |
-| Associations missing after direct move, or albums missing after restore | Concurrent scanner race, or legacy trash/reimport limits | Direct moves preserve the existing asset; stop conflicting scans and inspect backups. Read [carry-over limits](immich.md#carry-over-limits) for trash/reimport, not as the direct-move mechanism. |
+Check the connection and the root’s write status in **Settings** > **Sync Manager**.
+For binding or badge issues, see [Sync Manager](ism.md).
 
 ## Performance
 

@@ -12,8 +12,7 @@ use serde_json::json;
 use tokio::sync::Semaphore;
 
 use super::support::{
-    Gate, Harness, Outcome, eventually, fast, fs, immich, index, states, submit_instant,
-    task_events,
+    Gate, Harness, Outcome, eventually, fast, fs, index, states, submit_instant, task_events,
 };
 use crate::tasks::{Lane, LaneLimits, TaskCtx, TaskError, TaskOptions, TaskSpec};
 
@@ -58,16 +57,11 @@ async fn the_index_lane_runs_three_tasks_at_a_time() {
 }
 
 #[tokio::test]
-async fn the_immich_lane_runs_three_tasks_at_once() {
-    runs_three_at_a_time(immich).await;
-}
-
-#[tokio::test]
 async fn mixed_lanes_share_three_slots_and_cancellation_releases_one() {
     let h = Harness::new().await;
     let mut gate = Gate::new();
     let mut ids = Vec::new();
-    for spec in [fs(), index(), immich(), immich(), index(), fs()] {
+    for spec in [fs(), index(), index(), fs(), index(), fs()] {
         ids.push(h.engine.submit(spec, gate.runner()).await.unwrap());
     }
     let mut first = [
@@ -105,8 +99,8 @@ async fn lanes_do_not_wait_for_each_other() {
     let waiting = h.engine.submit(fs(), gate.runner()).await.unwrap();
 
     let elsewhere =
-        TaskSpec::new(TaskKind::FsMove, "A move in another lane").with_lane(Lane::Immich);
-    for spec in [index(), immich(), elsewhere] {
+        TaskSpec::new(TaskKind::FsMove, "A move in another lane").with_lane(Lane::Index);
+    for spec in [index(), elsewhere] {
         let id = submit_instant(&h.engine, spec).await;
         assert_eq!(h.finished(id).await.state, TaskState::Done);
     }
@@ -150,15 +144,11 @@ async fn the_limits_can_be_changed() {
 #[tokio::test]
 async fn a_limit_of_zero_does_not_starve_the_lane() {
     let options = TaskOptions {
-        concurrency: LaneLimits {
-            fs: 0,
-            index: 0,
-            immich: 0,
-        },
+        concurrency: LaneLimits { fs: 0, index: 0 },
         ..fast()
     };
     let h = Harness::with(options).await;
-    for spec in [fs(), index(), immich()] {
+    for spec in [fs(), index()] {
         let id = submit_instant(&h.engine, spec).await;
         assert_eq!(h.finished(id).await.state, TaskState::Done);
     }
@@ -236,47 +226,43 @@ fn counted(
 #[tokio::test]
 async fn sixty_tasks_respect_the_limits_and_their_order() {
     let h = Harness::with(TaskOptions {
-        concurrency: LaneLimits {
-            fs: 1,
-            index: 1,
-            immich: 2,
-        },
+        concurrency: LaneLimits { fs: 1, index: 2 },
         ..fast()
     })
     .await;
     let mut events = h.events();
-    let (fs_lane, immich_lane) = (
+    let (fs_lane, index_lane) = (
         Arc::new(Occupancy::default()),
         Arc::new(Occupancy::default()),
     );
     let hold = Arc::new(Semaphore::new(0));
-    let (mut fs_ids, mut immich_ids) = (Vec::new(), Vec::new());
+    let (mut fs_ids, mut index_ids) = (Vec::new(), Vec::new());
     for n in 0..60 {
         if n % 2 == 0 {
             let run = counted(&fs_lane, Some(&hold));
             fs_ids.push(h.engine.submit(fs(), run).await.unwrap());
         } else {
-            let run = counted(&immich_lane, Some(&hold));
-            immich_ids.push(h.engine.submit(immich(), run).await.unwrap());
+            let run = counted(&index_lane, Some(&hold));
+            index_ids.push(h.engine.submit(index(), run).await.unwrap());
         }
     }
 
     // Everything is submitted and nothing can finish yet: the lanes are as full as they may be.
     eventually("the first runners to start", || {
-        let (fs_lane, immich_lane) = (&fs_lane, &immich_lane);
-        async move { (fs_lane.inside() == 1 && immich_lane.inside() == 2).then_some(()) }
+        let (fs_lane, index_lane) = (&fs_lane, &index_lane);
+        async move { (fs_lane.inside() == 1 && index_lane.inside() == 2).then_some(()) }
     })
     .await;
     assert_eq!(h.count_in("running").await, 3);
     assert_eq!(h.count_in("queued").await, 57);
 
     hold.add_permits(60);
-    for id in fs_ids.iter().chain(&immich_ids) {
+    for id in fs_ids.iter().chain(&index_ids) {
         assert_eq!(h.finished(*id).await.state, TaskState::Done);
     }
 
     assert_eq!(fs_lane.peak(), 1);
-    assert_eq!(immich_lane.peak(), 2);
+    assert_eq!(index_lane.peak(), 2);
     assert_eq!(
         fs_lane.entered(),
         fs_ids,
@@ -284,7 +270,7 @@ async fn sixty_tasks_respect_the_limits_and_their_order() {
     );
 
     let all = events.drain();
-    for id in fs_ids.iter().chain(&immich_ids) {
+    for id in fs_ids.iter().chain(&index_ids) {
         assert_eq!(
             states(&task_events(&all, *id)),
             [TaskState::Queued, TaskState::Running, TaskState::Done],
@@ -314,16 +300,16 @@ fn lcg(state: &mut u64) -> usize {
 async fn cancelling_while_tasks_come_and_go_never_breaks_the_lanes() {
     let h = Harness::new().await;
     let mut events = h.events();
-    let lanes: [Arc<Occupancy>; 3] = std::array::from_fn(|_| Arc::new(Occupancy::default()));
+    let lanes: [Arc<Occupancy>; 2] = std::array::from_fn(|_| Arc::new(Occupancy::default()));
     let hold = Arc::new(Semaphore::new(0));
-    let specs: [fn() -> TaskSpec; 3] = [fs, index, immich];
+    let specs: [fn() -> TaskSpec; 2] = [fs, index];
 
     let mut ids = Vec::new();
     let mut seed = 7;
     for n in 0..120 {
-        let lane = n % 3;
+        let lane = n % 2;
         // The first task of each lane waits until the end, so that a line forms behind it.
-        let run = counted(&lanes[lane], (n < 3).then_some(&hold));
+        let run = counted(&lanes[lane], (n < 2).then_some(&hold));
         ids.push(h.engine.submit(specs[lane](), run).await.unwrap());
 
         if n >= 6 {
@@ -334,7 +320,7 @@ async fn cancelling_while_tasks_come_and_go_never_breaks_the_lanes() {
             }
         }
     }
-    hold.add_permits(3);
+    hold.add_permits(2);
 
     let (mut done, mut cancelled) = (0, 0);
     for id in &ids {

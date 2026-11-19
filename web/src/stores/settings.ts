@@ -30,9 +30,11 @@ export function startSettings(): () => void {
   };
   reload();
   const stop = events.onResync(reload);
+  const stopSettings = events.on('settings_changed', reload);
   return () => {
     active = false;
     stop();
+    stopSettings();
   };
 }
 

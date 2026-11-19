@@ -11,7 +11,7 @@ use serde_json::json;
 use tokio::sync::oneshot;
 use tokio_util::sync::CancellationToken;
 
-use super::support::{Gate, Harness, eventually, fast, fs, immich, states, task_events, within};
+use super::support::{Gate, Harness, eventually, fast, fs, index, states, task_events, within};
 use crate::db::Db;
 use crate::tasks::{TaskEngine, TaskError, TaskOptions};
 
@@ -309,7 +309,7 @@ async fn submissions_racing_a_shutdown_leave_nothing_unfinished() {
             tokio::spawn(async move {
                 let mut accepted = Vec::new();
                 for _ in 0..40 {
-                    let spec = if n % 2 == 0 { fs() } else { immich() };
+                    let spec = if n % 2 == 0 { fs() } else { index() };
                     let submitted = engine
                         .submit(spec, |ctx| async move {
                             tokio::select! {

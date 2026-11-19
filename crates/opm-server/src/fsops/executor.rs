@@ -211,7 +211,6 @@ pub(crate) struct Run<'a> {
     pub created: Vec<RelPath>,
     /// The journal row, once there is one; it lives as long as the operation.
     pub guard: Option<Guard>,
-    checked_target: Option<Loc>,
 }
 
 impl Run<'_> {
@@ -716,23 +715,14 @@ impl FsOps {
             renamed: false,
             created,
             guard: None,
-            checked_target: None,
         };
         for _ in 0..ATTEMPTS {
-            if let Err(error) = cx.ensure_active() {
-                if let (Some(guard), Some(target)) = (&self.move_guard, &run.checked_target) {
-                    guard.settled(&job.src, target, false).await?;
-                }
-                return Err(error);
-            }
+            cx.ensure_active()?;
             run.target = job.dst.clone();
             run.renamed = false;
             if let Flow::Done(done) = self.attempt(&mut run).await? {
                 return Ok(done);
             }
-        }
-        if let (Some(guard), Some(target)) = (&self.move_guard, &run.checked_target) {
-            guard.settled(&job.src, target, false).await?;
         }
         Err(FsOpError::DestinationInvalid(
             "the destination kept changing",
@@ -743,15 +733,7 @@ impl FsOps {
     async fn attempt(&self, run: &mut Run<'_>) -> Result<Flow, FsOpError> {
         let probe = self.probe(run).await?;
         let resolution = self.resolve_conflict(run, probe, None).await?;
-        if !matches!(resolution, Resolution::Skip(_) | Resolution::Retry)
-            && let Err(error) = self.guard_run(run).await
-        {
-            if let Some(guard) = &self.move_guard {
-                guard.settled(&run.job.src, &run.target, false).await?;
-            }
-            return Err(error);
-        }
-        let result = match resolution {
+        match resolution {
             Resolution::Skip(reason) => Ok(Flow::Done(Transferred::Skipped(reason))),
             Resolution::Retry => Ok(Flow::Retry),
             Resolution::Free => match run.job.mode {
@@ -760,55 +742,7 @@ impl FsOps {
             },
             Resolution::CaseOnly => self.rename_path(run, true).await,
             Resolution::Replace(existing) => self.replace(run, existing).await,
-        };
-        if let Some(guard) = &self.move_guard {
-            let identical = matches!(
-                result,
-                Ok(Flow::Done(Transferred::Skipped(
-                    SkipReason::IdenticalAtDestination
-                )))
-            );
-            // A simulated crash must preserve the intent for journal replay.
-            if !matches!(result, Ok(Flow::Retry))
-                && !result.as_ref().is_err_and(|error| error.is_abort())
-            {
-                guard.settled(&run.job.src, &run.target, identical).await?;
-            }
         }
-        result
-    }
-
-    /// Reuse the same successful preflight after replacement; an outage after
-    /// trashing a victim must not produce a false "no file was moved" refusal.
-    /// A late cross-device conflict picking a NEW name needs its own preflight.
-    pub(crate) async fn guard_run(&self, run: &mut Run<'_>) -> Result<(), FsOpError> {
-        if run.job.mode != Mode::Move
-            || self.move_guard.is_none()
-            || run.checked_target.as_ref() == Some(&run.target)
-        {
-            return Ok(());
-        }
-        if let (Some(guard), Some(previous)) = (&self.move_guard, &run.checked_target) {
-            guard.settled(&run.job.src, previous, false).await?;
-        }
-        let sidecars = run
-            .job
-            .companions
-            .iter()
-            .map(|companion| {
-                Ok((
-                    run.job.src.with_name(&companion.sidecar)?,
-                    run.target
-                        .with_name(&companion.destination(run.target.name()))?,
-                ))
-            })
-            .collect::<Result<Vec<_>, FsOpError>>()?;
-        tokio::select! {
-            () = run.cx.cancel.cancelled() => Err(FsOpError::Cancelled),
-            result = self.guard_move(&run.job.src, &run.target, &sidecars) => result,
-        }?;
-        run.checked_target = Some(run.target.clone());
-        Ok(())
     }
 
     /// Replaces the existing destination file. A rename trashes it first and then looks again

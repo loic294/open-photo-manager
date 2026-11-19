@@ -278,7 +278,7 @@ async fn a_failed_and_a_cancelled_task_end_with_their_own_event() {
 
     let failing = tasks
         .submit(
-            TaskSpec::new(TaskKind::ImmichSync, "Sync Immich"),
+            TaskSpec::new(TaskKind::Index, "Index photos"),
             |_ctx| async { Err(TaskError::failed("the server said no")) },
         )
         .await

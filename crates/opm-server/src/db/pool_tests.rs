@@ -170,6 +170,41 @@ async fn count_tables(db: &Db) -> i64 {
 }
 
 #[tokio::test]
+async fn upgrading_from_direct_immich_preserves_local_settings() {
+    tokio::fs::create_dir_all(TEMP_ROOT).await.unwrap();
+    let dir = tempfile::tempdir_in(tokio::fs::canonicalize(TEMP_ROOT).await.unwrap()).unwrap();
+    let path = dir.path().join("before-ism-mirror.sqlite");
+    let writer = pool_options(1)
+        .connect_with(writer_options(&path))
+        .await
+        .unwrap();
+    let previous = sqlx::migrate::Migrator::with_migrations(
+        sqlx::migrate!("./migrations")
+            .iter()
+            .filter(|migration| migration.version < 251)
+            .cloned()
+            .collect(),
+    );
+    previous.run(&writer).await.unwrap();
+    let mut conn = writer.acquire().await.unwrap();
+    insert_setting(&mut conn, "kept").await.unwrap();
+    drop(conn);
+    writer.close().await;
+
+    let db = Db::open(&path).await.unwrap();
+    assert_eq!(count(&db, "settings").await, 1);
+    assert_eq!(count(&db, "ism_assets").await, 0);
+    let legacy_tables: i64 = sqlx::query_scalar(
+        "SELECT COUNT(*) FROM sqlite_schema WHERE type = 'table' AND name GLOB 'immich_*'",
+    )
+    .fetch_one(db.read())
+    .await
+    .unwrap();
+    assert_eq!(legacy_tables, 0);
+    db.close().await;
+}
+
+#[tokio::test]
 async fn a_database_migrated_by_a_newer_version_is_refused() {
     let temp = Db::open_temp().await.unwrap();
     sqlx::query(

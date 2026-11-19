@@ -829,7 +829,6 @@ describe('app services', () => {
     expect(FakeEventSource.instances.map((source) => source.url)).toEqual(['/api/events']);
     const loaded = vi.mocked(api.get).mock.calls.map((call) => call[0]);
     expect(loaded.sort()).toEqual([
-      '/api/immich/status',
       '/api/index/status',
       '/api/settings',
       '/api/tasks',

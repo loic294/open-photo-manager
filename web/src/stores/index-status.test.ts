@@ -288,7 +288,7 @@ describe('startIndexStatus', () => {
     const { get, events, stop } = await started();
 
     events.emit(taskEvent({ kind: 'fs_move', state: 'done', finished_at: 2 }));
-    events.emit(taskEvent({ kind: 'immich_sync', state: 'failed', finished_at: 2 }));
+    events.emit(taskEvent({ kind: 'plan_execute', state: 'failed', finished_at: 2 }));
     await settle();
     stop();
 

@@ -1,5 +1,4 @@
 import { test as base, expect } from '@playwright/test';
-import { scenarioFiles, startMockImmich } from '../../tools/mock-immich/index.ts';
 import { AppInstance, type AppOptions } from './app-instance';
 import { snapshotTree } from './disk';
 import { Manifest } from './manifest';
@@ -17,8 +16,6 @@ import { ShellPage } from './pages/shell';
 import { TrashPage } from './pages/trash';
 import { ViewerPage } from './pages/viewer';
 
-type Mock = Awaited<ReturnType<typeof startMockImmich>>;
-type MockOptions = Parameters<typeof startMockImmich>[0];
 interface Fixtures {
   allowedErrors: (string | RegExp)[];
   appOptions: AppOptions;
@@ -31,7 +28,6 @@ interface Fixtures {
   filterBar: FilterBarPage;
   formatPage: FormatPage;
   manifest: Manifest;
-  mockImmich: (options?: MockOptions) => Promise<Mock>;
   movePage: MovePage;
   readOnlyGuard: undefined;
   settingsPage: SettingsPage;
@@ -104,26 +100,6 @@ export const test = base.extend<Fixtures, Workers>({
   },
   manifest: async ({ sharedApp }, use) => {
     await use(await Manifest.load(sharedApp.outDir));
-  },
-  mockImmich: async ({ app }, use) => {
-    const mocks: Mock[] = [];
-    await use(async (options = {}) => {
-      const manifest = await Manifest.load(app.outDir);
-      const mock = await startMockImmich({
-        ...options,
-        port: 0,
-        scenario: options.scenario ?? scenarioFiles.fixtures,
-        mounts: Object.fromEntries(
-          manifest.data.volumes.map((volume) => [`/mnt/${volume}`, app.volumePath(volume)]),
-        ),
-      });
-      mocks.push(mock);
-      return mock;
-    });
-    for (const mock of mocks) {
-      await mock.stop();
-      expect(mock.state.violations()).toEqual([]);
-    }
   },
   movePage: async ({ page }, use) => {
     await use(new MovePage(page));

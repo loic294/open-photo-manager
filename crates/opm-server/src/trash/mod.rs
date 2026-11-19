@@ -42,7 +42,7 @@
 //!
 //! # Bound volumes
 //! A volume bound to ISM keeps its deletions in the sync manager's trash: `ism.rs` lists them
-//! from ISM and restores or purges them through ISM operations (see `docs/immich.md`).
+//! from ISM and restores or purges them through ISM operations (see `docs/ism.md`).
 //!
 //! # Sync with the disk
 //! [`TrashService::sync`] (`POST /api/trash/sync`) makes the rows agree with `.opm-trash` after

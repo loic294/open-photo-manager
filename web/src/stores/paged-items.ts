@@ -133,6 +133,9 @@ export class PagedItems {
         if (this.request !== null && fsChangeAffects(this.request, event)) this.invalidateSoon();
       }),
       bus.onResync(() => this.invalidate()),
+      bus.on('immich_assets_changed', (event) => {
+        if (this.request?.volume_id === event.volume_id) this.invalidate();
+      }),
     ];
   }
 

@@ -24,8 +24,6 @@ const KIND_ICON: Readonly<Record<TaskKind, IconName>> = {
   fs_trash: 'trash-2',
   fs_rmdir: 'folder-x',
   plan_execute: 'list-checks',
-  immich_sync: 'cloud-download',
-  immich_cleanup: 'cloud-upload',
   trash_empty: 'brush-cleaning',
 };
 

@@ -227,7 +227,7 @@ async fn a_task_is_listed_with_the_fields_of_the_dto() {
         .unwrap();
     assert_eq!(gate.started().await, moving);
     let syncing = tasks
-        .submit(spec(TaskKind::ImmichSync, "Sync photos"), gate.runner())
+        .submit(spec(TaskKind::Index, "Sync photos"), gate.runner())
         .await
         .unwrap();
     assert_eq!(gate.started().await, syncing);
@@ -287,7 +287,7 @@ async fn a_failed_task_is_listed_with_its_error() {
     let app = TestApp::new().await;
     let tasks = &app.state.tasks;
     let id = tasks
-        .submit(spec(TaskKind::ImmichSync, "Sync Immich"), |_ctx| async {
+        .submit(spec(TaskKind::Index, "Index photos"), |_ctx| async {
             Err(TaskError::failed("the server said no"))
         })
         .await
@@ -296,7 +296,7 @@ async fn a_failed_task_is_listed_with_its_error() {
 
     let listed = list(&app).await;
     assert_eq!(ids(&listed), [id]);
-    assert_eq!(listed[0]["kind"], "immich_sync");
+    assert_eq!(listed[0]["kind"], "index");
     assert_eq!(listed[0]["state"], "failed");
     assert_eq!(listed[0]["error"], "the server said no");
     assert!(listed[0]["finished_at"].is_i64(), "{}", listed[0]);
@@ -307,7 +307,7 @@ async fn an_error_message_never_leaks_a_url_with_credentials() {
     let app = TestApp::new().await;
     let tasks = &app.state.tasks;
     let id = tasks
-        .submit(spec(TaskKind::ImmichSync, "Sync Immich"), |_ctx| async {
+        .submit(spec(TaskKind::Index, "Index photos"), |_ctx| async {
             Err(TaskError::failed(
                 "cannot reach https://robot:hunter2@photos.example.com/api?key=abc123",
             ))

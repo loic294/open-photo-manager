@@ -541,7 +541,6 @@ describe('opm-settings-page', () => {
       expect(customElements.get('opm-settings-general')).toBeDefined();
       expect(tabs(page).map((candidate) => candidate.textContent?.trim())).toEqual([
         'General',
-        'Immich',
         'Sync Manager',
       ]);
       expect(selected(page)).toEqual(['general']);

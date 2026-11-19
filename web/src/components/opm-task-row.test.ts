@@ -270,8 +270,6 @@ describe('opm-task-row', () => {
       ['fs_trash', 'trash-2'],
       ['fs_rmdir', 'folder-x'],
       ['plan_execute', 'list-checks'],
-      ['immich_sync', 'cloud-download'],
-      ['immich_cleanup', 'cloud-upload'],
       ['trash_empty', 'brush-cleaning'],
     ] as [TaskKind, string][])('shows the %s task with the %s icon', async (kind, icon) => {
       const element = await row({ kind });

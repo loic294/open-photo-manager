@@ -16,8 +16,6 @@ const DEFAULT_DATA_DIR: &str = "/data";
 const DEFAULT_LISTEN: &str = "0.0.0.0:8080";
 const DEFAULT_LOG: &str = "info";
 const DEFAULT_WEB_DIR: &str = "./web/dist";
-const DEFAULT_IMMICH_QUIET_SECS: u64 = 15;
-const MAX_IMMICH_QUIET_SECS: u64 = 600;
 
 #[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
 pub enum WatchPolicy {
@@ -62,11 +60,6 @@ pub struct Config {
     /// `host:port` or `*.domain` (see `security::host`). `localhost` and IP
     /// literals are always allowed.
     pub allowed_hosts: Vec<String>,
-    /// `OPM_IMMICH_QUIET_SECS` (default 15, 1 to 600): how long file operations must have been
-    /// quiet before the changes they queued are mirrored into Immich (see `immich::outbox`).
-    pub immich_quiet_secs: u64,
-    /// Read-only secret file; its content is read/redacted only in the PostgreSQL adapter.
-    pub immich_database_url_file: Option<PathBuf>,
     /// `OPM_INDEX_CONCURRENCY` (default `min(2, cores)`, at least 1): files the
     /// indexer processes at once.
     pub index_concurrency: usize,
@@ -126,21 +119,6 @@ impl Config {
                 .map_err(|reason| ConfigError::new("OPM_ALLOWED_HOSTS", &raw, reason))?,
         };
 
-        let immich_quiet_secs = match var("OPM_IMMICH_QUIET_SECS") {
-            None => DEFAULT_IMMICH_QUIET_SECS,
-            Some(raw) => match raw.parse::<u64>() {
-                Ok(secs) if (1..=MAX_IMMICH_QUIET_SECS).contains(&secs) => secs,
-                Ok(_) => {
-                    return Err(ConfigError::new(
-                        "OPM_IMMICH_QUIET_SECS",
-                        &raw,
-                        format!("must be between 1 and {MAX_IMMICH_QUIET_SECS}"),
-                    ));
-                }
-                Err(err) => return Err(ConfigError::new("OPM_IMMICH_QUIET_SECS", &raw, err)),
-            },
-        };
-
         let watch_mode = match var("OPM_WATCH_MODE").as_deref() {
             None | Some("auto") => WatchPolicy::Auto,
             Some("watch") => WatchPolicy::Watch,
@@ -161,8 +139,6 @@ impl Config {
                 .map_or_else(|| PathBuf::from(DEFAULT_DATA_DIR), PathBuf::from),
             listen,
             allowed_hosts,
-            immich_quiet_secs,
-            immich_database_url_file: var("OPM_IMMICH_DATABASE_URL_FILE").map(PathBuf::from),
             index_concurrency,
             log: var("OPM_LOG").unwrap_or_else(|| DEFAULT_LOG.to_owned()),
             web_dir: var("OPM_WEB_DIR")
@@ -173,7 +149,7 @@ impl Config {
 
     /// Configuration rooted in `dir` for tests: `volumes/`, `data/` and `web/`
     /// below it, an ephemeral loopback port, `localhost` as the allowed host, a
-    /// single indexer worker and a one second quiet window for the Immich outbox.
+    /// single indexer worker.
     /// Does not create any directory.
     pub fn for_tests(dir: &Path) -> Self {
         Self {
@@ -181,8 +157,6 @@ impl Config {
             data_dir: dir.join("data"),
             listen: SocketAddr::from(([127, 0, 0, 1], 0)),
             allowed_hosts: vec!["localhost".to_owned()],
-            immich_quiet_secs: 1,
-            immich_database_url_file: None,
             index_concurrency: 1,
             log: "warn".to_owned(),
             web_dir: dir.join("web"),
@@ -212,7 +186,6 @@ mod tests {
         assert_eq!(config.data_dir, PathBuf::from("/data"));
         assert_eq!(config.listen, "0.0.0.0:8080".parse::<SocketAddr>().unwrap());
         assert!(config.allowed_hosts.is_empty());
-        assert_eq!(config.immich_quiet_secs, 15);
         assert_eq!(config.index_concurrency, 2);
         assert_eq!(config.log, "info");
         assert_eq!(config.web_dir, PathBuf::from("./web/dist"));
@@ -237,7 +210,6 @@ mod tests {
                 ("OPM_DATA_DIR", "/var/lib/opm"),
                 ("OPM_LISTEN", "127.0.0.1:9000"),
                 ("OPM_ALLOWED_HOSTS", "nas.local"),
-                ("OPM_IMMICH_QUIET_SECS", "45"),
                 ("OPM_INDEX_CONCURRENCY", "6"),
                 ("OPM_LOG", "debug,sqlx=warn"),
                 ("OPM_WEB_DIR", "/app/web"),
@@ -253,7 +225,6 @@ mod tests {
             "127.0.0.1:9000".parse::<SocketAddr>().unwrap()
         );
         assert_eq!(config.allowed_hosts, vec!["nas.local".to_owned()]);
-        assert_eq!(config.immich_quiet_secs, 45);
         assert_eq!(config.index_concurrency, 6);
         assert_eq!(config.log, "debug,sqlx=warn");
         assert_eq!(config.web_dir, PathBuf::from("/app/web"));
@@ -281,7 +252,6 @@ mod tests {
             lookup(&[
                 ("OPM_LISTEN", ""),
                 ("OPM_LOG", "   "),
-                ("OPM_IMMICH_QUIET_SECS", ""),
                 ("OPM_INDEX_CONCURRENCY", ""),
                 ("OPM_ALLOWED_HOSTS", " "),
             ]),
@@ -290,7 +260,6 @@ mod tests {
         .unwrap();
         assert_eq!(config.listen.port(), 8080);
         assert_eq!(config.log, "info");
-        assert_eq!(config.immich_quiet_secs, 15);
         assert_eq!(config.index_concurrency, 2);
         assert!(config.allowed_hosts.is_empty());
     }
@@ -365,19 +334,6 @@ mod tests {
         let zero = Config::from_lookup(lookup(&[("OPM_INDEX_CONCURRENCY", "0")]), 4).unwrap_err();
         assert_eq!(zero.var, "OPM_INDEX_CONCURRENCY");
         assert!(zero.to_string().contains("at least 1"));
-    }
-
-    #[test]
-    fn the_immich_quiet_window_is_between_one_and_six_hundred_seconds() {
-        for raw in ["1", "15", "600"] {
-            let config = Config::from_lookup(lookup(&[("OPM_IMMICH_QUIET_SECS", raw)]), 4).unwrap();
-            assert_eq!(config.immich_quiet_secs, raw.parse::<u64>().unwrap());
-        }
-        for raw in ["0", "601", "-1", "soon", "1.5"] {
-            let err =
-                Config::from_lookup(lookup(&[("OPM_IMMICH_QUIET_SECS", raw)]), 4).expect_err(raw);
-            assert_eq!(err.var, "OPM_IMMICH_QUIET_SECS", "{raw}");
-        }
     }
 
     #[test]

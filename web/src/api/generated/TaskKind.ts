@@ -3,4 +3,4 @@
 /**
  * What a background task does.
  */
-export type TaskKind = "index" | "fs_move" | "fs_trash" | "fs_rmdir" | "plan_execute" | "immich_sync" | "immich_cleanup" | "trash_empty";
+export type TaskKind = "index" | "fs_move" | "fs_trash" | "fs_rmdir" | "plan_execute" | "trash_empty";

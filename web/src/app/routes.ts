@@ -1,5 +1,4 @@
 import type { IconName } from '@/components/opm-icon';
-import { immichAttention } from '@/stores/immich';
 
 /** Where a route appears in the main menu. */
 export type MenuGroup = 'tools' | 'footer';
@@ -96,7 +95,6 @@ export const routes: readonly AppRoute[] = [
     label: 'Settings',
     icon: 'settings',
     menu: 'footer',
-    attention: () => immichAttention.value,
   },
 ];
 

@@ -187,68 +187,6 @@ async fn persisted_ism_binding_is_guarded_on_startup() {
 }
 
 #[tokio::test]
-async fn startup_refuses_legacy_immich_work_for_a_managed_volume() {
-    for (kind, queued, managed_is_source) in [
-        ("outbox", None, true),
-        ("outbox", None, false),
-        ("direct", Some(0), true),
-        ("direct", Some(1), false),
-        ("direct", Some(2), true),
-    ] {
-        let app = common::TestApp::new().await;
-        let (managed, _) = app.add_volume("photos").await;
-        let (other, _) = app.add_volume("other").await;
-        let (source, destination) = if managed_is_source {
-            (managed, other)
-        } else {
-            (other, managed)
-        };
-        sqlx::query("INSERT INTO ism_volume_roots (volume_id, root_id, root_name) VALUES (?, 'photos', 'Photos')")
-            .bind(managed)
-            .execute(app.state.db.write())
-            .await
-            .unwrap();
-        if kind == "outbox" {
-            sqlx::query(
-                "INSERT INTO immich_outbox (file_id, old_volume_id, old_dir, old_name, new_volume_id, new_dir, new_name, next_attempt_at, created_at)
-                 VALUES (1, ?, '', 'a.jpg', ?, '', 'b.jpg', 0, 0)",
-            )
-            .bind(source)
-            .bind(destination)
-            .execute(app.state.db.write())
-            .await
-            .unwrap();
-        } else {
-            sqlx::query(
-                "INSERT INTO immich_direct_move (old_volume_id, old_rel, new_volume_id, new_rel, request_json, file_id, prepared_at, queued)
-                 VALUES (?, 'a.jpg', ?, 'b.jpg', '{}', 1, 0, ?)",
-            )
-            .bind(source)
-            .bind(destination)
-            .bind(queued)
-            .execute(app.state.db.write())
-            .await
-            .unwrap();
-        }
-        let error = match opm_server::state::AppState::new((*app.state.config).clone()).await {
-            Ok(_) => panic!("{kind} work should block startup"),
-            Err(error) => error,
-        };
-        assert!(error.to_string().contains("unresolved legacy work"));
-        let sql = if kind == "outbox" {
-            "SELECT COUNT(*) FROM immich_outbox"
-        } else {
-            "SELECT COUNT(*) FROM immich_direct_move"
-        };
-        let count: i64 = sqlx::query_scalar(sql)
-            .fetch_one(app.state.db.read())
-            .await
-            .unwrap();
-        assert_eq!(count, 1);
-    }
-}
-
-#[tokio::test]
 async fn startup_refuses_pending_journal_entries_for_managed_volumes() {
     for managed_is_source in [true, false] {
         let app = common::TestApp::new().await;
@@ -286,61 +224,6 @@ async fn startup_refuses_pending_journal_entries_for_managed_volumes() {
                 .unwrap();
         assert_eq!(count, 1);
     }
-}
-
-#[tokio::test]
-async fn unrelated_legacy_immich_work_does_not_block_a_managed_volume() {
-    let app = common::TestApp::new().await;
-    let (managed, tree) = app.add_volume("photos").await;
-    let (other, _) = app.add_volume("other").await;
-    tree.write("a.jpg", PAYLOAD);
-    sqlx::query("INSERT INTO ism_volume_roots (volume_id, root_id, root_name) VALUES (?, 'photos', 'Photos')")
-        .bind(managed)
-        .execute(app.state.db.write())
-        .await
-        .unwrap();
-    sqlx::query(
-            "INSERT INTO fs_journal (op, state, src_volume_id, src_path, dst_volume_id, dst_path, created_at)
-             VALUES ('move', 'done', ?, 'old.jpg', ?, 'new.jpg', 0)",
-        )
-        .bind(managed)
-        .bind(managed)
-        .execute(app.state.db.write())
-        .await
-        .unwrap();
-    sqlx::query(
-        "INSERT INTO immich_outbox (file_id, old_volume_id, old_dir, old_name, new_volume_id, new_dir, new_name, next_attempt_at, created_at)
-         VALUES (1, ?, '', 'old.jpg', ?, '', 'new.jpg', 0, 0)",
-    )
-    .bind(other)
-    .bind(other)
-    .execute(app.state.db.write())
-    .await
-    .unwrap();
-    sqlx::query(
-        "INSERT INTO immich_direct_move (old_volume_id, old_rel, new_volume_id, new_rel, request_json, file_id, prepared_at, queued)
-         VALUES (?, 'old.jpg', ?, 'new.jpg', '{}', 1, 0, 1)",
-    )
-    .bind(other)
-    .bind(other)
-    .execute(app.state.db.write())
-    .await
-    .unwrap();
-    let restarted = opm_server::state::AppState::new((*app.state.config).clone())
-        .await
-        .unwrap();
-    assert_eq!(
-        restarted
-            .fsops
-            .trash_file(request(loc(managed, "a.jpg"), &TrashBatch::adhoc()), &cx())
-            .await
-            .unwrap_err()
-            .code(),
-        "ism_not_connected"
-    );
-    assert_eq!(fs::read(tree.path("a.jpg")).unwrap(), PAYLOAD);
-    restarted.begin_shutdown();
-    restarted.shutdown().await;
 }
 
 async fn restore(fx: &Fx, item: i64, policy: ConflictPolicy) -> RestoreOutcome {

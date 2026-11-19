@@ -23,8 +23,7 @@ do not forward port 8080 or expose it publicly. Back up your photos and the app'
   every file. [First start](docs/synology.md#first-start).
 - Set `TZ` before indexing and `OPM_ALLOWED_HOSTS` before opening the app by name.
   [Names and dates](docs/synology.md#names-and-dates).
-- Immich must see the same share through an external library. Mirroring is asynchronous and
-  metadata carry-over has limits. [Immich guide](docs/immich.md).
+- Use [Sync Manager](docs/ism.md) to link OPM volumes to Immich libraries.
 - Still images such as HEIC, TIFF and RAW get JPEG viewer renditions. Video is streamed unchanged;
   a thumbnail does not mean the browser supports its codec.
   [Media troubleshooting](docs/troubleshooting.md#browsing-and-media).
@@ -180,7 +179,7 @@ These guides describe the repository implementation. A published development ima
 | Guide | For |
 |---|---|
 | [Synology](docs/synology.md) | Installation checks, permissions, indexing, updates and backups |
-| [Immich](docs/immich.md) | Connection, external-library mappings and safe asynchronous mirroring |
+| [Sync Manager](docs/ism.md) | Connection, volume bindings, shared settings and Immich badges |
 | [Usage](docs/usage.md) | Browsing, duplicate matching, moving, formatting, batch rename, cleanup, settings and trash |
 | [Windows hosts](docs/windows.md) | Docker Desktop, SQLite data storage, mount behavior and unverified Windows-specific limitations |
 | [Troubleshooting](docs/troubleshooting.md) | Symptoms, error codes and local diagnostics |
@@ -200,8 +199,7 @@ Replace `SERVER_PORT` and `WEB_PORT` with unused numeric ports in both commands.
 terminals. Destructive checks use a copy of the fixture volumes and a separate `OPM_DATA_DIR`.
 
 `make check` covers Rust, web and Compose; `make check-docs` covers documentation contracts.
-`make check-tools` checks the separate developer tools. `make mock-immich` starts the shared test
-service; [its reference](tools/mock-immich/README.md) explains scenarios and isolated mounts.
+`make check-tools` checks the end-to-end harness.
 `make docker-smoke` builds and exercises the production image; it is not a DSM test.
 
 | Path | Contents |

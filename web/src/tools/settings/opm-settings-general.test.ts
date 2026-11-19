@@ -5,6 +5,7 @@ import type { OpmChipInput } from '@/components/opm-chip-input';
 import type { OpmSelect } from '@/components/opm-select';
 import { refreshIndexStatus, resetIndexStatusForTests } from '@/stores/index-status';
 import { dateDisplayFormat } from '@/stores/prefs';
+import { loadSettings } from '@/stores/settings';
 import { clearToasts, toasts } from '@/stores/toasts';
 import { loadVolumes, resetVolumesForTests } from '@/stores/volumes';
 import { mount } from '@/test/helpers';
@@ -163,6 +164,35 @@ async function removeEntry(element: Form, name: string, entry: string): Promise<
 
 /** Makes the form differ from the server's document. */
 const makeDirty = (element: Form) => typeNumber(element, 'name_max_len', '200');
+
+it('shows managed file rules, updates them live, and keeps other fields editable', async () => {
+  const local = sampleSettings({ name_max_len: 199 });
+  const remote = {
+    ...local,
+    file_settings_source: { instance_name: 'Local ISM', primary_name: 'Primary NAS', ready: true },
+    name_max_len: 143,
+    sidecar_extensions: ['xmp'],
+  };
+  const { element } = await open(local, ok(remote), ok(local));
+  await flip(element, 'keep-cross-volume-source', !local.keep_cross_volume_source_in_trash);
+  await loadSettings();
+  await element.updateComplete;
+  expect(element.textContent).toContain('Managed by Local ISM (primary: Primary NAS)');
+  expect(field(element, 'name_max_len').value).toBe('143');
+  expect(field(element, 'name_max_len').disabled).toBe(true);
+  for (const id of ['sidecar_extensions', 'junk_names', 'junk_prefixes']) {
+    expect(chips(element, id).disabled).toBe(true);
+  }
+  expect(byId(element, 'keep-cross-volume-source').disabled).toBe(false);
+  expect(byId(element, 'keep-cross-volume-source').checked).toBe(
+    !local.keep_cross_volume_source_in_trash,
+  );
+  await loadSettings();
+  await element.updateComplete;
+  expect(field(element, 'name_max_len').value).toBe('199');
+  expect(field(element, 'name_max_len').disabled).toBe(false);
+  expect(save(element)).toBeDefined();
+});
 
 async function pressSave(element: Form): Promise<void> {
   save(element).click();

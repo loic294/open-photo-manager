@@ -197,7 +197,6 @@ After a search, the source picker also shows matching counts from the current pl
    You should see: a final count and destination in the confirmation. Folders left empty by a move
    remain; use **Empty folder cleanup** separately.
 
-3. For an Immich-tracked move, see [direct path updates](immich.md#direct-path-updates-for-tracked-moves).
    If a move result includes `shared_sidecar_retained`, the assets moved and the result names the
    retained original sidecar path: an identical sidecar was already at that destination. That is
    not a skipped asset. The first successful owner for each distinct sidecar destination gets a
@@ -338,11 +337,11 @@ times remain wall-clock times; file timestamps still use the applicable timezone
    at the next start. On a bound volume OPM never changes files itself: plan moves, folder moves,
    new folders and trash are sent to ISM in batches and the task shows each item as ISM reports it. **Replace**, copies and
    moves between bound and unbound volumes are refused there, and changes fail while ISM refuses
-   writes to the root (the settings show each root's state and ISM's reason). See [Immich Sync Manager](immich.md#immich-sync-manager-ism).
+   writes to the root (the settings show each root's state and ISM's reason). See [Immich Sync Manager](ism.md).
 
 4. **Indexing** controls scans, hashing, thumbnails, watches and periodic repair.
    The top-right task indicator lets background work proceed without locking the rest of the app.
-   Up to three tasks run at once across indexing, file operations and Immich; additional tasks
+   Up to three tasks run at once across indexing and file operations; additional tasks
    wait in submission order. Multiple move/delete tasks can progress together. Each file or
    owner/sidecar group is rechecked and changed as one synchronized unit, so tasks interleave
    between items rather than racing a duplicate's last surviving copy.
@@ -502,12 +501,10 @@ minutes use `{min}`. Month names are English. The sample is `IMG_0042.CR3`, capt
    You should see: a background index task while the app remains usable.
 
 2. **Settings** > **General** controls sidecars, ignored names/prefixes, conflict policy, generated
-   name length, trash retention and indexing. **Settings** > **Immich** contains the Immich
-   connection, library mappings, sync and outbox. Database URL configuration for direct move
-   updates is outside Settings; see the [Immich guide](immich.md).
+   name length, trash retention and indexing. When [Sync Manager](ism.md) supplies file rules,
+   the **Files and sidecars** section shows its values and is read-only. Other settings remain editable.
 
-   You should see: unsaved General settings expose **Save** and **Discard**; Immich settings show
-   the connection and sync status without exposing the database secret.
+   Unsaved General settings expose **Save** and **Discard**.
 
 ## Install as an app
 
@@ -523,7 +520,7 @@ media or API responses; file changes are not queued while offline.
 New tasks keep their saved requests and checkpoints across server restarts, including file-changing
 tasks. They resume automatically using the same task ID. Completed file operations are recognized
 from the filesystem journal, rather than applied twice. Scans resume directory batches and pipeline
-stages, Immich resumes committed pages, and plan/trash operations resume completed items.
+stages, and plan/trash operations resume completed items.
 An unfinished file copy may be retried from its beginning; byte-offset copy resumption is not supported.
 Explicitly cancelled tasks do not restart. Tasks created by an older version without saved requests
 remain interrupted and must be submitted again.

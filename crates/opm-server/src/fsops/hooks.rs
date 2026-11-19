@@ -1,47 +1,12 @@
 //! Hooks that run INSIDE the transaction that makes an operation's index change final.
 //!
-//! The Immich outbox and the trash management register one through
-//! [`FsOps::with_hook`](super::FsOps::with_hook) so that "the file moved" and "an outbox row was
-//! queued" commit or roll back together.
-//!
-//! # Contract
-//! * The hook runs on the transaction connection: use `&mut *tx` for every statement, never the
-//!   pool (the database has one writer connection and the transaction holds it).
-//! * It runs once per applied operation, after the `files` rows reached their final state, with
-//!   ONE exception: [`AppliedOp::Trashed`] is delivered BEFORE the `files` rows are deleted (the
-//!   foreign keys cascade, so the rows and what hangs on them must still be readable).
-//! * Hooks are called in registration order. A hook that fails rolls the transaction back; the
-//!   file operation then returns `internal` and leaves its journal row `pending`, so `reconcile`
-//!   runs the hooks again. Hooks therefore MUST be idempotent.
-//! * Keep a hook short: it holds the only write connection.
+//! Register hooks with [`FsOps::with_hook`](super::FsOps::with_hook).
 
 use futures_util::future::BoxFuture;
 use opm_core::paths::{FileId, RelPath, VolumeId};
 use sqlx::SqliteConnection;
 
 use super::Loc;
-
-/// Executor guard before a final destination is touched. Unlike OpHook, this
-/// runs outside SQLite transactions and may wait for an external service.
-pub trait MoveGuard: Send + Sync {
-    fn check<'a>(
-        &'a self,
-        src: &'a Loc,
-        dst: &'a Loc,
-        sidecars: &'a [(Loc, Loc)],
-    ) -> BoxFuture<'a, Result<(), super::FsOpError>>;
-    /// Drops only inert intent for this attempt. An identical sidecar destination
-    /// is a verified copy even though the transfer did not fire an OpHook.
-    fn settled<'a>(
-        &'a self,
-        src: &'a Loc,
-        dst: &'a Loc,
-        identical: bool,
-    ) -> BoxFuture<'a, Result<(), super::FsOpError>> {
-        let _ = (src, dst, identical);
-        Box::pin(async { Ok(()) })
-    }
-}
 
 /// What an operation did, as the hooks see it. The data is owned so a hook can keep it.
 #[derive(Debug, Clone, PartialEq, Eq)]

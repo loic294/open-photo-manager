@@ -142,16 +142,6 @@ versions; all DSM UI procedures below are not verified on a DSM device.
    You should see: dates without usable camera metadata use the intended local calendar date.
    A cross-volume copy can reset filesystem birth time; keep backups of originals.
 
-## Optional Immich path updates
-
-1. If OPM should update Immich's existing asset when moving a tracked file within a mapped library,
-   follow [Immich direct database access](../docker/README.md#immich-direct-database-access).
-   The optional `OPM_IMMICH_DATABASE_URL_FILE` setting points to a read-only secret file; it is
-   not entered in **Settings**. A DSM-style host path such as
-   `/volume1/docker/opm/secrets/immich-database-url` is an example, not verified on a DSM device.
-
-   You should see: **Settings** > **Immich** reports database readiness without showing the secret.
-
 ## Watcher and rescan fallback
 
 1. Inspect the read-only status from a trusted client:
@@ -186,7 +176,7 @@ versions; all DSM UI procedures below are not verified on a DSM device.
 ## Backups, updates and removal
 
 1. Back up the whole `/data` mount while the app is stopped, plus your photo shares and Compose file.
-   `/data/opm.db` contains more than an index: settings, Immich connection/mappings and file/trash
+   `/data/opm.db` contains more than an index: settings, Sync Manager connection and bindings and file/trash
    journals are not disposable. Keep `/data/immich.key` with the database: without it, the encrypted
    API key cannot be recovered after restart. The index and thumbnail cache can be regenerated;
    that does not make the entire database safe to discard. `/data/tmp` is scratch, cleared at startup.

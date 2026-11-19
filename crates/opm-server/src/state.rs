@@ -11,7 +11,6 @@ use tokio_util::sync::CancellationToken;
 use crate::config::Config;
 use crate::db;
 use crate::fsops;
-use crate::immich;
 use crate::indexer;
 use crate::ism;
 use crate::media;
@@ -28,9 +27,6 @@ pub struct AppState {
     pub config: Arc<Config>,
     pub db: db::Db,
     pub fsops: fsops::FsOps,
-    pub immich: immich::ImmichService,
-    pub immich_outbox: immich::ImmichOutbox,
-    pub immich_sync: immich::ImmichSync,
     pub index_jobs: indexer::IndexJobs,
     pub indexer: indexer::Indexer,
     pub ism: ism::IsmService,
@@ -64,9 +60,13 @@ impl AppState {
 
         let shutdown = CancellationToken::new();
 
-        let ism = ism::IsmService::new(db.clone(), config.data_dir.clone());
-
         let tasks = tasks::TaskEngine::new(db.clone(), shutdown.clone()).await?;
+        let ism = ism::IsmService::new(
+            db.clone(),
+            config.data_dir.clone(),
+            settings.clone(),
+            tasks.clone(),
+        );
 
         let volumes = indexer::VolumeRegistry::load_with_policy_and_capabilities(
             db.clone(),
@@ -91,26 +91,6 @@ impl AppState {
             )))
             .with_thumbnailer(Arc::new(media.clone()));
 
-        let outbox_signal = immich::outbox::OutboxSignal::new();
-
-        let immich = immich::ImmichService::with_move_database(
-            db.clone(),
-            config.data_dir.clone(),
-            Arc::new(immich::direct_db::PostgresMoves::new(
-                config.immich_database_url_file.clone(),
-            )),
-        );
-        let immich_sync = immich::ImmichSync::new(db.clone(), immich.clone(), tasks.clone());
-        let immich_outbox = immich::ImmichOutbox::new(
-            db.clone(),
-            immich.clone(),
-            immich_sync.clone(),
-            tasks.clone(),
-            volumes.clone(),
-            outbox_signal.clone(),
-            config.immich_quiet_secs,
-        );
-
         let fsops = fsops::FsOps::new(
             db.clone(),
             volumes.clone(),
@@ -118,11 +98,7 @@ impl AppState {
             indexer.clone(),
         )
         .with_delegate(Arc::new(ism.clone()))
-        .with_managed_volumes(Arc::new(managed_volumes))
-        .with_hook(Arc::new(immich::outbox::OutboxHook::new(
-            outbox_signal.clone(),
-        )))
-        .with_move_guard(Arc::new(immich_outbox.clone()));
+        .with_managed_volumes(Arc::new(managed_volumes));
         fsops.reconcile_at_startup(shutdown.clone()).await;
 
         let index_jobs = indexer::IndexJobs::new(
@@ -164,9 +140,6 @@ impl AppState {
             config,
             db,
             fsops,
-            immich,
-            immich_outbox,
-            immich_sync,
             index_jobs,
             indexer,
             ism,

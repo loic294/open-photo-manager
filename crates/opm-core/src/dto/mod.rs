@@ -20,7 +20,6 @@ pub mod common;
 pub mod duplicates;
 pub mod files;
 pub mod format;
-pub mod immich;
 pub mod index;
 pub mod ism;
 pub mod moves;
@@ -43,7 +42,6 @@ pub use format::*;
 // The next three modules are still empty; the allow stays so their owners never
 // need to touch this file.
 #[allow(unused_imports)]
-pub use immich::*;
 pub use index::*;
 pub use ism::*;
 pub use moves::*;

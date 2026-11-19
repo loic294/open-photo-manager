@@ -63,12 +63,21 @@ function isServerEvent(value: unknown): value is ServerEvent {
       return typeof event.task === 'object' && event.task !== null;
     case 'fs_change':
       return typeof event.volume_id === 'number' && Array.isArray(event.dirs);
+    case 'immich_assets_changed':
+      return typeof event.volume_id === 'number';
+    case 'settings_changed':
+      return true;
     default:
       return false;
   }
 }
 
-const KNOWN_TYPES: readonly unknown[] = ['task', 'fs_change'];
+const KNOWN_TYPES: readonly unknown[] = [
+  'task',
+  'fs_change',
+  'immich_assets_changed',
+  'settings_changed',
+];
 
 export function createEventsClient(options: EventsClientOptions = {}): EventsClient {
   const url = options.url ?? '/api/events';
@@ -81,6 +90,8 @@ export function createEventsClient(options: EventsClientOptions = {}): EventsCli
   const handlers: { [T in ServerEventType]: Set<EventHandler<T>> } = {
     task: new Set(),
     fs_change: new Set(),
+    immich_assets_changed: new Set(),
+    settings_changed: new Set(),
   };
   const resyncHandlers = new Set<() => void>();
 

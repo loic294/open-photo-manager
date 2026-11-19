@@ -128,14 +128,10 @@ the watcher status and volume details in the app; the host warning codes are `vo
 `unreliable_volume_inodes` (some file operations may fail safely). See the
 [Docker reference](../docker/README.md#watch-policy).
 
-## Immich connectivity
+## Sync Manager connectivity
 
-Immich must be reachable from the OPM container. If both services are attached to a shared Docker
-network, use Immich's service name and container port; separate Compose projects do not share a
-network automatically. Docker Desktop documents `host.docker.internal` for reaching a service on
-the host ([networking guide](https://docs.docker.com/desktop/features/networking/)), but that route
-is general Docker Desktop guidance and has not been verified on a Windows machine. See the
-[Immich guide](immich.md#prerequisites-and-shared-paths) for external library path mappings.
+Sync Manager must be reachable from the OPM container. See [Sync Manager](ism.md) for
+connection and binding requirements.
 
 ## Restart and scope
 

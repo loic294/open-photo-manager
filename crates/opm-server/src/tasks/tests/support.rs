@@ -50,11 +50,6 @@ pub(super) fn index() -> TaskSpec {
     TaskSpec::new(TaskKind::Index, "Index photos")
 }
 
-/// A task of the `immich` lane.
-pub(super) fn immich() -> TaskSpec {
-    TaskSpec::new(TaskKind::ImmichSync, "Sync Immich")
-}
-
 /// An engine on a private database.
 pub(super) struct Harness {
     // Declared before `db`: the engine goes away first.

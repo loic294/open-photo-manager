@@ -372,6 +372,26 @@ export class OpmSettingsGeneral extends OpmElement {
     if (this.baseline === null) void this.load();
   }
 
+  protected override willUpdate(): void {
+    const latest = settings.value;
+    if (!latest || !this.baseline || !this.draft) return;
+    if (!latest.file_settings_source && !this.baseline.file_settings_source) return;
+    const files = {
+      file_settings_source: latest.file_settings_source,
+      sidecar_extensions: latest.sidecar_extensions,
+      junk_names: latest.junk_names,
+      junk_prefixes: latest.junk_prefixes,
+      name_max_len: latest.name_max_len,
+    };
+    const baseline = { ...this.baseline, ...files };
+    if (same(baseline, this.baseline)) return;
+    this.baseline = baseline;
+    this.draft = { ...this.draft, ...files };
+    const problems = new Map(this.fieldProblems);
+    for (const field of [...LIST_FIELDS, 'name_max_len'] as const) problems.delete(field);
+    this.fieldProblems = problems;
+  }
+
   protected override updated(): void {
     this.unsavedGuard.sync();
     if (this.saving || this.pendingFocus === null) return;
@@ -596,13 +616,24 @@ export class OpmSettingsGeneral extends OpmElement {
   }
 
   private renderFiles(doc: SettingsDto) {
+    const source = doc.file_settings_source;
     return html`
-      <fieldset class=${CARD} ?disabled=${this.saving}>
+      <fieldset class=${CARD} ?disabled=${this.saving || !!source}>
         <legend class="fieldset-legend text-base">Files and sidecars</legend>
+        ${
+          source
+            ? note(
+                source.ready
+                  ? `Managed by ${source.instance_name}${source.primary_name ? ` (primary: ${source.primary_name})` : ''}. Edit these values in Sync Manager.`
+                  : `Waiting for file settings from ${source.instance_name}. Showing local values for now.`,
+              )
+            : nothing
+        }
         ${LIST_FIELDS.map((field) => this.listField(doc, field))} ${note(NOTE_LISTS)}
         ${this.numberField(doc, {
           field: 'name_max_len',
           label: 'Longest generated name',
+          disabled: !!source,
           unit: 'bytes',
           hint: `Names the app generates, such as name_1.jpg, stay within this length. Encrypted shares only allow ${ENCRYPTED_SHARE_NAME_LEN}.`,
         })}
@@ -858,7 +889,7 @@ export class OpmSettingsGeneral extends OpmElement {
         .validateEntry=${spec.validate}
         .error=${problem?.message ?? ''}
         .errorIndexes=${problem?.indexes ?? NO_INDEXES}
-        .disabled=${this.saving}
+        .disabled=${this.saving || !!doc.file_settings_source}
         @values-change=${(event: ChipValuesChange) => this.setList(field, event.detail.values)}
       ></opm-chip-input>
     `;

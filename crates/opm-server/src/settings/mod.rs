@@ -26,7 +26,10 @@ use std::sync::Arc;
 
 use anyhow::Context as _;
 use axum::http::StatusCode;
-use opm_core::dto::{FieldError, SettingsDto, ValidationErrorBody};
+use opm_core::dto::{
+    FieldError, FileSettings, FileSettingsSource, SettingsDto, ValidationErrorBody,
+};
+use serde::{Deserialize, Serialize};
 use serde_json::Value;
 use thiserror::Error;
 use tokio::sync::{Mutex, watch};
@@ -52,9 +55,36 @@ struct Inner {
     db: Db,
     defaults: Settings,
     current: watch::Sender<Arc<Settings>>,
+    local: watch::Sender<Arc<Settings>>,
     /// Held while a document is stored and published, so that racing updates can not leave the
     /// table and the snapshot holding different documents.
     update_lock: Mutex<()>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub(crate) struct ManagedFiles {
+    pub source: FileSettingsSource,
+    pub files: Option<FileSettings>,
+}
+
+impl ManagedFiles {
+    pub(crate) fn pending(instance_name: &str) -> Self {
+        Self {
+            source: FileSettingsSource {
+                instance_name: instance_name.to_owned(),
+                primary_name: None,
+                ready: false,
+            },
+            files: None,
+        }
+    }
+
+    fn apply(self, settings: &mut Settings) {
+        if let Some(files) = self.files {
+            files.apply(settings);
+        }
+        settings.file_settings_source = Some(self.source);
+    }
 }
 
 impl SettingsService {
@@ -90,15 +120,19 @@ impl SettingsService {
             },
         };
 
+        let (local, _) = watch::channel(Arc::new(settings.clone()));
         let (current, _) = watch::channel(Arc::new(settings));
-        Ok(Self {
+        let service = Self {
             inner: Arc::new(Inner {
                 db,
                 defaults,
                 current,
+                local,
                 update_lock: Mutex::new(()),
             }),
-        })
+        };
+        service.reload_managed_files().await?;
+        Ok(service)
     }
 
     /// The current settings.
@@ -136,7 +170,12 @@ impl SettingsService {
         let service = self.clone();
         tokio::spawn(async move {
             let _one_update_at_a_time = service.inner.update_lock.lock().await;
-            let proposed = change(&service.get())?;
+            let local = Arc::clone(&service.inner.local.borrow());
+            let mut proposed = change(&local)?;
+            let effective = service.get();
+            if effective.file_settings_source.is_some() {
+                FileSettings::from_settings(&local).apply(&mut proposed);
+            }
             let settings = proposed.normalized().map_err(ValidationError::new)?;
             let document = serde_json::to_string(&settings)?;
             service.store_and_publish(settings, &document).await
@@ -161,7 +200,18 @@ impl SettingsService {
         .await
         .map_err(DbError::from)?;
 
-        let published = Arc::new(settings);
+        self.inner.local.send_replace(Arc::new(settings.clone()));
+        let mut effective = settings;
+        let previous = self.get();
+        if previous.file_settings_source.is_some() {
+            FileSettings::from_settings(&previous).apply(&mut effective);
+            effective.file_settings_source = previous.file_settings_source.clone();
+        }
+        Ok(self.publish(effective))
+    }
+
+    fn publish(&self, effective: Settings) -> Arc<Settings> {
+        let published = Arc::new(effective);
         self.inner.current.send_if_modified(|current| {
             if **current == *published {
                 false
@@ -170,7 +220,41 @@ impl SettingsService {
                 true
             }
         });
-        Ok(published)
+        published
+    }
+
+    pub(crate) async fn reload_managed_files(&self) -> anyhow::Result<()> {
+        let _guard = self.inner.update_lock.lock().await;
+        let cached: Option<String> =
+            sqlx::query_scalar("SELECT file_settings FROM ism_connection WHERE id = 1")
+                .fetch_optional(self.inner.db.read())
+                .await?
+                .flatten();
+        self.publish_managed(cached.as_deref().map(serde_json::from_str).transpose()?);
+        Ok(())
+    }
+
+    pub(crate) async fn store_managed_files(
+        &self,
+        managed: Option<ManagedFiles>,
+    ) -> anyhow::Result<bool> {
+        let _guard = self.inner.update_lock.lock().await;
+        let cached = managed.as_ref().map(serde_json::to_string).transpose()?;
+        sqlx::query("UPDATE ism_connection SET file_settings = ? WHERE id = 1")
+            .bind(cached)
+            .execute(self.inner.db.write())
+            .await?;
+        let previous = self.get();
+        self.publish_managed(managed);
+        Ok(previous != self.get())
+    }
+
+    fn publish_managed(&self, managed: Option<ManagedFiles>) {
+        let mut effective = self.inner.local.borrow().as_ref().clone();
+        if let Some(managed) = managed {
+            managed.apply(&mut effective);
+        }
+        self.publish(effective);
     }
 }
 

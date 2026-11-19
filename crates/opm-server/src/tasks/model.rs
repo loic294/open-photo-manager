@@ -29,13 +29,11 @@ pub enum Lane {
     Fs,
     /// Scanning, metadata extraction, hashing and thumbnails.
     Index,
-    /// Immich synchronisation and clean-up.
-    Immich,
 }
 
 impl Lane {
     /// Every lane, in the order the scheduler considers them.
-    pub const ALL: [Self; 3] = [Self::Fs, Self::Index, Self::Immich];
+    pub const ALL: [Self; 2] = [Self::Fs, Self::Index];
 
     /// The lane a kind of task belongs to unless the submitter says otherwise.
     pub const fn for_kind(kind: TaskKind) -> Self {
@@ -46,15 +44,12 @@ impl Lane {
             | TaskKind::FsRmdir
             | TaskKind::PlanExecute
             | TaskKind::TrashEmpty => Self::Fs,
-            TaskKind::ImmichSync | TaskKind::ImmichCleanup => Self::Immich,
         }
     }
 
     /// Any lane may use all three shared task slots.
     pub const fn default_concurrency(self) -> usize {
-        match self {
-            Self::Fs | Self::Index | Self::Immich => super::lanes::MAX_RUNNING,
-        }
+        super::lanes::MAX_RUNNING
     }
 
     /// The value stored in `tasks.lane`.
@@ -62,7 +57,6 @@ impl Lane {
         match self {
             Self::Fs => "fs",
             Self::Index => "index",
-            Self::Immich => "immich",
         }
     }
 }
@@ -217,8 +211,6 @@ pub(super) fn kind_to_db(kind: TaskKind) -> &'static str {
         TaskKind::FsTrash => "fs_trash",
         TaskKind::FsRmdir => "fs_rmdir",
         TaskKind::PlanExecute => "plan_execute",
-        TaskKind::ImmichSync => "immich_sync",
-        TaskKind::ImmichCleanup => "immich_cleanup",
         TaskKind::TrashEmpty => "trash_empty",
     }
 }
@@ -230,8 +222,6 @@ pub(super) fn kind_from_db(value: &str) -> Result<TaskKind, InvalidDbValue> {
         "fs_trash" => Ok(TaskKind::FsTrash),
         "fs_rmdir" => Ok(TaskKind::FsRmdir),
         "plan_execute" => Ok(TaskKind::PlanExecute),
-        "immich_sync" => Ok(TaskKind::ImmichSync),
-        "immich_cleanup" => Ok(TaskKind::ImmichCleanup),
         "trash_empty" => Ok(TaskKind::TrashEmpty),
         other => Err(invalid("tasks.kind", other)),
     }
@@ -252,14 +242,12 @@ mod tests {
         (TaskState::Interrupted, "interrupted"),
     ];
 
-    const KINDS: [TaskKind; 8] = [
+    const KINDS: [TaskKind; 6] = [
         TaskKind::Index,
         TaskKind::FsMove,
         TaskKind::FsTrash,
         TaskKind::FsRmdir,
         TaskKind::PlanExecute,
-        TaskKind::ImmichSync,
-        TaskKind::ImmichCleanup,
         TaskKind::TrashEmpty,
     ];
 
@@ -289,7 +277,7 @@ mod tests {
     #[test]
     fn lanes_are_stored_under_their_lowercase_name() {
         let names: Vec<&str> = Lane::ALL.iter().map(|lane| lane.as_str()).collect();
-        assert_eq!(names, ["fs", "index", "immich"]);
+        assert_eq!(names, ["fs", "index"]);
     }
 
     #[test]
@@ -301,8 +289,6 @@ mod tests {
             (TaskKind::FsRmdir, Lane::Fs),
             (TaskKind::PlanExecute, Lane::Fs),
             (TaskKind::TrashEmpty, Lane::Fs),
-            (TaskKind::ImmichSync, Lane::Immich),
-            (TaskKind::ImmichCleanup, Lane::Immich),
         ];
         assert_eq!(expected.len(), KINDS.len());
         for (kind, lane) in expected {
@@ -315,7 +301,6 @@ mod tests {
     fn default_concurrency_is_three_per_lane() {
         assert_eq!(Lane::Fs.default_concurrency(), 3);
         assert_eq!(Lane::Index.default_concurrency(), 3);
-        assert_eq!(Lane::Immich.default_concurrency(), 3);
     }
 
     #[test]

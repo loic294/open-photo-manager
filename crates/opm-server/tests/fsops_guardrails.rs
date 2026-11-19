@@ -31,6 +31,11 @@ const FSOPS_DIR: &str = "opm-server/src/fsops/";
 /// here with a justification. Keep the list sorted by path.
 const ALLOWED_OUTSIDE_FSOPS: &[(&str, usize, &str)] = &[
     (
+        "opm-server/src/crypto.rs",
+        1,
+        "replaces an unusable token encryption key in the app's own data directory",
+    ),
+    (
         "opm-server/src/db/mod.rs",
         1,
         "the SQLite WAL probe removes its temporary database and sidecars in the app's own data directory",
@@ -39,11 +44,6 @@ const ALLOWED_OUTSIDE_FSOPS: &[(&str, usize, &str)] = &[
         "opm-server/src/hostfs/probe.rs",
         1,
         "the volume capability probe removes the uniquely named file it has just created in the volume root",
-    ),
-    (
-        "opm-server/src/immich/crypto.rs",
-        1,
-        "replaces an unusable Immich key file in the app's own data directory",
     ),
     (
         "opm-server/src/media/cache.rs",

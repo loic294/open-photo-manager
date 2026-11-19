@@ -169,8 +169,7 @@
 //!   microseconds would lose its file.
 //!
 //! # Seams for other modules
-//! * [`OpHook`] runs INSIDE the transaction that finalises an operation (the Immich outbox
-//!   enqueues there); register with [`FsOps::with_hook`] BEFORE `reconcile_at_startup`, which
+//! * [`OpHook`] runs INSIDE the transaction that finalises an operation; register with [`FsOps::with_hook`] BEFORE `reconcile_at_startup`, which
 //!   runs the hooks of the operations it finishes. Hooks must be idempotent.
 //! * [`SelfWrites`] (from [`FsOps::self_writes`]) remembers the folders this module changed, so
 //!   the filesystem watcher skips the app's own changes.
@@ -229,7 +228,7 @@ pub use failpoints::{FailAction, Failpoints, Step};
 pub use groups::{
     GroupOutcome, MoveGroup, SidecarAction, SidecarItem, SidecarOutcome, SidecarSkip,
 };
-pub use hooks::{AppliedOp, MoveGuard, OpHook};
+pub use hooks::{AppliedOp, OpHook};
 pub(crate) use managed::Delegated;
 pub use managed::{
     Delegate, IsmAction, IsmBatch, IsmBinding, IsmFile, IsmItem, IsmLocation,
@@ -340,7 +339,6 @@ pub struct FsOps {
     delegate: Option<Arc<dyn Delegate>>,
     hooks: Arc<Vec<Arc<dyn OpHook>>>,
     managed_volumes: Option<Arc<dyn ManagedVolumes>>,
-    move_guard: Option<Arc<dyn MoveGuard>>,
     self_writes: SelfWrites,
     pub(crate) mover: Arc<dyn Mover>,
     pub(crate) free_space: Arc<dyn FreeSpace>,
@@ -375,7 +373,6 @@ impl FsOps {
             delegate: None,
             hooks: Arc::default(),
             managed_volumes: None,
-            move_guard: None,
             self_writes: SelfWrites::new(),
             mover: Arc::new(SystemMover),
             free_space: Arc::new(SystemFreeSpace),
@@ -407,12 +404,6 @@ impl FsOps {
         self
     }
 
-    #[must_use]
-    pub fn with_move_guard(mut self, guard: Arc<dyn MoveGuard>) -> Self {
-        self.move_guard = Some(guard);
-        self
-    }
-
     /// Installs the immutable binding snapshot before operations and recovery begin.
     #[must_use]
     pub fn with_managed_volumes(mut self, managed: Arc<dyn ManagedVolumes>) -> Self {
@@ -425,18 +416,6 @@ impl FsOps {
             return Err(FsOpError::IsmManaged);
         }
         Ok(())
-    }
-
-    pub(crate) async fn guard_move(
-        &self,
-        src: &Loc,
-        dst: &Loc,
-        sidecars: &[(Loc, Loc)],
-    ) -> Result<(), FsOpError> {
-        match &self.move_guard {
-            Some(guard) => guard.check(src, dst, sidecars).await,
-            None => Ok(()),
-        }
     }
 
     /// Replaces the rename backend (tests force the cross-device copy with it).

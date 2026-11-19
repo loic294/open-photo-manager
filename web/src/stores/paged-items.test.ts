@@ -1110,7 +1110,7 @@ describe('PagedItems: dispose', () => {
     const flying = server.call(200);
     paged.get(400);
     bus.fsChange(1, 'a/b');
-    expect(bus.subscriptions()).toBe(2);
+    expect(bus.subscriptions()).toBe(3);
 
     paged.dispose();
 

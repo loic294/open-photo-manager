@@ -28,11 +28,14 @@ use crate::names::normalize_name;
 
 /// Application settings: the complete document, read and written at once.
 ///
-/// Every field is required in a `PUT`; unknown fields are ignored. The server answers with the
-/// normalised document (extensions lowercased and de-duplicated, ...).
+/// The read-only `file_settings_source` is present when ISM manages file rules and is ignored
+/// on save. Unknown fields are ignored. The server answers with the normalised document.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, TS)]
 #[ts(export)]
 pub struct SettingsDto {
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[ts(optional)]
+    pub file_settings_source: Option<FileSettingsSource>,
     /// IANA timezone for daily statistics. Historical daily buckets keep their original timezone.
     #[serde(default = "default_statistics_timezone")]
     pub statistics_timezone: String,
@@ -70,6 +73,42 @@ pub struct SettingsDto {
     /// Changed through the soft-excluded-folders endpoints; a settings PUT preserves this list.
     #[serde(default)]
     pub soft_excluded_folders: Vec<ExcludedFolder>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, TS)]
+#[ts(export)]
+pub struct FileSettingsSource {
+    pub instance_name: String,
+    pub primary_name: Option<String>,
+    /// False until the first successful fetch.
+    pub ready: bool,
+}
+
+/// The file rules shared with ISM.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct FileSettings {
+    pub sidecar_extensions: Vec<String>,
+    pub junk_names: Vec<String>,
+    pub junk_prefixes: Vec<String>,
+    pub name_max_len: u16,
+}
+
+impl FileSettings {
+    pub fn from_settings(settings: &SettingsDto) -> Self {
+        Self {
+            sidecar_extensions: settings.sidecar_extensions.clone(),
+            junk_names: settings.junk_names.clone(),
+            junk_prefixes: settings.junk_prefixes.clone(),
+            name_max_len: settings.name_max_len,
+        }
+    }
+
+    pub fn apply(self, settings: &mut SettingsDto) {
+        settings.sidecar_extensions = self.sidecar_extensions;
+        settings.junk_names = self.junk_names;
+        settings.junk_prefixes = self.junk_prefixes;
+        settings.name_max_len = self.name_max_len;
+    }
 }
 
 /// One folder excluded from the index and from every file operation.
@@ -199,6 +238,7 @@ impl SettingsDto {
         let hash = usize::from(concurrency / 2).clamp(1, 4);
         let thumbnails = usize::from(concurrency).min(cpus);
         Self {
+            file_settings_source: None,
             statistics_timezone: default_statistics_timezone(),
             sidecar_extensions: owned(DEFAULT_SIDECAR_EXTENSIONS),
             junk_names: owned(DEFAULT_JUNK_NAMES),
@@ -288,6 +328,7 @@ impl SettingsDto {
             return Err(errors);
         };
         Ok(Self {
+            file_settings_source: None,
             statistics_timezone: timezone?,
             sidecar_extensions,
             junk_names,

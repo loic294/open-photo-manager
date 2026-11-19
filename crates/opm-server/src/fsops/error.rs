@@ -38,8 +38,6 @@ pub enum FsOpError {
     /// The volume is mounted read-only (every mutation is refused).
     #[error("the volume is read-only")]
     VolumeReadOnly,
-    #[error("{0}")]
-    ImmichMoveRefused(String),
     /// The location is on a root the Immich Sync Manager owns: only the sync manager may change
     /// it, so OPM refuses before touching the disk.
     #[error("this folder is managed by the sync manager; local changes are disabled")]
@@ -101,7 +99,6 @@ impl FsOpError {
             Self::VolumeOffline => "volume_offline",
             Self::UnknownVolume => "unknown_volume",
             Self::VolumeReadOnly => "volume_read_only",
-            Self::ImmichMoveRefused(_) => "immich_move_refused",
             Self::IsmManaged => "ism_managed",
             Self::Delegated { code, .. } => code,
             Self::DestinationInvalid(_) => "destination_invalid",
@@ -259,9 +256,9 @@ impl From<FsOpError> for AppError {
             | FsOpError::NotEmpty
             | FsOpError::FolderExcluded
             | FsOpError::FileInUse => Self::new(StatusCode::CONFLICT, code, message),
-            FsOpError::ImmichMoveRefused(_)
-            | FsOpError::IsmManaged
-            | FsOpError::Delegated { .. } => Self::new(StatusCode::CONFLICT, code, message),
+            FsOpError::IsmManaged | FsOpError::Delegated { .. } => {
+                Self::new(StatusCode::CONFLICT, code, message)
+            }
             FsOpError::NoSpace => Self::new(StatusCode::INSUFFICIENT_STORAGE, code, message),
             FsOpError::VerifyFailed | FsOpError::Io(_) | FsOpError::Aborted => {
                 Self::new(StatusCode::INTERNAL_SERVER_ERROR, code, message)

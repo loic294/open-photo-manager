@@ -9,7 +9,6 @@ import type { FooterCounts } from '@/api/generated/FooterCounts';
 import { type EventsClient, type ServerEventOf, events as sharedEvents } from '@/api/sse';
 import { INVALIDATE_DEBOUNCE_MS, INVALIDATE_MAX_WAIT_MS } from '@/stores/paged-items';
 import { selectionContextKey } from '@/stores/selection';
-import { isEnded } from '@/stores/tasks';
 import { fsChangeAffects } from '@/util/fs-change';
 
 /**
@@ -53,9 +52,7 @@ function planKeyOf(request: BrowseRequest): string | null {
  *   and sets `refreshing`; nothing flickers. A newer request aborts the older one and an answer
  *   to anything but the newest is dropped.
  * - It refetches (debounced like `PagedItems`) after an `fs_change` that touches the directory or
- *   anything below it (folder counts are recursive), on a resync of the event stream (at once) and
- *   when an `immich_sync` task ends. The subscriptions live between connect and disconnect, and a
- *   host that connects again refetches, as events were missed meanwhile.
+ *   anything below it (folder counts are recursive), on a resync, or when the host reconnects.
  * - Two failures are answers, not errors: `folder_not_found` sets `missing` (the data is dropped;
  *   the pane walks up to an ancestor) and `plan_not_found` sets `planMissing` (the data stays; the
  *   tool view builds a new plan). Anything else is `status: 'error'` with `error` and `retry()`;
@@ -173,7 +170,6 @@ export class FoldersController implements ReactiveController {
     this.unsubscribe = [
       this.bus.on('fs_change', this.onFsChange),
       this.bus.onResync(this.onResync),
-      this.bus.on('task', this.onTask),
     ];
     this.load();
   }
@@ -194,10 +190,6 @@ export class FoldersController implements ReactiveController {
 
   private readonly onResync = (): void => {
     this.invalidate();
-  };
-
-  private readonly onTask = (event: ServerEventOf<'task'>): void => {
-    if (event.task.kind === 'immich_sync' && isEnded(event.task)) this.invalidateSoon();
   };
 
   /** Starts the request for the current listing, replacing the one in flight. */

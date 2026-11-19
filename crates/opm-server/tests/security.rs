@@ -543,7 +543,6 @@ async fn the_host_check_covers_every_route_and_method() {
         ("GET", "/api"),
         ("POST", "/api/browse/items"),
         ("PUT", "/api/settings"),
-        ("DELETE", "/api/immich/connection"),
         ("OPTIONS", "/api/health"),
     ];
     for (method, path) in api {

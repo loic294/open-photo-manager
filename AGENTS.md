@@ -1,13 +1,13 @@
 # Open Photo Manager (OPM): rules for coding agents
 
 A photo-management web app for a Synology NAS: a Rust/axum backend with a SQLite index (browse,
-filter, duplicates, move/format, empty-folder cleanup, trash, Immich sync) and a Lit/DaisyUI
+filter, duplicates, move/format, empty-folder cleanup, trash) and a Lit/DaisyUI
 frontend, shipped as ONE Docker image. Frontend rules live in `web/AGENTS.md`.
 
 ## Layout
 - `crates/opm-core/`: pure domain logic and EVERY API type (`src/dto/`). No filesystem, network,
   database or tokio code of its own (`hash` only wraps readers it is handed).
-- `crates/opm-server/`: axum, sqlx, indexer, tasks, fsops, plans, immich. Library in `src/lib.rs`,
+- `crates/opm-server/`: axum, sqlx, indexer, tasks, fsops, plans, ism. Library in `src/lib.rs`,
   thin binary in `src/main.rs`, SQL in `migrations/`, integration tests in `tests/`.
 - `web/`: Vite + TypeScript + Lit + DaisyUI. `web/src/api/generated/` is written by ts-rs.
 - `docker/`, `fixtures/` (generator, output git-ignored), `docs/`: added by the todos that own them.
@@ -30,12 +30,12 @@ frontend, shipped as ONE Docker image. Frontend rules live in `web/AGENTS.md`.
 | `FileQuery` = `Scope` + `Filter` + sort to SQL (`sqlx::QueryBuilder`) | folders, items, ids, counts, facets, plans, selections, re-index scope |
 | `Scope { volume_id, dir, recursive }` | every query and plan |
 | Plan engine (build, overlay, execute) | duplicates, move, format, cleanup |
-| `FsOps` executor (move, trash, rmdir; sidecar-aware, journaled) | every destructive task, Immich outbox hooks |
-| `TaskEngine` (lanes, progress, speed/ETA, cancel, SSE) | indexing, FS ops, plan execution, Immich sync |
+| `FsOps` executor (move, trash, rmdir; sidecar-aware, journaled) | every destructive task |
+| `TaskEngine` (lanes, progress, speed/ETA, cancel, SSE) | indexing, FS ops, plan execution |
 | `RelPath` / `VolumeRoot` | every filesystem access |
 | `PatternFormatter` | move planner AND `POST /api/format/preview` (the UI never reimplements it) |
 | `SidecarMatcher` | scanner, move, delete |
-| `opm_core::hash` (`sha1_reader`, `HashingReader`, `Sha1Digest`) | indexer hashing, copy verification in `fsops`, Immich |
+| `opm_core::hash` (`sha1_reader`, `HashingReader`, `Sha1Digest`) | indexer hashing, copy verification in `fsops` |
 
 A second caller of a concern uses or extends the existing building block, never a parallel copy.
 
@@ -54,14 +54,14 @@ A second caller of a concern uses or extends the existing building block, never 
   (code + message), `internal(cause)` (logs the cause, never leaks it), `not_implemented(todo_id)`.
   `?` converts `sqlx`, `std::io` and `anyhow` errors. Alias: `AppResult`.
 - No `unwrap` / `expect` in non-test code (clippy enforces it; tests are exempt). No `unsafe`
-  (denied workspace-wide). Log with `tracing`; secrets (Immich key, tokens) are never logged.
+  (denied workspace-wide). Log with `tracing`; secrets (tokens) are never logged.
 - No shell for external tools (exiftool, ffmpeg): pass arguments after `--` or as `./path`.
 - Hashing: `opm_core::hash` is the only SHA-1 code (`sha1_reader` with a cancel/progress callback,
   `HashingReader` where the bytes are read anyway, hex helpers). Never write a second digest loop;
   `opm-server` deliberately has no `sha1` dependency.
 - Only `fsops` changes user files: move, copy, trash, restore, delete and rmdir of volume paths all go
-  through `FsOps` (journaled, sidecar-aware, with hooks for the index and Immich). The scanner,
-  watcher, plan executors, trash and Immich code never call `std::fs` / `tokio::fs` mutators on a
+  through `FsOps` (journaled, sidecar-aware, with hooks for the index). The scanner,
+  watcher, plan executors, and trash code never call `std::fs` / `tokio::fs` mutators on a
   volume path.
 - Index work (scan, extract, hash, thumbnails) is started by production code only through
   `IndexJobs::submit(ScanRequest, IndexOrigin)` (`indexer/jobs.rs`), which owns de-duplication,
@@ -93,7 +93,7 @@ A second caller of a concern uses or extends the existing building block, never 
   JSON 405 (`method_not_allowed`); bad bodies, paths and queries answer `invalid_json`,
   `invalid_path` and `invalid_query`. Unimplemented endpoints answer 501 `not_implemented`.
 - SSE (`GET /api/events`): every message is a single `data:` line holding one `ServerEvent` JSON
-  object (tagged by `type`: `task`, `fs_change`) and NO `event:` field, so a client uses one
+  object (tagged by `type`: `task`, `fs_change`, `settings_changed`, `immich_assets_changed`) and NO `event:` field, so a client uses one
   `onmessage` and dispatches on `type`. The server sends `retry: 3000` once, a `: keep-alive`
   comment every 15 s, never replays missed events (after a reconnect the client refetches what it
   shows) and ends the stream when `AppState::begin_shutdown` fires.
@@ -160,13 +160,9 @@ the parallel work protocol at the end of this file). Never edit a merged migrati
   `api/selections.rs`. `implementing-duplicate-matching`: `plans/duplicates.rs`.
   `implementing-move-planner`: `plans/moves.rs`, `api/format.rs`.
   `implementing-empty-folder-cleanup`: `plans/cleanup.rs`.
-- `building-immich-client`: `immich/{client,crypto,models}.rs`, `api/immich.rs`.
-  `syncing-immich-assets`: `immich/sync.rs`. `reflecting-file-ops-in-immich`: `immich/outbox/**`.
-- `updating-immich-move-paths`: `immich/direct_db/**`, `immich/direct_db.rs`,
-  `immich/outbox/direct.rs`, generic FsOps move guard, migration `0140` (reserved block `0140-0149`).
-  The outbox's existing migration block remains `0120-0139`.
+- ISM: `ism/`, `api/ism.rs`, `crypto.rs`; see [Sync Manager](docs/ism.md) for binding, settings and asset behavior.
 - DTO files (`opm-core/src/dto/`): each owner edits only the file of their area; `common.rs` is
-  shared, change it additively. The `plans.rs` and `immich.rs` files have one marked section per todo.
+  shared, change it additively. The `plans.rs` file have one marked section per todo.
 - Server paths are under `crates/opm-server/src/`, core paths under `crates/opm-core/src/`.
 
 ## Dev loop and runtime
@@ -228,38 +224,6 @@ The design plan (source of truth for behaviour) is
    Never read credential files (e.g. `<other-project>/.env`, `login.txt`).
 9. **Final report** (at most ~250 words): what you built, test results, deviations from the plan or brief,
    anything later agents must know, and the landed commit hash. Do not paste file contents.
-
-## Mock Immich (`tools/mock-immich/`)
-
-ONE shared, zero-dependency Node/TypeScript mock of the Immich calls our client makes, for the real
-binary, browser checks, end-to-end and load tests. Never write a throwaway Immich server. Reference:
-`tools/mock-immich/README.md`.
-- Run: `make mock-immich` (default scenario, port 12283; options `MOCK_IMMICH_PORT`,
-  `MOCK_IMMICH_SCENARIO`, `MOCK_IMMICH_MOUNTS=/mnt/photos=DIR,/mnt/archive=DIR2`) or
-  `node tools/mock-immich/server.ts --port 0 --scenario FILE --mount PREFIX=DIR` (repeatable). One
-  stdout line `{"listening":"http://127.0.0.1:PORT","tls":false}` says it is ready. Use your own port,
-  never 8080, 18080 or 15173.
-- Scenarios (`tools/mock-immich/scenarios/`): `default` (libraries Photos `/mnt/photo`, Videos
-  `/mnt/video`), `fixtures` (Photos `/mnt/photos`, Archive `/mnt/archive`: the volumes of
-  `make fixtures`, so mount them on the copy of `fixtures/out/volumes` the backend serves) and
-  `limited` (regular user, v2.5.1). Accounts: `admin@example.test` / `admin-password`,
-  `user@example.test` / `user-password`. They seed no assets: scanning the mounts creates them.
-- Programmatic: `startMockImmich({ scenario, mounts, scanDelayMs, port, tls })` from
-  `tools/mock-immich/index.ts`; `scenario` is a parsed object or a file path (`scenarioFiles.fixtures`),
-  `mounts` an object `{ '/mnt/photos': '<real dir>' }`. It returns `{ url, stop(), state, control }`:
-  `state.assets()|assetByPath()|albumsOf()|violations()|requests()`,
-  `control.scan()|fail()|gate()|revokeKey()|reset()|addAssets()|generate()`.
-- Control API, never under `/api` and without the `x-opm-request` header (that one is our backend's):
-  `/__mock/state|log|reset|scan|assets|generate|latency|revoke-key|fail|gate`.
-- Safety: a forced delete of an online asset removes the real file and is recorded in `violations()`.
-  Every test that drives our backend asserts it is empty.
-- The in-process Rust fake (`crates/opm-server/tests/immich_support/mod.rs`) serves the Rust tests;
-  the mock serves everything with a real HTTP server over real directories. They model the same
-  API: change a shape, a modelled behaviour or `spec-permissions.txt` in BOTH, and keep
-  `make mock-immich-smoke` passing: it drives the real backend against the mock, over a copy of the
-  fixture volumes `photos` and `archive` with the `fixtures` scenario.
-- `make check-tools` (Biome, `tsc`, `node --test`; `scripts/wt-land.sh` runs it when a path under
-  `tools/` or `e2e/` changes). Other todos add their own `check-*` prerequisite to it.
 
 ## Batch rename engine
 - `opm_core::rename` is the pure implementation of batch-rename matching and naming.
@@ -365,32 +329,6 @@ move keeps) is one deletion on one volume. `reason` is `user`, `replaced`, `junk
   names the first three items with their `FsOpError` code, and a skip never fails a task. A
   client derives its toast from the title and the error (`TaskDto` has no result).
 
-## Immich outbox (`immich/outbox/`; module docs hold rules, limits and measurements)
-
-Moves, trashes, copies and restores of photos and videos reach Immich through an outbox, never a
-direct call: the `OutboxHook` (an `FsOps` hook, registered before `reconcile_at_startup`) writes an
-`immich_outbox` row in the finalising transaction, and `ImmichOutbox` (in `AppState.immich_outbox`)
-submits ONE `ImmichCleanup` task on the `immich` lane once file operations were quiet for
-`OPM_IMMICH_QUIET_SECS` (default 15, 1 to 600). `ImmichOutbox::submit_now` starts a pass at once.
-- Only the outbox deletes in Immich, and only an asset that a FRESH `GET /assets/{id}` showed
-  offline (`OfflineAssetId::confirm`), whose `originalPath` is the old place of the row and whose
-  file is absent from the volume. Keep every new Immich write behind the same rules.
-- Routes: `GET /api/immich/outbox`, `POST /api/immich/outbox/retry` and `/dismiss`; the counts are
-  `ImmichStatusDto.outbox`.
-- Direct in-library moves require executor preflight; the local OpHook only activates a durable
-  intent. For direct-DB changes, run the explicit real-v3.3.3 gate in
-  `docker/immich-postgres-test.md`; ordinary ignored-test output is not a passed gate.
-- Tests: `tests/immich_outbox_{flow,faults,api,loop}.rs` use the helpers of `tests/immich_support`
-  (`Fixture::connected_with(tweak)`, `photos_in`, `move_file`, `make_due` between two passes, since
-  a pass never looks at a row twice within the 15 s settle time; `FakeImmich::set_latency`,
-  `call_count` and `assert_no_violations`). `tests/immich_outbox_perf.rs` is `#[ignore]`d: run it
-  with `CARGO_PROFILE_RELEASE_STRIP=none CARGO_PROFILE_RELEASE_LTO=off cargo test --release -p
-  opm-server --test immich_outbox_perf -- --ignored --nocapture --test-threads=1` (a stripped
-  release build cannot load the proc-macro dylibs on macOS). wiremock keeps every request it
-  serves (about 9 KiB each), so long runs through the fake grow the test process.
-- Operating it: on-demand library scans need an administrator account (otherwise Immich's own
-  schedule), and Immich must exclude `**/.opm-trash/**` from its libraries.
-
 ## Move plans
 
 `plans/moves/` owns destinations, conflicts, ghosts, execution and formatting samples. Reuse
@@ -427,8 +365,7 @@ Run `make e2e-install`, `make check-e2e`, and `CARGO_BUILD_JOBS=2 E2E_WORKERS=2 
 guarded read-only `sharedApp`. Assert UI then API/disk for mutations; wait for observable state,
 with no fixed sleeps or retries. Preserve failing product assertions: small fixes need product
 regressions; report larger bugs for assignment, never treat `fixme` as final verification.
-Use only private generated copies and free ports (not 8080, 18080 or 15173), the shared mock
-Immich, and no credential files, real media, or mutations of `fixtures/out`.
+Use only private generated copies and free ports (not 8080, 18080 or 15173), and no credential files, real media, or mutations of `fixtures/out`.
 
 ## Move executor seam
 
@@ -440,7 +377,7 @@ Crate-visible exports: `Source`, `COLUMNS`, `Wanted`, `source_query`, `reserved`
 `Directory`, `HashBudget`, `Resolved`, `Link`, `links`, `source_statement`, `Item`, `Stored`,
 `Revalidate`, `run`. Submodules, move rules, destination rendering and carrier selection stay private.
 Use the shared identity registration before the build snapshot and track every snapshot dependency.
-Hooks preserve coded skips and propagate infrastructure errors; they add no filesystem/Immich preflight.
+Hooks preserve coded skips and propagate infrastructure errors; they add no filesystem mutations.
 
 ## Rename plans
 
@@ -464,7 +401,7 @@ Stats: `candidates`, `matched`, `to_rename`, `already_in_place`,
 `date_from_file_time`, `pattern_failed`, `reserved_destination`, `skipped_by_policy`,
 `hash_unknown`. Execution uses the shared `file_gone`, `stale_plan`, `stale_match`,
 `metadata_pending`, `already_in_place`, `identical_at_destination`, `skipped_by_policy`,
-`sidecar_conflict` and `immich_move_refused` skips; `source_changed` and other filesystem
+`sidecar_conflict` skips; `source_changed` and other filesystem
 operation errors remain failures.
 
 `POST /api/rename/preview` returns validation issues and a bounded sample from the first matching
