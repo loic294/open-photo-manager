@@ -1,3 +1,4 @@
+import { browseActions } from '@/tools/browse/browse-actions';
 import { defineTool } from '@/tools/framework/tool-config';
 
 /**
@@ -20,4 +21,5 @@ export const browseTool = defineTool({
     comparison: { heading: 'Comparison', baseMode: 'none', showMatches: false, planSide: null },
   },
   filter: { applies: 'both' },
+  actions: browseActions,
 });

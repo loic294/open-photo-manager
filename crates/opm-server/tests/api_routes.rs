@@ -55,6 +55,7 @@ const ROUTES: &[(&str, &str)] = &[
     ("GET", "/api/trash/batches"),
     ("POST", "/api/trash/restore"),
     ("POST", "/api/trash/empty"),
+    ("POST", "/api/trash/files"),
     ("POST", "/api/trash/sync"),
     ("GET", "/api/trash/ism"),
     ("POST", "/api/trash/ism/restore"),

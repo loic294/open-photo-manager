@@ -16,7 +16,7 @@ use ts_rs::TS;
 
 use super::common::{ConflictPolicy, SortOrder};
 use super::settings::FieldError;
-use crate::paths::{RelPath, TaskId, TrashItemId, VolumeId};
+use crate::paths::{RelPath, SelectionId, TaskId, TrashItemId, VolumeId};
 
 /// Page size used when a query does not say.
 const DEFAULT_LIMIT: u32 = 50;
@@ -296,6 +296,13 @@ pub struct TrashBatchesResponse {
     pub summary: TrashSummary,
 }
 
+/// Body of `POST /api/trash/files`: move the live files of a selection to the trash.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, TS)]
+#[ts(export)]
+pub struct TrashFilesRequest {
+    pub selection_id: SelectionId,
+}
+
 /// What a restore brings back.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, TS)]
 #[serde(tag = "kind", rename_all = "snake_case")]
@@ -449,6 +456,11 @@ mod tests {
             retention_days: Some(30),
             conflict_policy: ConflictPolicy::Smart,
         }
+    }
+
+    #[test]
+    fn trash_files_request_roundtrips() {
+        roundtrip(&TrashFilesRequest { selection_id: 7 });
     }
 
     #[test]

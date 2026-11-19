@@ -2,11 +2,13 @@ import { effect } from '@preact/signals-core';
 import { afterEach, describe, expect, it } from 'vitest';
 import {
   handoffFor,
+  navigationSynced,
   pinnedBase,
   recursiveFor,
   resetToolState,
   resetToolStateForTests,
   setHandoff,
+  setNavigationSynced,
   setPinnedBase,
   setRecursive,
 } from '@/stores/tool-state';
@@ -108,6 +110,27 @@ describe('recursiveFor', () => {
     stop();
 
     expect(seen).toEqual([true, false]);
+  });
+});
+
+describe('navigationSynced', () => {
+  it('keeps one state while moving between tools', () => {
+    setNavigationSynced('browse', true);
+
+    expect(navigationSynced('browse')).toBe(true);
+    expect(navigationSynced('move')).toBe(true);
+
+    setNavigationSynced('move', false);
+
+    expect(navigationSynced('browse')).toBe(false);
+  });
+
+  it('is not changed when another tool is reset', () => {
+    setNavigationSynced('browse', true);
+
+    resetToolState('move');
+
+    expect(navigationSynced('browse')).toBe(true);
   });
 });
 

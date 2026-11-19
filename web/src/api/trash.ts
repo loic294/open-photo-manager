@@ -3,6 +3,7 @@ import type { TaskDto } from '@/api/generated/TaskDto';
 import type { TrashBatchesQuery } from '@/api/generated/TrashBatchesQuery';
 import type { TrashBatchesResponse } from '@/api/generated/TrashBatchesResponse';
 import type { TrashEmptyRequest } from '@/api/generated/TrashEmptyRequest';
+import type { TrashFilesRequest } from '@/api/generated/TrashFilesRequest';
 import type { TrashListQuery } from '@/api/generated/TrashListQuery';
 import type { TrashListResponse } from '@/api/generated/TrashListResponse';
 import type { TrashRestoreRequest } from '@/api/generated/TrashRestoreRequest';
@@ -46,6 +47,14 @@ export function restoreTrash(request: TrashRestoreRequest, signal?: AbortSignal)
  */
 export function emptyTrash(request: TrashEmptyRequest, signal?: AbortSignal): Promise<TaskDto> {
   return api.post<TaskDto>('/api/trash/empty', { body: request, signal });
+}
+
+/**
+ * `POST /api/trash/files`: queues an `fs_trash` task for the live files of a server-side
+ * selection. Files and their unshared sidecars move to the trash and can be restored.
+ */
+export function trashFiles(request: TrashFilesRequest, signal?: AbortSignal): Promise<TaskDto> {
+  return api.post<TaskDto>('/api/trash/files', { body: request, signal });
 }
 
 /**

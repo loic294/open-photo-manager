@@ -39,7 +39,7 @@ use opm_core::dto::{
     CreatePlanRequest, CreateSelectionRequest, ExecutePlanRequest, PlanDto, PlanKind, PlanResult,
     PlanSelectionRequest, PlanState, SelectionDto, TaskDto, TaskKind, TaskState,
 };
-use opm_core::paths::{PlanId, SelectionId, TaskId};
+use opm_core::paths::{FileId, PlanId, SelectionId, TaskId};
 use serde_json::{Map, Value, json};
 use tokio::sync::Semaphore;
 use tokio::task::JoinHandle;
@@ -1052,6 +1052,17 @@ impl PlanService {
             .ok_or_else(|| selection_not_found(id))?;
         self.touch_selection(id, dto.expires_at, now);
         Ok(dto)
+    }
+
+    /// The live files currently held by a selection, in id order. Keeps the selection alive for a
+    /// task that is about to act on it.
+    pub(crate) async fn selection_file_ids(&self, id: SelectionId) -> AppResult<Vec<FileId>> {
+        let now = self.now();
+        let expires_at = selections::expiry(self.0.deps.db.read(), id, now)
+            .await?
+            .ok_or_else(|| selection_not_found(id))?;
+        self.touch_selection(id, expires_at, now);
+        Ok(selections::file_ids(&self.0.deps.db, id).await?)
     }
 
     /// Hands the files a plan involves over as a selection

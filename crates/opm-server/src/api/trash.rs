@@ -3,6 +3,7 @@
 //! - `GET /api/trash`: one page of the items (`volume_id`, `batch`, `q`, `sort`, `order`, `offset`,
 //!   `limit` in the query string) with the summary of the whole trash.
 //! - `GET /api/trash/batches`: the deletions (`volume_id`, `offset`, `limit`) with the same summary.
+//! - `POST /api/trash/files`: puts the files of a selection in the trash; answers 202 with the task.
 //! - `POST /api/trash/restore`: puts items back (`TrashRestoreRequest`); answers 202 with the task.
 //! - `POST /api/trash/empty`: deletes for good what the user was looking at (`TrashEmptyRequest`:
 //!   everything with `id <= up_to_id`); answers 202 with the task. The only permanent delete.
@@ -24,8 +25,8 @@ use axum::routing::{get, post};
 use axum::{Json, Router};
 use opm_core::dto::{
     FieldError, IsmTrashDto, IsmTrashPurgeRequest, IsmTrashRestoreRequest, TaskDto,
-    TrashBatchesQuery, TrashBatchesResponse, TrashEmptyRequest, TrashListQuery, TrashListResponse,
-    TrashRestoreRequest, ValidationErrorBody,
+    TrashBatchesQuery, TrashBatchesResponse, TrashEmptyRequest, TrashFilesRequest, TrashListQuery,
+    TrashListResponse, TrashRestoreRequest, ValidationErrorBody,
 };
 use opm_core::paths::TaskId;
 
@@ -39,6 +40,7 @@ pub fn routes() -> Router<AppState> {
         .route("/trash", get(list))
         .route("/trash/batches", get(batches))
         .route("/trash/empty", post(empty))
+        .route("/trash/files", post(files))
         .route("/trash/restore", post(restore))
         .route("/trash/sync", post(sync))
         .route("/trash/ism", get(ism_list))
@@ -82,6 +84,18 @@ async fn empty(
     ApiJson(request): ApiJson<TrashEmptyRequest>,
 ) -> Result<(StatusCode, Json<TaskDto>), Rejection> {
     let id = state.trash.empty(request).await?;
+    accepted(&state, id).await
+}
+
+async fn files(
+    State(state): State<AppState>,
+    ApiJson(request): ApiJson<TrashFilesRequest>,
+) -> Result<(StatusCode, Json<TaskDto>), Rejection> {
+    let file_ids = state.plans.selection_file_ids(request.selection_id).await?;
+    let id = state
+        .trash
+        .trash_files(request.selection_id, file_ids)
+        .await?;
     accepted(&state, id).await
 }
 

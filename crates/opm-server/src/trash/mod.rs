@@ -70,6 +70,7 @@
 //! Nobody pages that deep in a trash, and an index per sort would slow every trashing down.
 
 mod empty;
+mod files;
 mod ism;
 mod list;
 mod report;
@@ -116,6 +117,18 @@ impl TrashService {
     ) -> Result<(), AppError> {
         let service = self.clone();
         match params["op"].as_str() {
+            Some("trash_files") => {
+                let selection_id = params["selection_id"].as_i64().ok_or_else(|| {
+                    AppError::internal(anyhow::anyhow!("saved trash has no selection id"))
+                })?;
+                let file_ids = serde_json::from_value(params["file_ids"].clone())
+                    .map_err(AppError::internal)?;
+                self.tasks
+                    .resume(id, move |ctx| async move {
+                        service.run_trash_files(ctx, selection_id, file_ids).await
+                    })
+                    .await
+            }
             Some("trash_restore") => {
                 let request: opm_core::dto::TrashRestoreRequest =
                     serde_json::from_value(params["request"].clone())

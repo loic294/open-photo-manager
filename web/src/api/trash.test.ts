@@ -4,11 +4,19 @@ import { isApiError } from '@/api/errors';
 import type { TrashBatchesQuery } from '@/api/generated/TrashBatchesQuery';
 import type { TrashBatchesResponse } from '@/api/generated/TrashBatchesResponse';
 import type { TrashEmptyRequest } from '@/api/generated/TrashEmptyRequest';
+import type { TrashFilesRequest } from '@/api/generated/TrashFilesRequest';
 import type { TrashListQuery } from '@/api/generated/TrashListQuery';
 import type { TrashListResponse } from '@/api/generated/TrashListResponse';
 import type { TrashRestoreRequest } from '@/api/generated/TrashRestoreRequest';
 import type { TrashSummary } from '@/api/generated/TrashSummary';
-import { emptyTrash, listTrash, listTrashBatches, restoreTrash, syncTrash } from '@/api/trash';
+import {
+  emptyTrash,
+  listTrash,
+  listTrashBatches,
+  restoreTrash,
+  syncTrash,
+  trashFiles,
+} from '@/api/trash';
 import { makeTask } from '@/test/task-fixtures';
 
 const SUMMARY: TrashSummary = {
@@ -226,6 +234,22 @@ describe('emptyTrash', () => {
       status: 409,
       code: 'trash_already_empty',
     });
+  });
+});
+
+describe('trashFiles', () => {
+  it('posts the selection with the CSRF header and returns the task', async () => {
+    const task = makeTask({ id: 16, kind: 'fs_trash', title: 'Moving 2 selected files to trash' });
+    const fetchMock = stubFetch(202, task);
+    const request: TrashFilesRequest = { selection_id: 42 };
+
+    await expect(trashFiles(request)).resolves.toEqual(task);
+
+    const [url, init] = fetchMock.mock.calls[0] ?? [];
+    expect(String(url)).toBe('/api/trash/files');
+    expect(init?.method).toBe('POST');
+    expect(new Headers(init?.headers).get(CSRF_HEADER)).toBe('1');
+    expect(JSON.parse(String(init?.body))).toEqual(request);
   });
 });
 

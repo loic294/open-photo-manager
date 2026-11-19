@@ -203,6 +203,21 @@ function withPlan(): FakePlan {
 }
 
 describe('layout', () => {
+  it('shows the same navigation toggle state after changing tools', async () => {
+    setNavigationSynced('browse', true);
+    const view = await mountView(toolConfig({ id: 'browse' }));
+
+    window.history.replaceState(null, '', '/move');
+    syncFromLocation();
+    view.config = toolConfig({ id: 'move' });
+    await settle(view);
+
+    const toggle = [...view.querySelectorAll<HTMLInputElement>('input[role="switch"]')].find(
+      (input) => input.closest('label')?.textContent?.includes('Sync navigation'),
+    );
+    expect(toggle?.checked).toBe(true);
+  });
+
   it('keeps restored and revisited locations linked while enabled, and stops when disconnected', async () => {
     setNavigationSynced('browse', true);
     browseAt('photos/one', 'backup/two');

@@ -139,13 +139,14 @@ describe('the Browse page', () => {
     expect(bar?.comparison?.counts).toEqual({ in_folder: 3, in_subfolders: 1 });
   });
 
-  it('is the framework with nothing added: no plan, no actions, no extra controls', async () => {
+  it('is the framework with a bottom-right action and no planning controls', async () => {
     const page = await mountPage('/browse?src=photos/trip&cmp=backup/old');
 
     expect(text(page)).not.toContain('Include subfolders');
     expect(page.querySelector('header [role="status"]')).toBeNull();
+    const bar = page.querySelector<OpmBottomBar>('opm-bottom-bar');
+    expect(text(bar)).toContain('Delete selected');
     expect(page.querySelector('opm-bottom-bar opm-split-button')).toBeNull();
-    expect(page.querySelector('opm-bottom-bar .btn-lg')).toBeNull();
     for (const pane of panesOf(page)) {
       expect(pane.baseMode).toBe('none');
       expect(pane.showMatches).toBe(false);
@@ -175,9 +176,9 @@ describe('the Browse tool', () => {
     expect(browseTool.filter).toEqual({ applies: 'both' });
   });
 
-  it('adds nothing to the framework', () => {
+  it('adds a delete action and no plan or controls', () => {
     expect(browseTool.plan).toBeUndefined();
-    expect(browseTool.actions).toBeUndefined();
+    expect(browseTool.actions).toBeDefined();
     expect(browseTool.controls).toBeUndefined();
     expect(browseTool.setup).toBeUndefined();
     expect(browseTool.recursive).toBeUndefined();
