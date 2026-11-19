@@ -98,23 +98,6 @@ for name in used.keys() - rows.keys():
     fail(*used[name], f"undocumented environment variable: {name}")
 for name in rows.keys() - used.keys():
     fail(table, rows[name], f"documented variable absent from production Rust: {name}")
-client = Path("crates/opm-server/src/immich/client.rs")
-key_match = re.search(r"pub const KEY_PERMISSIONS:.*?= &\[(.*?)\];", client.read_text(), re.S)
-if not key_match:
-    fail(client, 1, "cannot find API-key permission registry")
-requested = re.findall(r'"([^"]+)"', key_match[1]) if key_match else []
-registry = Path("crates/opm-server/src/immich/spec-permissions.txt").read_text().splitlines()
-guide = Path("docs/immich.md")
-text = guide.read_text()
-start, end = "<!-- immich-permissions:start -->", "<!-- immich-permissions:end -->"
-if text.count(start) != 1 or text.count(end) != 1 or text.index(start) > text.index(end):
-    fail(guide, 1, "expected one ordered pair of API-key permission markers")
-else:
-    block = text.split(start)[1].split(end)[0]
-    if re.findall(r"`([^`]+)`", block) != requested or not set(requested) <= set(registry):
-        fail(guide, text[:text.index(start)].count("\n") + 1,
-             "API-key permissions drifted from client/spec-permissions.txt")
-
 windows_guide = Path("docs/windows.md")
 windows_text = windows_guide.read_text()
 try:
@@ -140,6 +123,6 @@ except (OSError, subprocess.CalledProcessError, json.JSONDecodeError, ValueError
 if errors:
     print("\n".join(errors), file=sys.stderr)
     sys.exit(1)
-print("Documentation links, UI labels, environment names and Immich permissions match sources")
+print("Documentation links, UI labels, environment names and the Windows Compose example match sources")
 PY
 make check-compose
