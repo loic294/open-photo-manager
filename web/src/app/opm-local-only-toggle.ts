@@ -29,14 +29,14 @@ export class OpmLocalOnlyToggle extends OpmElement {
           type="button"
           class=${classMap({
             'btn btn-sm gap-2': true,
-            'btn-soft btn-warning': active,
+            'btn-primary': active,
             'btn-ghost': !active,
           })}
           aria-label=${`Local only changes: ${state}`}
           aria-pressed=${String(active)}
           @click=${this.toggle}
         >
-          <opm-icon name="cloud-off"></opm-icon>
+          <opm-icon name=${active ? 'cloud-off' : 'cloud'}></opm-icon>
           <span class="hidden sm:inline">Local only changes</span>
         </button>
       </div>

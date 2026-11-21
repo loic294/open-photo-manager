@@ -22,7 +22,8 @@ describe('opm-local-only-toggle', () => {
     expect(button?.textContent).toContain('Local only changes');
     expect(button?.getAttribute('aria-pressed')).toBe('false');
     expect(button?.getAttribute('aria-label')).toBe('Local only changes: Off');
-    expect(host.querySelector('opm-icon')?.getAttribute('name')).toBe('cloud-off');
+    expect(button?.classList.contains('btn-ghost')).toBe(true);
+    expect(host.querySelector('opm-icon')?.getAttribute('name')).toBe('cloud');
   });
 
   it('toggles, persists and reacts to later changes', async () => {
@@ -33,11 +34,14 @@ describe('opm-local-only-toggle', () => {
 
     expect(localOnlyChanges.value).toBe(true);
     expect(button?.getAttribute('aria-pressed')).toBe('true');
-    expect(button?.classList.contains('btn-warning')).toBe(true);
+    expect(button?.classList.contains('btn-primary')).toBe(true);
+    expect(host.querySelector('opm-icon')?.getAttribute('name')).toBe('cloud-off');
     expect(localStorage.getItem(`${STORAGE_PREFIX}localOnlyChanges`)).toBe('true');
 
     localOnlyChanges.value = false;
     await host.updateComplete;
     expect(button?.getAttribute('aria-pressed')).toBe('false');
+    expect(button?.classList.contains('btn-ghost')).toBe(true);
+    expect(host.querySelector('opm-icon')?.getAttribute('name')).toBe('cloud');
   });
 });
