@@ -1,5 +1,7 @@
 //! Move plans resolve exact names before execution and share their destination rules with
 //! live formatting previews. Only FsOps mutates volume files.
+//! Delegated ISM moves report each successful owner's bytes when its streamed outcome arrives;
+//! local moves report byte progress through FsOps, so neither path counts those bytes twice.
 //!
 //! Smart hashing is bounded by 1 GiB and 20 seconds per build. Unknown content is renamed.
 //! Snapshot source facts revalidate location, size, mtime and derived destinations before execution.

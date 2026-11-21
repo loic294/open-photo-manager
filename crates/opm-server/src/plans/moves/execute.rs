@@ -259,6 +259,9 @@ impl IsmQueue {
                     match outcome {
                         Ok(done) => {
                             result.done(item.bytes);
+                            ctx.task
+                                .progress
+                                .add(0, i64::try_from(item.bytes).unwrap_or(i64::MAX));
                             moved.push((item.file_id, done.moved_to.unwrap_or(item.dst.clone())));
                         }
                         Err(FsOpError::Cancelled) => cancelled = true,

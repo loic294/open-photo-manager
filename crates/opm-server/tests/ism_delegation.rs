@@ -472,6 +472,88 @@ async fn replace_is_refused_and_an_identical_destination_is_skipped() {
     );
 }
 
+/// Keeps the second move pending until the test releases it.
+struct PartialMove(Arc<AtomicBool>, bool);
+
+impl Respond for PartialMove {
+    fn respond(&self, _: &Request) -> ResponseTemplate {
+        let finished = self.0.load(Ordering::SeqCst);
+        let first = moved(0, "photos/src/a.jpg", "photos/out/a.jpg");
+        let second = if finished {
+            moved(1, "photos/src/b.jpg", "photos/out/b.jpg")
+        } else {
+            json!({"index": 1, "kind": "move", "status": "pending"})
+        };
+        let operation = json!({
+            "operation_id": "op-1",
+            "status": if finished { "completed" } else { "running" },
+            "items": [first.clone(), second]
+        });
+        if self.1 {
+            stream(&[
+                event("item", 1, &first),
+                event(
+                    if finished { "finished" } else { "progress" },
+                    2,
+                    &operation,
+                ),
+            ])
+        } else {
+            ResponseTemplate::new(200).set_body_json(operation)
+        }
+    }
+}
+
+#[tokio::test]
+async fn delegated_move_progress_counts_bytes_as_each_item_finishes() {
+    let fx = bound("enabled").await;
+    fx.photo("a.jpg").await;
+    fx.photo("b.jpg").await;
+    fx.preview_ok().await;
+    fx.accept().await;
+    let finished = Arc::new(AtomicBool::new(false));
+    for (endpoint, events) in [
+        ("/api/v1/operations/op-1/events", true),
+        ("/api/v1/operations/op-1", false),
+    ] {
+        Mock::given(method("GET"))
+            .and(path(endpoint))
+            .respond_with(PartialMove(finished.clone(), events))
+            .mount(&fx.ism)
+            .await;
+    }
+
+    let plan = fx.plan(None).await;
+    let task = fx.start(plan).await;
+    let running = tokio::time::timeout(Duration::from_secs(10), async {
+        loop {
+            let task = fx.app.state.tasks.get(task).await.unwrap();
+            if task.items_done == 1 {
+                break task;
+            }
+            tokio::task::yield_now().await;
+        }
+    })
+    .await
+    .unwrap();
+    finished.store(true, Ordering::SeqCst);
+    let terminal = fx.task(task).await;
+
+    assert_eq!(running.state, TaskState::Running);
+    assert_eq!(running.items_total, Some(2));
+    assert_eq!(running.bytes_total, Some(10));
+    assert_eq!(
+        running.bytes_done, 5,
+        "the bar must advance before the task ends"
+    );
+    assert_eq!(terminal.state, TaskState::Done);
+    assert_eq!(terminal.items_done, 2);
+    assert_eq!(
+        terminal.bytes_done, 10,
+        "replayed item events must not count twice"
+    );
+}
+
 /// Answers `running` until the operation was cancelled, then `cancelled`.
 struct Running(Arc<AtomicBool>, bool);
 impl Respond for Running {
