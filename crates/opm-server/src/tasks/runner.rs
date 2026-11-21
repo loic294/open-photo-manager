@@ -54,6 +54,7 @@ pub(super) struct LiveTask {
     pub(super) id: TaskId,
     pub(super) kind: TaskKind,
     pub(super) lane: Lane,
+    pub(super) local_only: bool,
     /// Handed to the runner; a child of the engine's stop token.
     pub(super) cancel: CancellationToken,
     /// Set when the user asked for the cancellation (as opposed to a shutdown).
@@ -75,6 +76,11 @@ impl LiveTask {
             id,
             kind: spec.kind,
             lane: spec.lane,
+            local_only: spec
+                .params
+                .get("local_only")
+                .and_then(Value::as_bool)
+                .unwrap_or(false),
             cancel,
             user_cancelled: AtomicBool::new(false),
             progress: TaskProgress::with_clock(spec.title.clone(), clock),
@@ -245,6 +251,7 @@ impl Inner {
     async fn run_to_end(&self, live: &Arc<LiveTask>, run: RunFn, mut reporter: Reporter) -> RunEnd {
         let ctx = TaskCtx {
             id: live.id,
+            local_only: live.local_only,
             cancel: live.cancel.clone(),
             progress: live.progress.clone(),
         };

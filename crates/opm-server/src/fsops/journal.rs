@@ -79,6 +79,7 @@ pub(crate) struct NewEntry<'a> {
 pub(crate) struct PendingRow {
     pub id: i64,
     pub task_id: Option<TaskId>,
+    pub local_only: bool,
     /// `None` for an `op` this version does not know (written by a newer one).
     pub op: Option<Op>,
     pub src: Option<Loc>,
@@ -282,7 +283,10 @@ impl Journal {
         let _gate = self.gate.lock().await;
         let rows = sqlx::query(
             "SELECT id, task_id, op, src_volume_id, src_path, dst_volume_id, dst_path, part_path, \
-             size, hash, created_at FROM fs_journal WHERE state = 'pending' ORDER BY id",
+             size, hash, created_at, \
+             COALESCE((SELECT json_extract(params_json, '$.local_only') = 1 FROM tasks \
+                       WHERE tasks.id = fs_journal.task_id), 0) AS local_only \
+             FROM fs_journal WHERE state = 'pending' ORDER BY id",
         )
         .fetch_all(self.db.read())
         .await?;
@@ -318,6 +322,7 @@ fn pending_row(row: &sqlx::sqlite::SqliteRow) -> Result<PendingRow, FsOpError> {
     Ok(PendingRow {
         id: row.try_get("id")?,
         task_id: row.try_get("task_id")?,
+        local_only: row.try_get::<i64, _>("local_only")? == 1,
         op: Op::parse(&op),
         src: loc_of(row.try_get("src_volume_id")?, row.try_get("src_path")?),
         dst: loc_of(row.try_get("dst_volume_id")?, row.try_get("dst_path")?),

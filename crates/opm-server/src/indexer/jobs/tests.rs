@@ -1641,6 +1641,7 @@ async fn a_job_that_was_cancelled_before_it_started_does_not_scan() {
     cancel.cancel();
     let ctx = TaskCtx {
         id: 1,
+        local_only: false,
         cancel,
         progress: TaskProgress::new("Indexing"),
     };
@@ -1662,6 +1663,7 @@ async fn a_task_that_lost_its_request_fails_instead_of_scanning_everything() {
     fx.put("photos", "a.jpg", b"1");
     let ctx = TaskCtx {
         id: 77,
+        local_only: false,
         cancel: CancellationToken::new(),
         progress: TaskProgress::new("Indexing"),
     };

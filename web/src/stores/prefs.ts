@@ -21,6 +21,9 @@ export type ThemePref = (typeof THEMES)[number];
 /** `system` follows the operating system. Applied to `<html>` by `@/app/theme`. */
 export const theme = persistedSignal<ThemePref>('theme', 'system', oneOf(THEMES));
 
+/** File operations change only the local OPM instance instead of a connected sync manager. */
+export const localOnlyChanges = persistedSignal<boolean>('localOnlyChanges', false, isBoolean);
+
 export const isDateDisplayFormat = oneOf(DATE_DISPLAY_FORMATS);
 export const dateDisplayFormat = persistedSignal<DateDisplayFormat>(
   'dateDisplayFormat',

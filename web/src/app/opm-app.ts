@@ -19,6 +19,7 @@ import { filtersOpen, toolHelpOpen } from '@/stores/tool-chrome';
 import { startVolumes } from '@/stores/volumes';
 // Components the shell renders. Add one import line here for a shell-level component that another
 // feature provides (for example `import '@/components/opm-task-indicator';`).
+import '@/app/opm-local-only-toggle';
 import '@/app/opm-theme-toggle';
 import '@/components/opm-icon';
 import '@/components/opm-index-notices';
@@ -274,6 +275,7 @@ export class OpmApp extends OpmElement {
             </div>
             <div class="flex flex-none items-center gap-2">
               <opm-task-indicator></opm-task-indicator>
+              <opm-local-only-toggle></opm-local-only-toggle>
               <opm-theme-toggle></opm-theme-toggle>
             </div>
           </header>

@@ -44,6 +44,16 @@ impl TrashService {
         selection_id: SelectionId,
         file_ids: Vec<FileId>,
     ) -> Result<TaskId, TrashError> {
+        self.trash_files_with_mode(selection_id, file_ids, false)
+            .await
+    }
+
+    pub async fn trash_files_with_mode(
+        &self,
+        selection_id: SelectionId,
+        file_ids: Vec<FileId>,
+        local_only: bool,
+    ) -> Result<TaskId, TrashError> {
         if file_ids.is_empty() {
             return Err(
                 AppError::conflict("selection_empty", "the selection contains no files").into(),
@@ -52,11 +62,14 @@ impl TrashService {
         let count = file_ids.len();
         let noun = if count == 1 { "file" } else { "files" };
         let saved_ids = file_ids.clone();
-        let params = json!({
+        let mut params = json!({
             "op": "trash_files",
             "selection_id": selection_id,
             "file_ids": saved_ids,
         });
+        if local_only {
+            params["local_only"] = json!(true);
+        }
         let service = self.clone();
         let spec = TaskSpec::new(
             TaskKind::FsTrash,

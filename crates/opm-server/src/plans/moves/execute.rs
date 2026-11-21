@@ -463,8 +463,9 @@ pub(crate) async fn run(
         };
     }
     for (index, item) in items.into_iter().enumerate().skip(next) {
-        let delegated =
-            ctx.fsops.is_managed(item.src_volume_id) || ctx.fsops.is_managed(item.dst_volume_id);
+        let delegated = !ctx.op.local_only
+            && (ctx.fsops.is_managed(item.src_volume_id)
+                || ctx.fsops.is_managed(item.dst_volume_id));
         // Later items may depend on where earlier ones went: send the queue first.
         if !queue.items.is_empty()
             && (!delegated || item.counterpart_id.is_some_and(|id| queue.holds(id)))

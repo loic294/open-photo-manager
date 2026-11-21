@@ -62,6 +62,7 @@ impl TrashService {
                 PurgeSelector::OlderThan { cutoff },
                 format!("Removing trash older than {days} {unit}"),
                 params,
+                false,
             )
             .await?;
         tracing::info!(task = id, retention_days = days, "retention sweep queued");

@@ -30,7 +30,7 @@ use opm_core::dto::{
 };
 use opm_core::paths::TaskId;
 
-use crate::api::extract::{ApiJson, ApiQuery};
+use crate::api::extract::{ApiJson, ApiLocalOnly, ApiQuery};
 use crate::error::AppError;
 use crate::state::AppState;
 use crate::trash::TrashError;
@@ -73,34 +73,40 @@ async fn batches(
 
 async fn restore(
     State(state): State<AppState>,
+    ApiLocalOnly(local_only): ApiLocalOnly,
     ApiJson(request): ApiJson<TrashRestoreRequest>,
 ) -> Result<(StatusCode, Json<TaskDto>), Rejection> {
-    let id = state.trash.restore(request).await?;
+    let id = state.trash.restore_with_mode(request, local_only).await?;
     accepted(&state, id).await
 }
 
 async fn empty(
     State(state): State<AppState>,
+    ApiLocalOnly(local_only): ApiLocalOnly,
     ApiJson(request): ApiJson<TrashEmptyRequest>,
 ) -> Result<(StatusCode, Json<TaskDto>), Rejection> {
-    let id = state.trash.empty(request).await?;
+    let id = state.trash.empty_with_mode(request, local_only).await?;
     accepted(&state, id).await
 }
 
 async fn files(
     State(state): State<AppState>,
+    ApiLocalOnly(local_only): ApiLocalOnly,
     ApiJson(request): ApiJson<TrashFilesRequest>,
 ) -> Result<(StatusCode, Json<TaskDto>), Rejection> {
     let file_ids = state.plans.selection_file_ids(request.selection_id).await?;
     let id = state
         .trash
-        .trash_files(request.selection_id, file_ids)
+        .trash_files_with_mode(request.selection_id, file_ids, local_only)
         .await?;
     accepted(&state, id).await
 }
 
-async fn sync(State(state): State<AppState>) -> Result<(StatusCode, Json<TaskDto>), Rejection> {
-    let id = state.trash.sync().await?;
+async fn sync(
+    State(state): State<AppState>,
+    ApiLocalOnly(local_only): ApiLocalOnly,
+) -> Result<(StatusCode, Json<TaskDto>), Rejection> {
+    let id = state.trash.sync_with_mode(local_only).await?;
     accepted(&state, id).await
 }
 
@@ -118,18 +124,33 @@ async fn ism_list(
 
 async fn ism_restore(
     State(state): State<AppState>,
+    ApiLocalOnly(local_only): ApiLocalOnly,
     ApiJson(request): ApiJson<IsmTrashRestoreRequest>,
 ) -> Result<(StatusCode, Json<TaskDto>), Rejection> {
+    refuse_local_only(local_only)?;
     let id = state.trash.ism_restore(request).await?;
     accepted(&state, id).await
 }
 
 async fn ism_purge(
     State(state): State<AppState>,
+    ApiLocalOnly(local_only): ApiLocalOnly,
     ApiJson(request): ApiJson<IsmTrashPurgeRequest>,
 ) -> Result<(StatusCode, Json<TaskDto>), Rejection> {
+    refuse_local_only(local_only)?;
     let id = state.trash.ism_purge(request).await?;
     accepted(&state, id).await
+}
+
+fn refuse_local_only(local_only: bool) -> Result<(), Rejection> {
+    if local_only {
+        return Err(AppError::conflict(
+            "local_only_remote_trash",
+            "The sync manager trash cannot be changed in local-only mode.",
+        )
+        .into());
+    }
+    Ok(())
 }
 
 /// 202 with the task a request queued: the client follows it on the event stream.

@@ -1,7 +1,10 @@
 import { ApiError, isAbortError, parseErrorBody, parseFieldErrors } from '@/api/errors';
+import { localOnlyChanges } from '@/stores/prefs';
 
 /** Header the server requires on every state-changing request (CSRF guard). */
 export const CSRF_HEADER = 'x-opm-request';
+/** Runs a file operation locally instead of delegating it to the connected sync manager. */
+export const LOCAL_ONLY_HEADER = 'x-opm-local-only';
 
 export type QueryScalar = string | number | boolean | null | undefined;
 export type Query = Record<string, QueryScalar | readonly QueryScalar[]>;
@@ -72,7 +75,11 @@ export function createApiClient(config: ApiClientConfig = {}): ApiClient {
   async function request<T>(method: string, path: string, options: RequestOptions): Promise<T> {
     const { query, body, signal, headers: extra } = options;
     const headers = new Headers({ accept: 'application/json', ...extra });
-    if (method !== 'GET') headers.set(CSRF_HEADER, '1');
+    if (method !== 'GET') {
+      headers.set(CSRF_HEADER, '1');
+      headers.delete(LOCAL_ONLY_HEADER);
+      if (localOnlyChanges.peek()) headers.set(LOCAL_ONLY_HEADER, '1');
+    }
     if (body !== undefined) headers.set('content-type', 'application/json');
 
     let response: Response;

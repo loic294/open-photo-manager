@@ -82,6 +82,14 @@ impl TrashService {
     /// failure of one item (a read-only volume, a symlink in the way) never stops the next; it
     /// ends the task `failed` with the first failures named.
     pub async fn empty(&self, request: TrashEmptyRequest) -> Result<TaskId, TrashError> {
+        self.empty_with_mode(request, false).await
+    }
+
+    pub async fn empty_with_mode(
+        &self,
+        request: TrashEmptyRequest,
+        local_only: bool,
+    ) -> Result<TaskId, TrashError> {
         request.validate().map_err(TrashError::Validation)?;
         if let Some(volume_id) = request.volume_id {
             self.volumes.get(volume_id)?;
@@ -105,7 +113,12 @@ impl TrashService {
             "items": items,
         });
         let id = self
-            .submit_purge(selector, "Emptying the trash".to_owned(), params)
+            .submit_purge(
+                selector,
+                "Emptying the trash".to_owned(),
+                params,
+                local_only,
+            )
             .await?;
         tracing::info!(task = id, items, "emptying the trash queued");
         Ok(id)
@@ -117,10 +130,14 @@ impl TrashService {
         selector: PurgeSelector,
         title: String,
         mut params: Value,
+        local_only: bool,
     ) -> Result<TaskId, AppError> {
         let service = self.clone();
         params["selector"] = serde_json::to_value(selector).map_err(AppError::internal)?;
         params["title"] = Value::String(title.clone());
+        if local_only {
+            params["local_only"] = json!(true);
+        }
         let spec = TaskSpec::new(TaskKind::TrashEmpty, title.clone())
             .resumable()
             .with_params(params);

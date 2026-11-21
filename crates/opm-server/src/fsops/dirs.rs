@@ -461,11 +461,11 @@ impl FsOps {
     ) -> Result<RmdirOutcome, FsOpError> {
         cx.ensure_active()?;
         let rules = self.rules();
-        let managed = self.is_managed(loc.volume_id);
+        let managed = self.is_managed(loc.volume_id) && !cx.local_only;
         let root = if managed {
             self.volume(loc.volume_id)?
         } else {
-            self.writable_volume(loc.volume_id)?
+            self.writable_volume_for(loc.volume_id, cx)?
         };
         if loc.rel.is_root() {
             return Err(FsOpError::DestinationInvalid(

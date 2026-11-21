@@ -15,7 +15,7 @@ use opm_core::dto::{
 };
 use opm_core::paths::PlanId;
 
-use super::extract::{ApiJson, ApiPath};
+use super::extract::{ApiJson, ApiLocalOnly, ApiPath};
 use crate::error::AppResult;
 use crate::state::AppState;
 
@@ -70,9 +70,13 @@ async fn remove(
 async fn execute(
     State(state): State<AppState>,
     ApiPath(id): ApiPath<PlanId>,
+    ApiLocalOnly(local_only): ApiLocalOnly,
     ApiJson(request): ApiJson<ExecutePlanRequest>,
 ) -> AppResult<(StatusCode, Json<TaskDto>)> {
-    let task = state.plans.execute(id, request).await?;
+    let task = state
+        .plans
+        .execute_with_mode(id, request, local_only)
+        .await?;
     Ok((StatusCode::ACCEPTED, Json(task)))
 }
 

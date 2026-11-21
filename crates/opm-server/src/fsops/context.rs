@@ -87,6 +87,8 @@ fn stamp(epoch_secs: i64) -> String {
 pub struct OpContext {
     /// The task the operation belongs to, recorded in the journal and the trash rows.
     pub task_id: Option<TaskId>,
+    /// Bound volumes are changed locally instead of sending the operation to ISM.
+    pub local_only: bool,
     /// Cancelling stops a copy at the next chunk (the part file is deleted, the source is
     /// untouched) and makes the next operation return `cancelled`.
     pub cancel: CancellationToken,
@@ -114,6 +116,7 @@ impl OpContext {
     ) -> Self {
         Self {
             task_id,
+            local_only: false,
             cancel,
             on_bytes,
             changes,
@@ -131,6 +134,7 @@ impl OpContext {
             Arc::new(move |bytes| progress.add(0, i64::try_from(bytes).unwrap_or(i64::MAX))),
             Arc::new(TaskChangeSink::new(engine.clone())),
         )
+        .with_local_only(task.local_only)
     }
 
     /// No task, never cancelled, nothing reported: for tests, recovery and one-off calls.
@@ -141,6 +145,13 @@ impl OpContext {
             Arc::new(|_| {}),
             Arc::new(NoopChanges),
         )
+    }
+
+    /// Runs this operation on managed volumes locally instead of delegating it.
+    #[must_use]
+    pub fn with_local_only(mut self, local_only: bool) -> Self {
+        self.local_only = local_only;
+        self
     }
 
     /// Replaces the sink the changed directories are reported to.
@@ -194,6 +205,7 @@ impl fmt::Debug for OpContext {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         f.debug_struct("OpContext")
             .field("task_id", &self.task_id)
+            .field("local_only", &self.local_only)
             .field("cancelled", &self.cancel.is_cancelled())
             .finish_non_exhaustive()
     }

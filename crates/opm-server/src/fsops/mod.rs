@@ -418,6 +418,14 @@ impl FsOps {
         Ok(())
     }
 
+    pub(crate) fn refuse_managed_for(&self, id: VolumeId, cx: &OpContext) -> Result<(), FsOpError> {
+        if cx.local_only {
+            Ok(())
+        } else {
+            self.refuse_managed(id)
+        }
+    }
+
     /// Replaces the rename backend (tests force the cross-device copy with it).
     #[must_use]
     pub fn with_mover(mut self, mover: Arc<dyn Mover>) -> Self {
@@ -458,6 +466,19 @@ impl FsOps {
     /// An online volume's root, refused when the volume is read-only.
     pub(crate) fn writable_volume(&self, id: VolumeId) -> Result<Arc<VolumeRoot>, FsOpError> {
         self.refuse_managed(id)?;
+        self.writable_unmanaged_volume(id)
+    }
+
+    pub(crate) fn writable_volume_for(
+        &self,
+        id: VolumeId,
+        cx: &OpContext,
+    ) -> Result<Arc<VolumeRoot>, FsOpError> {
+        self.refuse_managed_for(id, cx)?;
+        self.writable_unmanaged_volume(id)
+    }
+
+    fn writable_unmanaged_volume(&self, id: VolumeId) -> Result<Arc<VolumeRoot>, FsOpError> {
         let root = self.volume(id)?;
         match self.volumes.volume(id) {
             Some(volume) if volume.writable => Ok(root),

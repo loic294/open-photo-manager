@@ -331,14 +331,15 @@ impl TaskEngine {
         if inner.stop.is_cancelled() || inner.core().closed {
             return Err(shutting_down());
         }
-        let row: Option<(String, String, String)> = sqlx::query_as(
+        let row: Option<(String, String, String, String)> = sqlx::query_as(
             "UPDATE tasks SET state = 'queued', error = NULL, finished_at = NULL \
-             WHERE id = ? AND state = 'interrupted' AND resumable = 1 RETURNING kind, title, lane",
+             WHERE id = ? AND state = 'interrupted' AND resumable = 1 \
+             RETURNING kind, title, lane, params_json",
         )
         .bind(id)
         .fetch_optional(inner.db.write())
         .await?;
-        let Some((kind, title, lane)) = row else {
+        let Some((kind, title, lane, params)) = row else {
             return Ok(());
         };
         let kind = model::kind_from_db(&kind).map_err(AppError::internal)?;
@@ -347,7 +348,10 @@ impl TaskEngine {
             "index" => Lane::Index,
             _ => return Err(AppError::internal(anyhow::anyhow!("unknown task lane"))),
         };
-        let spec = TaskSpec::new(kind, title).with_lane(lane);
+        let params = serde_json::from_str(&params).map_err(AppError::internal)?;
+        let spec = TaskSpec::new(kind, title)
+            .with_lane(lane)
+            .with_params(params);
         let live = Arc::new(LiveTask::new(
             id,
             &spec,

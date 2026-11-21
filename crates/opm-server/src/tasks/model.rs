@@ -114,6 +114,8 @@ impl TaskSpec {
 #[derive(Clone, Debug)]
 pub struct TaskCtx {
     pub id: TaskId,
+    /// This task must not delegate file changes to a connected sync manager.
+    pub local_only: bool,
     /// Cancelled when the user cancels the task and when the server shuts down. Cancellation is
     /// cooperative: check it between units of work, or `select!` on `cancel.cancelled()`, and
     /// return [`TaskError::Cancelled`].

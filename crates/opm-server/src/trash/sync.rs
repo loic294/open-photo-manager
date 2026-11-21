@@ -260,10 +260,18 @@ impl TrashService {
     /// docs for what it does; it never fails for what it finds, and reports its counts in the
     /// final title and result.
     pub async fn sync(&self) -> Result<TaskId, AppError> {
+        self.sync_with_mode(false).await
+    }
+
+    pub async fn sync_with_mode(&self, local_only: bool) -> Result<TaskId, AppError> {
         let service = self.clone();
+        let mut params = json!({ "op": "trash_sync" });
+        if local_only {
+            params["local_only"] = json!(true);
+        }
         let spec = TaskSpec::new(TaskKind::FsTrash, TITLE)
             .resumable()
-            .with_params(json!({ "op": "trash_sync" }));
+            .with_params(params);
         let id = self
             .tasks
             .submit(spec, move |ctx| async move { service.run_sync(ctx).await })

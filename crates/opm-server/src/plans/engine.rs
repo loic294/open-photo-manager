@@ -181,6 +181,7 @@ struct Run {
     prep: ExecutePrep,
     options: Value,
     only: Option<SelectionId>,
+    local_only: bool,
 }
 
 /// Removes what an abandoned build wrote. Armed from the moment the `building` row exists until
@@ -250,6 +251,10 @@ impl PlanService {
             prep,
             options,
             only,
+            local_only: params
+                .get("local_only")
+                .and_then(Value::as_bool)
+                .unwrap_or(false),
         };
         let service = self.clone();
         let result = row.dto()?.result;
@@ -788,6 +793,15 @@ impl PlanService {
     /// and returns the task. Everything that can be refused is refused before the plan is
     /// claimed, so a bad request leaves the plan `ready` and creates no task.
     pub async fn execute(&self, id: PlanId, request: ExecutePlanRequest) -> AppResult<TaskDto> {
+        self.execute_with_mode(id, request, false).await
+    }
+
+    pub async fn execute_with_mode(
+        &self,
+        id: PlanId,
+        request: ExecutePlanRequest,
+        local_only: bool,
+    ) -> AppResult<TaskDto> {
         let inner = &self.0;
         let plan = self.load_fresh(id).await?;
         match plan.state {
@@ -832,6 +846,7 @@ impl PlanService {
             prep,
             options,
             only: request.only,
+            local_only,
         };
         // A tracked job, not this future: a client that drops the request after the plan was
         // claimed must not leave it `executing` without a task.
@@ -857,15 +872,19 @@ impl PlanService {
             ));
         }
         self.forget(id);
+        let mut params = json!({
+            "plan_id": id,
+            "kind": store::kind_to_db(run.plan.kind),
+            "only": run.only,
+            "only_ids": only_ids,
+            "options": run.options,
+        });
+        if run.local_only {
+            params["local_only"] = json!(true);
+        }
         let spec = TaskSpec::new(TaskKind::PlanExecute, run.prep.title.clone())
             .resumable()
-            .with_params(json!({
-                "plan_id": id,
-                "kind": store::kind_to_db(run.plan.kind),
-                "only": run.only,
-                "only_ids": only_ids,
-                "options": run.options,
-            }));
+            .with_params(params);
         let service = self.clone();
         let submitted = inner
             .deps
@@ -899,6 +918,7 @@ impl PlanService {
             prep,
             options,
             only,
+            local_only: _,
         } = run;
         let plan = Plan {
             state: PlanState::Executing,

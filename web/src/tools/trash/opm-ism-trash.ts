@@ -7,6 +7,7 @@ import { events, type ServerEventOf } from '@/api/sse';
 import { OpmElement } from '@/base/opm-element';
 import { confirmDialog } from '@/components/confirm-dialog';
 import { toast } from '@/components/toast';
+import { localOnlyChanges } from '@/stores/prefs';
 import { isEnded, isFailure } from '@/stores/tasks';
 import { formatFileSize } from '@/util/format';
 
@@ -195,7 +196,8 @@ export class OpmIsmTrash extends OpmElement {
         </div>
       `;
     }
-    const none = selected.size === 0 || this.busy;
+    const localOnly = localOnlyChanges.value;
+    const none = selected.size === 0 || this.busy || localOnly;
     return html`
       <section class="card card-border bg-base-100 my-3" aria-label=${`Sync manager trash of ${binding.root_name}`}>
         <div class="card-body gap-3 p-4">
@@ -224,6 +226,14 @@ export class OpmIsmTrash extends OpmElement {
                 : nothing
             }
           </div>
+          ${
+            localOnly
+              ? html`<p class="text-sm text-base-content/70">
+                  Turn off &ldquo;Local only changes&rdquo; to restore or permanently delete sync manager
+                  trash.
+                </p>`
+              : nothing
+          }
           ${body}
         </div>
       </section>

@@ -13,7 +13,13 @@ use crate::tasks::{Retention, TaskOptions};
 #[tokio::test]
 async fn resumable_tasks_keep_their_id_and_checkpoint_across_repeated_restarts() {
     let h = Harness::new().await;
-    let id = h.seed_running(&fs().resumable()).await;
+    let id = h
+        .seed_running(
+            &fs()
+                .resumable()
+                .with_params(serde_json::json!({"local_only": true})),
+        )
+        .await;
     let checkpoint = crate::tasks::Checkpoint::new(&h.db, id).await.unwrap();
     checkpoint.save("next", &3_u64).await.unwrap();
     let second = h.restarted_with(fast()).await;
@@ -21,6 +27,7 @@ async fn resumable_tasks_keep_their_id_and_checkpoint_across_repeated_restarts()
     let db = h.db.handle();
     second
         .resume(id, move |ctx| async move {
+            assert!(ctx.local_only);
             let checkpoint = crate::tasks::Checkpoint::new(&db, ctx.id).await?;
             assert_eq!(checkpoint.load::<u64>("next").await?, Some(3));
             checkpoint.save("next", &4_u64).await?;

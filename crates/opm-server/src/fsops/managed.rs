@@ -60,6 +60,12 @@ impl ManagedVolumeSnapshot {
                 WHERE EXISTS(SELECT 1 FROM fs_journal j
                     WHERE j.state = 'pending'
                     AND (j.src_volume_id = b.volume_id OR j.dst_volume_id = b.volume_id))
+                AND EXISTS(SELECT 1 FROM fs_journal j
+                    WHERE j.state = 'pending'
+                    AND (j.src_volume_id = b.volume_id OR j.dst_volume_id = b.volume_id)
+                    AND NOT EXISTS(SELECT 1 FROM tasks t
+                        WHERE t.id = j.task_id
+                        AND json_extract(t.params_json, '$.local_only') = 1))
             )",
         )
         .fetch_one(&mut *tx)
@@ -589,6 +595,18 @@ impl FsOps {
         cx: &OpContext,
         on_item: OnDelegated<'_>,
     ) {
+        if cx.local_only {
+            for (index, _) in actions.iter().enumerate() {
+                on_item(
+                    index,
+                    Err(FsOpError::delegated(
+                        "local_only",
+                        "Local-only changes cannot be sent to the sync manager",
+                    )),
+                );
+            }
+            return;
+        }
         let mut wire = Vec::new();
         let mut indexes = Vec::new();
         for (index, action) in actions.iter().enumerate() {

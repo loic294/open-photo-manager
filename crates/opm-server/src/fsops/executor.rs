@@ -654,12 +654,12 @@ impl FsOps {
             return Ok(Transferred::Skipped(SkipReason::SameLocation));
         }
         cx.ensure_active()?;
-        self.refuse_managed(job.src.volume_id)?;
+        self.refuse_managed_for(job.src.volume_id, cx)?;
         let rules = self.rules();
-        let dst_root = self.writable_volume(job.dst.volume_id)?;
+        let dst_root = self.writable_volume_for(job.dst.volume_id, cx)?;
         let src_root = match job.mode {
             Mode::Copy => self.volume(job.src.volume_id)?,
-            Mode::Move | Mode::Restore => self.writable_volume(job.src.volume_id)?,
+            Mode::Move | Mode::Restore => self.writable_volume_for(job.src.volume_id, cx)?,
         };
         let reserved = JunkRules::reserved_only();
         let judge = if job.mode == Mode::Restore {

@@ -259,18 +259,19 @@ impl FsOps {
                 "the journal row has no source or no destination",
             ));
         };
-        self.refuse_managed(src.volume_id)?;
+        let cx = OpContext::detached().with_local_only(row.local_only);
+        self.refuse_managed_for(src.volume_id, &cx)?;
         // The source of a copy is only read, so a read-only volume is fine for it.
         let src_root = if mode == Mode::Copy {
             self.volume(src.volume_id)?
         } else {
-            self.writable_volume(src.volume_id)?
+            self.writable_volume_for(src.volume_id, &cx)?
         };
         let ends = Ends {
             src: src.clone(),
             dst: dst.clone(),
             src_root,
-            dst_root: self.writable_volume(dst.volume_id)?,
+            dst_root: self.writable_volume_for(dst.volume_id, &cx)?,
         };
         match (&row.part_path, mode) {
             (Some(part), _) => self.recover_copied(row, mode, ends, part, cancel).await,
@@ -467,7 +468,8 @@ impl FsOps {
         if orig.volume_id != trash.volume_id {
             return Ok(Recovered::unclear("the trash path is on another volume"));
         }
-        let root = self.writable_volume(orig.volume_id)?;
+        let cx = OpContext::detached().with_local_only(row.local_only);
+        let root = self.writable_volume_for(orig.volume_id, &cx)?;
         let (at_orig, at_trash) = {
             let (orig, trash) = (orig.rel.clone(), trash.rel.clone());
             blocking(move || Ok((look(&root, &orig)?, look(&root, &trash)?))).await?
@@ -511,7 +513,8 @@ impl FsOps {
         let Some(dir) = &row.src else {
             return Ok(Recovered::abandoned("the journal row has no folder"));
         };
-        let root = self.writable_volume(dir.volume_id)?;
+        let cx = OpContext::detached().with_local_only(row.local_only);
+        let root = self.writable_volume_for(dir.volume_id, &cx)?;
         let rel = dir.rel.clone();
         match blocking(move || look(&root, &rel)).await? {
             Seen::Absent => {
@@ -529,7 +532,8 @@ impl FsOps {
         let Some(path) = &row.src else {
             return Ok(Recovered::abandoned("the journal row has no trash path"));
         };
-        let root = self.writable_volume(path.volume_id)?;
+        let cx = OpContext::detached().with_local_only(row.local_only);
+        let root = self.writable_volume_for(path.volume_id, &cx)?;
         let rel = path.rel.clone();
         if !matches!(blocking(move || look(&root, &rel)).await?, Seen::Absent) {
             return Ok(Recovered::abandoned(

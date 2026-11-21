@@ -226,7 +226,11 @@ describe('layout', () => {
     const right = app.querySelector('header > div:last-child');
     expect(classesOf(right)).toContain('flex-none');
     expect(right?.querySelector('opm-task-indicator')).not.toBeNull();
+    expect(right?.querySelector('opm-local-only-toggle')).not.toBeNull();
     expect(right?.querySelector('opm-theme-toggle')).not.toBeNull();
+    expect(right?.querySelector('opm-local-only-toggle')?.nextElementSibling?.localName).toBe(
+      'opm-theme-toggle',
+    );
   });
 });
 

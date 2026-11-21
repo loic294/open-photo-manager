@@ -212,6 +212,7 @@ impl TrashService {
             Arc::new(|_| {}),
             Arc::new(TaskChangeSink::new(self.tasks.clone())),
         )
+        .with_local_only(ctx.local_only)
     }
 }
 

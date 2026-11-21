@@ -11,7 +11,7 @@ never sees a volume change hands. A bind waits while the volume has unfinished l
 operations; the binding screen shows the reason. Unbinding also applies at the next start. A connection cannot be
 removed or switched to another ISM instance while a volume is bound or a bind is staged.
 
-OPM never mutates files on a bound volume itself:
+By default, OPM never mutates files on a bound volume itself:
 
 - Move, folder-format and rename plans send their moves to ISM as one operation per batch of up to
   500 files. OPM first asks ISM for a preview, then submits with an idempotency key it stores
@@ -50,6 +50,12 @@ OPM never mutates files on a bound volume itself:
 - Refused on bound volumes: copies, moves between a bound and an unbound volume
   (`ism_cross_boundary`), the **Replace** conflict policy (`ism_replace_unsupported`; use rename or
   skip), and restoring or purging OPM trash items there (items OPM trashed before the binding).
+
+The top-bar **Local only changes** toggle is a per-browser, persisted override for file
+operations. While it is on, plans, deletes, restores and empty-trash tasks still change the local
+files and OPM index, but do not submit an operation to ISM. The mode is saved with each task so it
+also survives a restart and recovery. Sync-manager trash restore and permanent deletion remain
+remote-only actions and are refused until the toggle is turned off.
 
 OPM logs every ISM operation it sends (key, `operation_id`, state changes, item failure codes);
 see [Diagnostics](troubleshooting.md#diagnostics) for how to read and raise those logs.

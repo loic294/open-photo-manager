@@ -1,11 +1,25 @@
 import { afterEach, expect, it, vi } from 'vitest';
 import { api } from '@/api/client';
+import { localOnlyChanges } from '@/stores/prefs';
 import { pressConfirm } from '@/test/confirm';
 import { mount } from '@/test/helpers';
 import '@/tools/trash/opm-ism-trash';
 
 afterEach(() => {
   vi.restoreAllMocks();
+  localOnlyChanges.value = false;
+});
+
+it('disables sync manager mutations while changes are local-only', async () => {
+  const post = serve(true);
+  localOnlyChanges.value = true;
+  const el = await mount('opm-ism-trash');
+  await selectFirst(el);
+
+  expect(buttonNamed(el, 'Restore')?.disabled).toBe(true);
+  expect(buttonNamed(el, 'Delete for good…')?.disabled).toBe(true);
+  expect(el.textContent).toContain('Turn off');
+  expect(post).not.toHaveBeenCalled();
 });
 
 const binding = { volume_id: 7, root_id: 'photos', root_name: 'Photos', root_prefix: 'photos' };

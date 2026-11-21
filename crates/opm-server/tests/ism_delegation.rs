@@ -10,13 +10,16 @@ use std::sync::Arc;
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::time::Duration;
 
-use axum::http::{Method, StatusCode};
+use axum::body::Body;
+use axum::http::{Method, Request as HttpRequest, StatusCode, header};
 use common::TestApp;
 use common::seed::Seed;
+use http_body_util::BodyExt;
 use opm_core::dto::*;
 use opm_server::fsops::{Loc, TrashBatch, TrashRequest};
 use opm_server::state::AppState;
 use serde_json::{Value, json};
+use tower::ServiceExt;
 use wiremock::matchers::{method, path};
 use wiremock::{Mock, MockServer, Request, Respond, ResponseTemplate};
 
@@ -196,6 +199,23 @@ impl Bound {
         body["id"].as_i64().unwrap()
     }
 
+    async fn start_local(&self, plan: i64) -> i64 {
+        let request = HttpRequest::builder()
+            .method(Method::POST)
+            .uri(format!("/api/plans/{plan}/execute"))
+            .header(header::HOST, "localhost")
+            .header(header::CONTENT_TYPE, "application/json")
+            .header("x-opm-request", "1")
+            .header("x-opm-local-only", "1")
+            .body(Body::from(json!({"options": {}, "only": null}).to_string()))
+            .unwrap();
+        let response = self.app.router.clone().oneshot(request).await.unwrap();
+        assert_eq!(response.status(), StatusCode::ACCEPTED);
+        let bytes = response.into_body().collect().await.unwrap().to_bytes();
+        let body: Value = serde_json::from_slice(&bytes).unwrap();
+        body["id"].as_i64().unwrap()
+    }
+
     async fn finish(&self, plan: i64, task: i64) -> (PlanResult, TaskState) {
         tokio::time::timeout(Duration::from_secs(30), async {
             loop {
@@ -367,6 +387,61 @@ async fn a_move_plan_on_a_bound_volume_is_one_ism_operation_and_never_touches_th
         (recorded.1.as_str(), recorded.2.as_str()),
         ("op-1", "finished")
     );
+}
+
+#[tokio::test]
+async fn local_only_plan_moves_bound_files_without_contacting_ism() {
+    let fx = bound("blocked").await;
+    let file = fx.photo("a.jpg").await;
+    let plan = fx.plan(None).await;
+    let task = fx.start_local(plan).await;
+
+    let (result, state) = fx.finish(plan, task).await;
+    assert_eq!(state, TaskState::Done, "{result:?}");
+    assert_eq!((result.done, result.skipped, result.failed), (1, 0, 0));
+    assert!(!fx.tree.path("src/a.jpg").exists());
+    assert_eq!(std::fs::read(fx.tree.path("out/a.jpg")).unwrap(), PHOTO);
+    assert_eq!(fx.path_of(file).await.as_deref(), Some("out/a.jpg"));
+    assert!(
+        fx.requests("POST", &format!("/api/v1/instances/{INSTANCE}/operations"))
+            .await
+            .is_empty()
+    );
+    let local_only: i64 = sqlx::query_scalar(
+        "SELECT json_extract(params_json, '$.local_only') FROM tasks WHERE id = ?",
+    )
+    .bind(task)
+    .fetch_one(fx.app.state.db.read())
+    .await
+    .unwrap();
+    assert_eq!(local_only, 1);
+}
+
+#[tokio::test]
+async fn local_only_trash_uses_opm_trash_on_a_bound_volume() {
+    let fx = bound("blocked").await;
+    let file = fx.photo("a.jpg").await;
+    let outcome = fx
+        .app
+        .state
+        .fsops
+        .trash_file(
+            TrashRequest {
+                file_id: Some(file),
+                loc: Loc::new(fx.volume, "src/a.jpg".parse().unwrap()),
+                expect: None,
+                batch: TrashBatch::adhoc(),
+                reason: "user".to_owned(),
+            },
+            &opm_server::fsops::OpContext::detached().with_local_only(true),
+        )
+        .await
+        .unwrap();
+
+    assert!(!fx.tree.path("src/a.jpg").exists());
+    assert!(fx.tree.path(outcome.trash_path.as_str()).exists());
+    assert!(fx.path_of(file).await.is_none());
+    assert!(fx.submitted().await.is_empty());
 }
 
 #[tokio::test]

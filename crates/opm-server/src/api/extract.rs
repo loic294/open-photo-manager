@@ -2,8 +2,11 @@
 //! axum's plain-text rejections. Handlers use these instead of the raw
 //! `axum::Json`, `Path` and `Query` extractors.
 
+use std::convert::Infallible;
+
 use axum::extract::rejection::{JsonRejection, PathRejection, QueryRejection};
 use axum::extract::{FromRequest, FromRequestParts};
+use axum::http::request::Parts;
 
 use crate::error::AppError;
 
@@ -21,6 +24,22 @@ pub struct ApiPath<T>(pub T);
 #[derive(FromRequestParts)]
 #[from_request(via(axum::extract::Query), rejection(AppError))]
 pub struct ApiQuery<T>(pub T);
+
+/// Whether this request explicitly asks file operations to stay local instead of using ISM.
+pub struct ApiLocalOnly(pub bool);
+
+impl<S: Send + Sync> FromRequestParts<S> for ApiLocalOnly {
+    type Rejection = Infallible;
+
+    async fn from_request_parts(parts: &mut Parts, _state: &S) -> Result<Self, Self::Rejection> {
+        let enabled = parts
+            .headers
+            .get("x-opm-local-only")
+            .and_then(|value| value.to_str().ok())
+            == Some("1");
+        Ok(Self(enabled))
+    }
+}
 
 impl From<JsonRejection> for AppError {
     fn from(rejection: JsonRejection) -> Self {

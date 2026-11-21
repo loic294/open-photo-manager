@@ -419,11 +419,11 @@ impl FsOps {
         cx.ensure_active()?;
         let rules = self.rules();
         let max = rules.name_max_len();
-        let managed = self.is_managed(loc.volume_id);
+        let managed = self.is_managed(loc.volume_id) && !cx.local_only;
         let root = if managed {
             self.volume(loc.volume_id)?
         } else {
-            self.writable_volume(loc.volume_id)?
+            self.writable_volume_for(loc.volume_id, cx)?
         };
         if loc.rel.is_root() {
             return Err(FsOpError::DestinationInvalid(
@@ -665,7 +665,7 @@ impl FsOps {
     ) -> Result<RestoreOutcome, FsOpError> {
         let rules = self.rules();
         let max = rules.name_max_len();
-        let root = self.writable_volume(item.volume_id)?;
+        let root = self.writable_volume_for(item.volume_id, cx)?;
         let wanted = item.orig_loc();
         validate_file_path(&rules, &JunkRules::reserved_only(), &wanted.rel)?;
         rules.check_included(&wanted)?;
@@ -772,7 +772,7 @@ impl FsOps {
     ) -> Result<PurgeOutcome, FsOpError> {
         cx.ensure_active()?;
         let item = self.load_trash_item(trash_item_id).await?;
-        let root = self.writable_volume(item.volume_id)?;
+        let root = self.writable_volume_for(item.volume_id, cx)?;
         ensure_inside_trash(&item.trash_path)?;
 
         let src = item.trash_loc();

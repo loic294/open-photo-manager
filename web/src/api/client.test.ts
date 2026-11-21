@@ -1,6 +1,7 @@
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import { api, buildQuery, createApiClient, withQuery } from '@/api/client';
 import { ApiError, isAbortError, isApiError } from '@/api/errors';
+import { localOnlyChanges } from '@/stores/prefs';
 
 function respond(body: BodyInit | null, init: ResponseInit = {}): Response {
   return new Response(body, init);
@@ -95,6 +96,21 @@ describe('requests', () => {
     expect(headers.get('x-extra')).toBe('yes');
     expect(headers.get('content-type')).toBeNull();
     expect(init.body).toBeNull();
+  });
+
+  it('marks writes as local-only from the operation mode, but never reads', async () => {
+    const fetchMock = stubFetch(() => json({}));
+    const client = createApiClient({ fetch: fetchMock });
+    localOnlyChanges.value = true;
+
+    await client.get('/api/files');
+    await client.post('/api/plans/1/execute', {
+      headers: { 'x-opm-local-only': '0' },
+    });
+
+    expect(sent(fetchMock, 0).headers.get('x-opm-local-only')).toBeNull();
+    expect(sent(fetchMock, 1).headers.get('x-opm-local-only')).toBe('1');
+    localOnlyChanges.value = false;
   });
 
   it('resolves undefined for 204 and for an empty 200 body', async () => {

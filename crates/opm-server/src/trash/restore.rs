@@ -38,6 +38,14 @@ impl TrashService {
     /// not in the trash (any more), a volume that is read-only or went offline, a name that cannot
     /// be restored. A failing item never stops the next one.
     pub async fn restore(&self, request: TrashRestoreRequest) -> Result<TaskId, TrashError> {
+        self.restore_with_mode(request, false).await
+    }
+
+    pub async fn restore_with_mode(
+        &self,
+        request: TrashRestoreRequest,
+        local_only: bool,
+    ) -> Result<TaskId, TrashError> {
         request.validate().map_err(TrashError::Validation)?;
         let TrashRestoreRequest {
             target,
@@ -84,6 +92,9 @@ impl TrashService {
             }
         };
         params["request"] = json!({ "target": target, "conflict_policy": policy });
+        if local_only {
+            params["local_only"] = json!(true);
+        }
 
         let service = self.clone();
         let spec = TaskSpec::new(TaskKind::FsMove, restoring_title(count))
