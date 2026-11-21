@@ -4,6 +4,7 @@ import type { Overlay } from '@/api/generated/Overlay';
 import {
   CARD_CAPTION_PX,
   type CardActivateDetail,
+  type CardMenuDetail,
   cardBadges,
   cardFrameClasses,
   cardHeight,
@@ -807,6 +808,37 @@ describe('opm-file-card', () => {
       press(part(card, '.checkbox'), { key: ' ' });
 
       expect(seen).toEqual([]);
+    });
+  });
+
+  describe('card-menu', () => {
+    it('reports a real file and the pointer position', async () => {
+      const item = fileItem({ id: 42, name: 'photo.JPG' });
+      const card = await mount('opm-file-card', { item, index: 5 });
+      const seen: CardMenuDetail[] = [];
+      card.addEventListener('card-menu', (event) => seen.push(event.detail));
+      const event = new MouseEvent('contextmenu', {
+        bubbles: true,
+        cancelable: true,
+        clientX: 120,
+        clientY: 80,
+      });
+
+      option(card).dispatchEvent(event);
+
+      expect(event.defaultPrevented).toBe(true);
+      expect(seen).toEqual([{ item, index: 5, x: 120, y: 80 }]);
+    });
+
+    it('leaves the browser menu on a ghost card', async () => {
+      const card = await mount('opm-file-card', {
+        item: fileItem({ overlay: { planned: true } }),
+      });
+      const event = new MouseEvent('contextmenu', { bubbles: true, cancelable: true });
+
+      option(card).dispatchEvent(event);
+
+      expect(event.defaultPrevented).toBe(false);
     });
   });
 

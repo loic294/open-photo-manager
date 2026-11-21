@@ -3,6 +3,7 @@ import type { IsmBindingRequest } from '@/api/generated/IsmBindingRequest';
 import type { IsmConnectRequest } from '@/api/generated/IsmConnectRequest';
 import type { IsmInfoDto } from '@/api/generated/IsmInfoDto';
 import type { IsmStatusDto } from '@/api/generated/IsmStatusDto';
+import type { IsmSyncFolderRequest } from '@/api/generated/IsmSyncFolderRequest';
 import type { IsmTrashDto } from '@/api/generated/IsmTrashDto';
 import type { IsmTrashPurgeRequest } from '@/api/generated/IsmTrashPurgeRequest';
 import type { IsmTrashRestoreRequest } from '@/api/generated/IsmTrashRestoreRequest';
@@ -16,6 +17,9 @@ export const testIsm = () => api.post<IsmInfoDto>('/api/ism/test');
 export const disconnectIsm = () => api.delete<IsmStatusDto>('/api/ism/connection');
 export const stageIsmBinding = (body: IsmBindingRequest) =>
   api.put<IsmStatusDto>('/api/ism/bindings', { body });
+/** `POST /api/ism/sync`: asks ISM to run an Immich scan for one bound folder. */
+export const syncIsmFolder = (body: IsmSyncFolderRequest) =>
+  api.post<TaskDto>('/api/ism/sync', { body });
 
 /** `GET /api/trash/ism`: the ISM trash of a bound volume. 404 `ism_not_bound` otherwise. */
 export const listIsmTrash = (volumeId: number, signal?: AbortSignal) =>

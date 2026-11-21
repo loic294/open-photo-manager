@@ -13,6 +13,7 @@ use crate::paths::{TaskId, VolumeId};
 #[ts(export)]
 pub enum TaskKind {
     Index,
+    ImmichSync,
     FsMove,
     FsTrash,
     FsRmdir,

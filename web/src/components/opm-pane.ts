@@ -11,8 +11,15 @@ import type { FooterCounts } from '@/api/generated/FooterCounts';
 import type { PlanRef } from '@/api/generated/PlanRef';
 import type { SortKey } from '@/api/generated/SortKey';
 import type { VolumeDto } from '@/api/generated/VolumeDto';
+import { rescan } from '@/api/indexing';
+import { syncIsmFolder } from '@/api/ism';
+import { createPlan, createPlanSelection, executePlan } from '@/api/plans';
+import { createSelection } from '@/api/selections';
 import { events, type ServerEventOf } from '@/api/sse';
+import { trashFiles } from '@/api/trash';
 import { OpmElement } from '@/base/opm-element';
+import type { CardMenuEvent } from '@/components/opm-file-card';
+import '@/components/opm-modal';
 import type { OpmFileGrid } from '@/components/opm-file-grid';
 import { tooltip } from '@/components/tooltip';
 import '@/components/opm-file-grid';
@@ -32,6 +39,7 @@ import { toast } from '@/components/toast';
 import { FoldersController } from '@/controllers/folders-controller';
 import { SelectionController } from '@/controllers/selection-controller';
 import {
+  currentTool,
   formatLocation,
   linkToLocation,
   locations,
@@ -41,6 +49,7 @@ import {
   sameLocation,
   setLocation,
 } from '@/stores/nav';
+import { trackPlanRun } from '@/stores/plan-runs';
 import {
   FOLDER_VIEWS,
   folderView,
@@ -132,6 +141,26 @@ const ALERT: Readonly<Record<'error' | 'warning' | 'info', { classes: string; ic
 
 type AlertTone = keyof typeof ALERT;
 
+function splitFileName(name: string): { stem: string; extension: string } {
+  const dot = name.lastIndexOf('.');
+  return dot > 0
+    ? { stem: name.slice(0, dot), extension: name.slice(dot) }
+    : { stem: name, extension: '' };
+}
+
+function renameNameIssue(stem: string): string | null {
+  if (stem.length === 0) return 'Enter a file name.';
+  if (stem === '.' || stem === '..') return 'Choose a different file name.';
+  if (stem.includes('/')) return 'A file name cannot contain /.';
+  if (stem.includes('\\')) return 'Backslashes cannot be used in a file name here.';
+  if (stem.includes('\0')) return 'A file name cannot contain NUL bytes.';
+  return null;
+}
+
+function literalNamePattern(stem: string): string {
+  return stem.replaceAll('{', '{{').replaceAll('}', '}}');
+}
+
 function isSortKey(value: string): value is SortKey {
   return (SORT_KEYS as readonly string[]).includes(value);
 }
@@ -207,6 +236,11 @@ export class OpmPane extends OpmElement {
     plannedOnly: { type: Boolean, attribute: 'planned-only' },
     crumbsCollapsed: { state: true },
     folderMenu: { state: true },
+    fileMenu: { state: true },
+    renameFile: { state: true },
+    renameStem: { state: true },
+    renameBusy: { state: true },
+    renameError: { state: true },
   };
 
   declare pane: PaneId;
@@ -246,6 +280,13 @@ export class OpmPane extends OpmElement {
   private refocus = false;
   /** The open context menu of a folder row. */
   private folderMenu: FolderMenuDetail | null = null;
+  /** The open context menu of a file card. */
+  private fileMenu: CardMenuEvent['detail'] | null = null;
+  private renameFile: FileItem | null = null;
+  private renameStem = '';
+  private renameExtension = '';
+  private renameBusy = false;
+  private renameError = '';
 
   constructor() {
     super();
@@ -299,6 +340,7 @@ export class OpmPane extends OpmElement {
 
   override disconnectedCallback(): void {
     this.closeFolderMenu();
+    this.closeFileMenu();
     this.unbindIdsProvider();
     this.stopFsWatch?.();
     this.stopFsWatch = null;
@@ -506,6 +548,7 @@ export class OpmPane extends OpmElement {
   };
 
   private readonly onFolderMenu = (event: FolderMenuEvent): void => {
+    this.closeFileMenu();
     this.closeFolderMenu();
     this.folderMenu = event.detail;
     document.addEventListener('pointerdown', this.onOutsideMenu, true);
@@ -522,12 +565,37 @@ export class OpmPane extends OpmElement {
   }
 
   private readonly onOutsideMenu = (event: PointerEvent): void => {
-    const menu = this.querySelector('[data-folder-menu]');
-    if (menu && event.target instanceof Node && menu.contains(event.target)) return;
+    const menus = this.querySelectorAll('[data-folder-menu], [data-file-menu]');
+    if (
+      event.target instanceof Node &&
+      [...menus].some((menu) => menu.contains(event.target as Node))
+    )
+      return;
     this.closeFolderMenu();
+    this.closeFileMenu();
   };
 
-  private readonly onWindowBlur = (): void => this.closeFolderMenu();
+  private readonly onWindowBlur = (): void => {
+    this.closeFolderMenu();
+    this.closeFileMenu();
+  };
+
+  private readonly onFileMenu = (event: CardMenuEvent): void => {
+    this.closeFolderMenu();
+    this.closeFileMenu();
+    this.fileMenu = event.detail;
+    document.addEventListener('pointerdown', this.onOutsideMenu, true);
+    window.addEventListener('blur', this.onWindowBlur);
+    void this.updateComplete.then(() =>
+      this.querySelector<HTMLElement>('[data-file-menu] button:not(:disabled)')?.focus(),
+    );
+  };
+
+  private closeFileMenu(): void {
+    document.removeEventListener('pointerdown', this.onOutsideMenu, true);
+    window.removeEventListener('blur', this.onWindowBlur);
+    this.fileMenu = null;
+  }
 
   private readonly onFolderMenuKey = (event: KeyboardEvent): void => {
     if (event.key !== 'Escape' && event.key !== 'Tab') return;
@@ -536,6 +604,157 @@ export class OpmPane extends OpmElement {
     this.closeFolderMenu();
     if (name === undefined) return;
     this.querySelector<HTMLElement>(`opm-folder-list a[data-name="${CSS.escape(name)}"]`)?.focus();
+  };
+
+  private readonly onFileMenuKey = (event: KeyboardEvent): void => {
+    if (event.key !== 'Escape' && event.key !== 'Tab') return;
+    if (event.key === 'Escape') event.preventDefault();
+    const index = this.fileMenu?.index;
+    this.closeFileMenu();
+    if (index !== undefined) {
+      this.querySelector<OpmFileGrid>('opm-file-grid')?.focusItem(index);
+    }
+  };
+
+  private readonly onScanFolder = async (force: boolean): Promise<void> => {
+    const entry = this.folderMenu?.entry;
+    this.closeFolderMenu();
+    if (!entry) return;
+    try {
+      await rescan({
+        targets: [{ volume_id: entry.volume_id, dir: entry.path, recursive: force }],
+        force,
+        confirm_removals: false,
+      });
+    } catch (error) {
+      toast.error(errorMessage(error, 'Could not scan the folder'));
+    }
+  };
+
+  private readonly onSyncFolder = async (): Promise<void> => {
+    const entry = this.folderMenu?.entry;
+    this.closeFolderMenu();
+    if (!entry) return;
+    try {
+      await syncIsmFolder({ volume_id: entry.volume_id, dir: entry.path });
+    } catch (error) {
+      toast.error(errorMessage(error, 'Could not start the Immich folder sync'));
+    }
+  };
+
+  private readonly onDeleteFile = async (): Promise<void> => {
+    const item = this.fileMenu?.item;
+    this.closeFileMenu();
+    if (!item) return;
+    try {
+      const stored = await createSelection([item.id], item.name);
+      if (stored.item_count === 0) {
+        toast.info(`${item.name} is no longer available.`);
+        this.refresh();
+        return;
+      }
+      const confirmed = await confirmDialog({
+        title: `Delete ${item.name}?`,
+        message: `${item.name} will move to the trash and can be restored from Trash. Sidecars that are not used by another file move with it.`,
+        confirmLabel: 'Delete file',
+        danger: true,
+      });
+      if (!confirmed) return;
+      await trashFiles({ selection_id: stored.id });
+      this.refresh();
+    } catch (error) {
+      toast.error(errorMessage(error, 'Could not delete the file'));
+    }
+  };
+
+  private readonly onRenameFile = (): void => {
+    const item = this.fileMenu?.item;
+    this.closeFileMenu();
+    if (!item) return;
+    const parts = splitFileName(item.name);
+    this.renameFile = item;
+    this.renameStem = parts.stem;
+    this.renameExtension = parts.extension;
+    this.renameError = '';
+    this.renameBusy = false;
+  };
+
+  private readonly onRenameInput = (event: Event): void => {
+    this.renameStem = (event.currentTarget as HTMLInputElement).value;
+    this.renameError = '';
+  };
+
+  private readonly closeRename = (): void => {
+    if (this.renameBusy) return;
+    this.renameFile = null;
+    this.renameError = '';
+  };
+
+  private readonly submitRename = async (event: SubmitEvent): Promise<void> => {
+    event.preventDefault();
+    const item = this.renameFile;
+    if (!item || this.renameBusy) return;
+    const issue = renameNameIssue(this.renameStem);
+    if (issue) {
+      this.renameError = issue;
+      return;
+    }
+    if (`${this.renameStem}${this.renameExtension}` === item.name) {
+      this.closeRename();
+      return;
+    }
+    this.renameBusy = true;
+    this.renameError = '';
+    try {
+      const stored = await createSelection([item.id], item.name);
+      if (stored.item_count === 0) {
+        this.renameError = 'The file is no longer available. Close this dialog and refresh.';
+        return;
+      }
+      const plan = await createPlan('rename', {
+        source: {
+          scope: {
+            volume_id: item.volume_id,
+            dir: item.dir,
+            recursive: false,
+          },
+          filter: { ...EMPTY_FILTER, selection_id: stored.id },
+        },
+        rules: {
+          matcher: { mode: 'all', pattern: '', ignore_case: true },
+          clean: false,
+          rewrite: null,
+          pattern: literalNamePattern(this.renameStem),
+          count_digits: 0,
+        },
+        conflict_policy: 'skip',
+      });
+      if ((plan.stats.to_rename ?? 0) === 0) {
+        this.renameError =
+          (plan.stats.skipped_by_policy ?? 0) > 0
+            ? 'A file with that name already exists in this folder.'
+            : 'The file cannot be renamed right now.';
+        return;
+      }
+      const selection = await createPlanSelection(plan.id, 'source');
+      if (selection.item_count === 0) {
+        this.renameError = 'The file changed while the rename was being prepared.';
+        return;
+      }
+      const task = await executePlan(plan.id, { options: {}, only: selection.id });
+      trackPlanRun({
+        tool: currentTool.peek() ?? 'browse',
+        planId: plan.id,
+        taskId: task.id,
+        title: task.title,
+      });
+      this.renameFile = null;
+      this.refresh();
+    } catch (error) {
+      this.renameError = errorMessage(error, 'Could not rename the file');
+    } finally {
+      this.renameBusy = false;
+    }
   };
 
   private readonly onExcludeFolder = async (): Promise<void> => {
@@ -870,6 +1089,7 @@ export class OpmPane extends OpmElement {
         .selectionActive=${this.selecting.active}
         .emptyText=${this.plannedOnly ? 'No files would be renamed in this folder' : emptyText}
         .label=${`${this.paneName} files`}
+        @card-menu=${this.onFileMenu}
       ></opm-file-grid>
     `;
   }
@@ -909,7 +1129,7 @@ export class OpmPane extends OpmElement {
     );
     const inherited = !exact && isExcluded(soft, menu.entry.volume_id, menu.entry.path);
     const left = Math.max(0, Math.min(menu.x, window.innerWidth - 232));
-    const top = Math.max(0, Math.min(menu.y, window.innerHeight - 96));
+    const top = Math.max(0, Math.min(menu.y, window.innerHeight - 264));
     const position = { left: `${left}px`, top: `${top}px` };
     return html`
       <ul
@@ -920,6 +1140,25 @@ export class OpmPane extends OpmElement {
         style=${styleMap(position)}
         @keydown=${this.onFolderMenuKey}
       >
+        <li role="none">
+          <button type="button" role="menuitem" @click=${() => this.onScanFolder(false)}>
+            <opm-icon name="refresh-cw" size="sm"></opm-icon>
+            Scan folder for changes
+          </button>
+        </li>
+        <li role="none">
+          <button type="button" role="menuitem" @click=${() => this.onScanFolder(true)}>
+            <opm-icon name="database" size="sm"></opm-icon>
+            Full re-index folder
+          </button>
+        </li>
+        <li role="none">
+          <button type="button" role="menuitem" @click=${this.onSyncFolder}>
+            <opm-icon name="cloud-upload" size="sm"></opm-icon>
+            Sync folder with Immich
+          </button>
+        </li>
+        <li role="separator" class="menu-disabled mt-1 border-t border-base-300"></li>
         <li role="none">
           <button type="button" role="menuitem" ?disabled=${inherited}
             ${tooltip(inherited ? 'Remove the soft exclusion on the parent folder or in Settings' : 'Keep indexed and visible, but leave out of all tool plans')}
@@ -935,6 +1174,93 @@ export class OpmPane extends OpmElement {
           </button>
         </li>
       </ul>
+    `;
+  }
+
+  private renderFileMenu(): TemplateResult | typeof nothing {
+    const menu = this.fileMenu;
+    if (!menu) return nothing;
+    const left = Math.max(0, Math.min(menu.x, window.innerWidth - 232));
+    const top = Math.max(0, Math.min(menu.y, window.innerHeight - 112));
+    return html`
+      <ul
+        data-file-menu
+        role="menu"
+        aria-label="File ${menu.item.name}"
+        class="menu menu-sm fixed z-50 w-56 rounded-box border border-base-300 bg-base-100 shadow-lg"
+        style=${styleMap({ left: `${left}px`, top: `${top}px` })}
+        @keydown=${this.onFileMenuKey}
+      >
+        <li role="none">
+          <button type="button" role="menuitem" @click=${this.onRenameFile}>
+            <opm-icon name="pencil" size="sm"></opm-icon>
+            Rename…
+          </button>
+        </li>
+        <li role="none">
+          <button type="button" role="menuitem" class="text-error" @click=${this.onDeleteFile}>
+            <opm-icon name="trash-2" size="sm"></opm-icon>
+            Delete…
+          </button>
+        </li>
+      </ul>
+    `;
+  }
+
+  private renderRenameDialog(): TemplateResult | typeof nothing {
+    const item = this.renameFile;
+    if (!item) return nothing;
+    const busy = this.renameBusy;
+    return html`
+      <opm-modal
+        size="sm"
+        .open=${true}
+        heading="Rename ${item.name}"
+        .body=${html`
+          <form id="opm-rename-file-form" @submit=${this.submitRename}>
+            <label class="form-control w-full">
+              <span class="label"><span class="label-text">File name</span></span>
+              <div class="input input-bordered flex w-full items-center gap-1">
+                <input
+                  autofocus
+                  class="min-w-0 flex-1 outline-none"
+                  aria-label="File name"
+                  .value=${this.renameStem}
+                  ?disabled=${busy}
+                  @input=${this.onRenameInput}
+                />
+                ${this.renameExtension ? html`<span class="text-base-content/60">${this.renameExtension}</span>` : nothing}
+              </div>
+              <span class="label">
+                <span class="label-text-alt">The original extension stays unchanged.</span>
+              </span>
+            </label>
+          </form>
+          ${
+            this.renameError
+              ? html`<div class="alert alert-error alert-soft mt-3" role="alert">
+                  <opm-icon name="circle-x" size="sm"></opm-icon>
+                  <span>${this.renameError}</span>
+                </div>`
+              : nothing
+          }
+        `}
+        .actions=${html`
+          <button type="button" class="btn btn-ghost" ?disabled=${busy} @click=${this.closeRename}>
+            Cancel
+          </button>
+          <button
+            type="submit"
+            form="opm-rename-file-form"
+            class="btn btn-primary"
+            ?disabled=${busy}
+          >
+            ${busy ? html`<span class="loading loading-spinner loading-xs"></span>` : nothing}
+            Rename file
+          </button>
+        `}
+        @close=${this.closeRename}
+      ></opm-modal>
     `;
   }
 
@@ -1086,6 +1412,8 @@ export class OpmPane extends OpmElement {
             : html`${this.renderHeader(location)}${this.renderBase(location)}${this.renderBody(location)}`
         }
         ${this.renderFolderMenu()}
+        ${this.renderFileMenu()}
+        ${this.renderRenameDialog()}
       </section>
     `;
   }

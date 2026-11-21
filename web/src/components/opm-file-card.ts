@@ -34,9 +34,20 @@ export interface CardActivateDetail {
 
 export type CardActivateEvent = CustomEvent<CardActivateDetail>;
 
+export interface CardMenuDetail {
+  item: FileItem;
+  index: number;
+  /** Where to open the menu, in viewport coordinates. */
+  x: number;
+  y: number;
+}
+
+export type CardMenuEvent = CustomEvent<CardMenuDetail>;
+
 declare global {
   interface GlobalEventHandlersEventMap {
     'card-activate': CardActivateEvent;
+    'card-menu': CardMenuEvent;
   }
 }
 
@@ -374,6 +385,24 @@ export class OpmFileCard extends OpmElement {
     this.activate('card', event);
   }
 
+  private onContextMenu(event: MouseEvent): void {
+    const { item } = this;
+    if (!item || item.overlay.planned) return;
+    event.preventDefault();
+    let { clientX: x, clientY: y } = event;
+    if (x === 0 && y === 0) {
+      const rect = this.getBoundingClientRect();
+      x = rect.left + 12;
+      y = rect.bottom;
+    }
+    this.dispatchEvent(
+      new CustomEvent<CardMenuDetail>('card-menu', {
+        bubbles: true,
+        detail: { item, index: this.index, x, y },
+      }),
+    );
+  }
+
   private onKeydown(event: KeyboardEvent): void {
     if (event.target !== event.currentTarget || event.altKey) return;
     if (event.key !== 'Enter' && event.key !== ' ') return;
@@ -529,6 +558,7 @@ export class OpmFileCard extends OpmElement {
         aria-busy=${item ? nothing : 'true'}
         @click=${this.onClick}
         @keydown=${this.onKeydown}
+        @contextmenu=${this.onContextMenu}
       >
         <figure class="relative min-h-0 flex-1 overflow-hidden rounded-t-md ${item ? 'bg-base-200' : 'skeleton rounded-none'}">
           ${item ? this.renderFigure(item, selected) : nothing}

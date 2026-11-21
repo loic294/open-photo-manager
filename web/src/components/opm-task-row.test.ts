@@ -266,6 +266,7 @@ describe('opm-task-row', () => {
   describe('kind', () => {
     it.each([
       ['index', 'database'],
+      ['immich_sync', 'cloud-upload'],
       ['fs_move', 'folder-input'],
       ['fs_trash', 'trash-2'],
       ['fs_rmdir', 'folder-x'],

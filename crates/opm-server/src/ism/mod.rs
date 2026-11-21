@@ -11,18 +11,20 @@ use std::time::Duration;
 
 use opm_core::dto::{
     IsmBindingDto, IsmBindingRequest, IsmConnectRequest, IsmConnectionDto, IsmInfoDto,
-    IsmStagedBindingDto, IsmStatusDto,
+    IsmStagedBindingDto, IsmStatusDto, IsmSyncFolderRequest, ServerEvent, TaskKind,
 };
-use opm_core::paths::{RelPath, VolumeId};
+use opm_core::paths::{RelPath, TaskId, VolumeId};
 use reqwest::header::{AUTHORIZATION, HeaderValue};
+use serde_json::Value;
 use tokio::sync::{Mutex, watch};
+use tokio_util::sync::CancellationToken;
 use url::Url;
 
 use crate::crypto::SecretBox;
 use crate::db::{Db, now_secs};
 use crate::error::{AppError, AppResult};
 use crate::settings::{ManagedFiles, SettingsService};
-use crate::tasks::TaskEngine;
+use crate::tasks::{TaskCtx, TaskEngine, TaskError, TaskSpec};
 
 const PURPOSE: &[u8] = b"open-photo-manager/ism-client-token/v1";
 const MAX_INFO_BYTES: usize = 256 * 1024;
@@ -256,6 +258,89 @@ impl IsmService {
         self.status().await
     }
 
+    /// Queues a targeted Immich scan through the bound sync manager.
+    pub async fn sync_folder(&self, request: IsmSyncFolderRequest) -> AppResult<TaskId> {
+        let binding: Option<(String, String)> =
+            sqlx::query_as("SELECT root_id, root_prefix FROM ism_volume_roots WHERE volume_id = ?")
+                .bind(request.volume_id)
+                .fetch_optional(self.db.read())
+                .await?;
+        let (root_id, prefix) = binding.ok_or_else(|| {
+            AppError::not_found("ism_not_bound", "This volume is not bound to Sync Manager.")
+        })?;
+        let (_, stored, info) = self.connected().await?;
+        if !info.actions.iter().any(|action| action == "manage") {
+            return Err(AppError::forbidden(
+                "ism_forbidden",
+                "The ISM token cannot request a sync.",
+            ));
+        }
+        let root = info
+            .roots
+            .iter()
+            .find(|candidate| candidate.root_id == root_id)
+            .ok_or_else(|| {
+                AppError::conflict(
+                    "ism_root_unavailable",
+                    "The ISM root bound to this volume is no longer available.",
+                )
+            })?;
+        if !root.available || root.immich_import_path.is_none() {
+            return Err(AppError::conflict(
+                "immich_not_linked",
+                "This ISM root is not linked to an Immich library.",
+            ));
+        }
+        let prefix = RelPath::new(&prefix)
+            .map_err(|_| AppError::internal(anyhow::anyhow!("invalid stored ISM prefix")))?;
+        let path = prefix.join_rel(&request.dir);
+        let label = request.dir.file_name().unwrap_or("volume root").to_owned();
+        let sync = SyncFolder {
+            volume_id: request.volume_id,
+            instance_id: stored.instance_id,
+            root_id: root_id.clone(),
+            path: path.to_string(),
+        };
+        let service = self.clone();
+        let id = self
+            .tasks
+            .submit(
+                TaskSpec::new(
+                    TaskKind::ImmichSync,
+                    format!("Syncing Immich folder {label}"),
+                )
+                .with_params(serde_json::json!({
+                    "volume_id": sync.volume_id,
+                    "root_id": sync.root_id,
+                    "path": sync.path,
+                })),
+                move |ctx| {
+                    let service = service.clone();
+                    let sync = sync.clone();
+                    async move { service.run_folder_sync(ctx, sync).await }
+                },
+            )
+            .await?;
+        Ok(id)
+    }
+
+    async fn run_folder_sync(&self, ctx: TaskCtx, sync: SyncFolder) -> Result<Value, TaskError> {
+        if ctx.cancel.is_cancelled() {
+            return Err(TaskError::Cancelled);
+        }
+        let (client, _, _) = self.connected().await?;
+        client
+            .sync_immich_folder(&sync.instance_id, &sync.root_id, &sync.path, &ctx.cancel)
+            .await?;
+        self.tasks.publish(ServerEvent::ImmichAssetsChanged {
+            volume_id: sync.volume_id,
+        });
+        Ok(serde_json::json!({
+            "root_id": sync.root_id,
+            "path": sync.path,
+        }))
+    }
+
     pub async fn connect(&self, input: IsmConnectRequest) -> AppResult<IsmInfoDto> {
         let _guard = self.gate.lock().await;
         let client = IsmClient::new(&input.base_url, &input.token)?;
@@ -343,6 +428,14 @@ impl IsmService {
     }
 }
 
+#[derive(Clone)]
+struct SyncFolder {
+    volume_id: VolumeId,
+    instance_id: String,
+    root_id: String,
+    path: String,
+}
+
 struct IsmClient {
     base_url: Url,
     authorization: HeaderValue,
@@ -387,6 +480,39 @@ impl IsmClient {
             authorization,
             http,
         })
+    }
+
+    async fn sync_immich_folder(
+        &self,
+        instance_id: &str,
+        root_id: &str,
+        path: &str,
+        cancel: &CancellationToken,
+    ) -> Result<(), TaskError> {
+        let endpoint = format!("api/v1/instances/{instance_id}/immich/sync");
+        let url = self.base_url.join(&endpoint).map_err(AppError::internal)?;
+        let response = self
+            .http
+            .post(url)
+            .header(AUTHORIZATION, self.authorization.clone())
+            .json(&serde_json::json!({"root_id": root_id, "path": path}))
+            .timeout(REQUEST_TIMEOUT);
+        let response = tokio::select! {
+            result = response.send() => result
+                .map_err(|_| AppError::conflict("ism_unavailable", "Cannot reach ISM."))?,
+            () = cancel.cancelled() => return Err(TaskError::Cancelled),
+        };
+        if !response.status().is_success() {
+            return Err(TaskError::from(AppError::new(
+                response.status(),
+                "ism_request_failed",
+                format!(
+                    "ISM rejected the folder sync request (HTTP {}).",
+                    response.status().as_u16()
+                ),
+            )));
+        }
+        Ok(())
     }
 
     /// A GET answered with at most `MAX_INFO_BYTES` of JSON.

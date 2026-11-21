@@ -37,6 +37,7 @@ import {
   VOLUME_PHOTOS,
 } from '@/test/browse-server';
 import { pressConfirm, shownConfirm } from '@/test/confirm';
+import { fileItem } from '@/test/file-item';
 import { folderEntry } from '@/test/folder-entry';
 import { mount } from '@/test/helpers';
 import { sampleSettings } from '@/test/settings-fixtures';
@@ -1594,7 +1595,7 @@ describe('the folder context menu', () => {
     rightClick(row(pane, PRIVATE.name));
     await settle(pane);
     expect(buttonNamed(menu(pane) as HTMLElement, 'Soft excluded by parent')?.disabled).toBe(true);
-    expect(document.activeElement?.textContent?.trim()).toBe('Exclude folder…');
+    expect(document.activeElement?.textContent?.trim()).toBe('Scan folder for changes');
   });
 
   it('reports a failed soft exclusion without changing the folder', async () => {
@@ -1677,6 +1678,50 @@ describe('the folder context menu', () => {
     expect(menu(pane)).toBeNull();
   });
 
+  it('scans, fully re-indexes and starts an ISM sync for the chosen folder', async () => {
+    goTo('source', TRIP);
+    serveFolders(PRIVATE);
+    const pane = await mountPane();
+    const post = vi.spyOn(api, 'post').mockResolvedValue({ id: 8 });
+
+    rightClick(row(pane, PRIVATE.name));
+    await settle(pane);
+    buttonNamed(menu(pane) as HTMLElement, 'Scan folder for changes')?.click();
+    await vi.waitFor(() =>
+      expect(post).toHaveBeenCalledWith('/api/index/rescan', {
+        body: {
+          targets: [{ volume_id: 1, dir: PRIVATE.path, recursive: false }],
+          force: false,
+          confirm_removals: false,
+        },
+        signal: undefined,
+      }),
+    );
+
+    rightClick(row(pane, PRIVATE.name));
+    await settle(pane);
+    buttonNamed(menu(pane) as HTMLElement, 'Full re-index folder')?.click();
+    await vi.waitFor(() =>
+      expect(post).toHaveBeenCalledWith('/api/index/rescan', {
+        body: {
+          targets: [{ volume_id: 1, dir: PRIVATE.path, recursive: true }],
+          force: true,
+          confirm_removals: false,
+        },
+        signal: undefined,
+      }),
+    );
+
+    rightClick(row(pane, PRIVATE.name));
+    await settle(pane);
+    buttonNamed(menu(pane) as HTMLElement, 'Sync folder with Immich')?.click();
+    await vi.waitFor(() =>
+      expect(post).toHaveBeenCalledWith('/api/ism/sync', {
+        body: { volume_id: 1, dir: PRIVATE.path },
+      }),
+    );
+  });
+
   it('excludes the folder after a confirmation and hides it', async () => {
     goTo('source', TRIP);
     serveFolders(PRIVATE, { name: 'raw', path: 'trip/raw' });
@@ -1702,9 +1747,114 @@ describe('the folder context menu', () => {
     expect(post).toHaveBeenCalledWith('/api/settings/excluded-folders', {
       body: { volume_id: 1, path: PRIVATE.path },
     });
+
     await vi.waitFor(async () => {
       await settle(pane);
       expect(rowNames(pane)).toEqual(['raw']);
+    });
+  });
+
+  describe('the file context menu', () => {
+    it('offers delete and rename actions for a real file', async () => {
+      goTo('source', TRIP);
+      server.state.total = 1;
+      server.state.item = () => fileItem({ id: 12, name: 'holiday.JPG' });
+      const pane = await mountPane();
+      const card = part(pane, 'opm-file-card');
+      const event = new MouseEvent('contextmenu', {
+        bubbles: true,
+        cancelable: true,
+        clientX: 40,
+        clientY: 60,
+      });
+
+      card.querySelector('[role="option"]')?.dispatchEvent(event);
+      await settle(pane);
+
+      const menu = pane.querySelector('[data-file-menu]');
+      expect(event.defaultPrevented).toBe(true);
+      expect(text(menu)).toContain('Rename…');
+      expect(text(menu)).toContain('Delete…');
+      buttonNamed(menu as HTMLElement, 'Rename…')?.click();
+      await settle(pane);
+      expect(text(pane.querySelector('opm-modal'))).toContain('Rename holiday.JPG');
+      expect(pane.querySelector<HTMLInputElement>('opm-modal input')?.value).toBe('holiday');
+    });
+
+    it('renames one file through the existing rename plan executor', async () => {
+      goTo('source', TRIP);
+      server.state.total = 1;
+      server.state.item = () => fileItem({ id: 12, dir: 'trip', name: 'holiday.JPG' });
+      const pane = await mountPane();
+      const realPost = api.post.bind(api);
+      const post = vi.spyOn(api, 'post').mockImplementation((path, init) => {
+        if (path === '/api/selections') {
+          return Promise.resolve({ id: 44, item_count: 1, total_size: 20, label: 'holiday.JPG' });
+        }
+        if (path === '/api/plans') {
+          return Promise.resolve({
+            id: 77,
+            kind: 'rename',
+            state: 'ready',
+            stats: { to_rename: 1 },
+            warnings: [],
+            result: null,
+            task_id: null,
+            created_at: 1,
+            expires_at: 2,
+          });
+        }
+        if (path === '/api/plans/77/selection') {
+          return Promise.resolve({ id: 55, item_count: 1, total_size: 20, label: null });
+        }
+        if (path === '/api/plans/77/execute')
+          return Promise.resolve({
+            id: 8,
+            kind: 'plan_execute',
+            title: 'Renaming 1 file',
+            state: 'queued',
+          });
+        return realPost(path, init);
+      });
+      const context = new CustomEvent('card-menu', {
+        bubbles: true,
+        detail: {
+          item: fileItem({ id: 12, dir: 'trip', name: 'holiday.JPG' }),
+          index: 0,
+          x: 40,
+          y: 60,
+        },
+      });
+      part(pane, 'opm-file-grid').dispatchEvent(context);
+      await settle(pane);
+      buttonNamed(pane.querySelector('[data-file-menu]') as HTMLElement, 'Rename…')?.click();
+      await settle(pane);
+      const input = part<HTMLInputElement>(pane, 'opm-modal input');
+      input.value = 'vacation';
+      input.dispatchEvent(new Event('input', { bubbles: true }));
+      part(pane, 'opm-modal form').dispatchEvent(
+        new SubmitEvent('submit', { bubbles: true, cancelable: true }),
+      );
+      await vi.waitFor(() =>
+        expect(post.mock.calls.some(([path]) => path === '/api/plans/77/execute')).toBe(true),
+      );
+
+      expect(post).toHaveBeenCalledWith('/api/plans', {
+        body: expect.objectContaining({
+          kind: 'rename',
+          params: expect.objectContaining({
+            rules: expect.objectContaining({ pattern: 'vacation' }),
+            source: expect.objectContaining({
+              scope: { volume_id: 1, dir: 'trip', recursive: false },
+              filter: expect.objectContaining({ selection_id: 44 }),
+            }),
+          }),
+        }),
+      });
+      expect(post).toHaveBeenCalledWith('/api/plans/77/execute', {
+        body: { options: {}, only: 55 },
+        signal: undefined,
+      });
     });
   });
 

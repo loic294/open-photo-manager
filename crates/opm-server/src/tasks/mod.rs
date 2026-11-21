@@ -296,6 +296,11 @@ impl TaskEngine {
         for (id, kind, params) in self.recoverable().await? {
             match kind {
                 TaskKind::Index => state.index_jobs.resume_task(id, params).await?,
+                TaskKind::ImmichSync => {
+                    return Err(AppError::internal(anyhow::anyhow!(
+                        "targeted Immich sync task {id} is not resumable"
+                    )));
+                }
                 TaskKind::PlanExecute => state.plans.resume_task(id, params).await?,
                 TaskKind::FsMove | TaskKind::FsTrash | TaskKind::TrashEmpty => {
                     state.trash.resume_task(id, params).await?

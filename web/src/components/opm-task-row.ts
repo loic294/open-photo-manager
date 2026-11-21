@@ -20,6 +20,7 @@ export type TaskDismissEvent = CustomEvent<TaskRowDetail>;
 // A record, so a task kind added to the backend fails the type check until it has an icon here.
 const KIND_ICON: Readonly<Record<TaskKind, IconName>> = {
   index: 'database',
+  immich_sync: 'cloud-upload',
   fs_move: 'folder-input',
   fs_trash: 'trash-2',
   fs_rmdir: 'folder-x',

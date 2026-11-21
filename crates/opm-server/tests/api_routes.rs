@@ -63,6 +63,7 @@ const ROUTES: &[(&str, &str)] = &[
     ("PUT", "/api/ism/connection"),
     ("DELETE", "/api/ism/connection"),
     ("GET", "/api/ism/status"),
+    ("POST", "/api/ism/sync"),
     ("POST", "/api/ism/test"),
     ("PUT", "/api/ism/bindings"),
 ];

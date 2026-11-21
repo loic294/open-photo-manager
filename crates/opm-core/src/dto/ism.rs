@@ -2,7 +2,7 @@
 
 use serde::{Deserialize, Serialize};
 
-use crate::paths::VolumeId;
+use crate::paths::{RelPath, VolumeId};
 use ts_rs::TS;
 
 #[derive(Clone, PartialEq, Eq, Serialize, Deserialize, TS)]
@@ -89,6 +89,15 @@ pub struct IsmBindingRequest {
     pub root_id: Option<String>,
 }
 
+/// Start a targeted Immich scan of one folder on a bound volume.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, TS)]
+#[ts(export)]
+pub struct IsmSyncFolderRequest {
+    pub volume_id: VolumeId,
+    #[ts(type = "string")]
+    pub dir: RelPath,
+}
+
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, TS)]
 #[ts(export)]
 pub struct IsmStatusDto {
@@ -146,6 +155,23 @@ pub struct IsmTrashPurgeRequest {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn sync_folder_request_uses_a_validated_relative_path() {
+        let request = serde_json::from_value::<IsmSyncFolderRequest>(serde_json::json!({
+            "volume_id": 1,
+            "dir": "trip/2026"
+        }))
+        .unwrap();
+        assert_eq!(request.dir.as_str(), "trip/2026");
+        assert!(
+            serde_json::from_value::<IsmSyncFolderRequest>(serde_json::json!({
+                "volume_id": 1,
+                "dir": "../escape"
+            }))
+            .is_err()
+        );
+    }
 
     #[test]
     fn connection_request_round_trips_without_debugging_secrets() {

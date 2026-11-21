@@ -38,7 +38,7 @@ impl Lane {
     /// The lane a kind of task belongs to unless the submitter says otherwise.
     pub const fn for_kind(kind: TaskKind) -> Self {
         match kind {
-            TaskKind::Index => Self::Index,
+            TaskKind::Index | TaskKind::ImmichSync => Self::Index,
             TaskKind::FsMove
             | TaskKind::FsTrash
             | TaskKind::FsRmdir
@@ -209,6 +209,7 @@ pub(super) fn state_from_db(value: &str) -> Result<TaskState, InvalidDbValue> {
 pub(super) fn kind_to_db(kind: TaskKind) -> &'static str {
     match kind {
         TaskKind::Index => "index",
+        TaskKind::ImmichSync => "immich_sync",
         TaskKind::FsMove => "fs_move",
         TaskKind::FsTrash => "fs_trash",
         TaskKind::FsRmdir => "fs_rmdir",
@@ -220,6 +221,7 @@ pub(super) fn kind_to_db(kind: TaskKind) -> &'static str {
 pub(super) fn kind_from_db(value: &str) -> Result<TaskKind, InvalidDbValue> {
     match value {
         "index" => Ok(TaskKind::Index),
+        "immich_sync" => Ok(TaskKind::ImmichSync),
         "fs_move" => Ok(TaskKind::FsMove),
         "fs_trash" => Ok(TaskKind::FsTrash),
         "fs_rmdir" => Ok(TaskKind::FsRmdir),
@@ -244,8 +246,9 @@ mod tests {
         (TaskState::Interrupted, "interrupted"),
     ];
 
-    const KINDS: [TaskKind; 6] = [
+    const KINDS: [TaskKind; 7] = [
         TaskKind::Index,
+        TaskKind::ImmichSync,
         TaskKind::FsMove,
         TaskKind::FsTrash,
         TaskKind::FsRmdir,
@@ -286,6 +289,7 @@ mod tests {
     fn every_kind_has_the_documented_default_lane() {
         let expected = [
             (TaskKind::Index, Lane::Index),
+            (TaskKind::ImmichSync, Lane::Index),
             (TaskKind::FsMove, Lane::Fs),
             (TaskKind::FsTrash, Lane::Fs),
             (TaskKind::FsRmdir, Lane::Fs),

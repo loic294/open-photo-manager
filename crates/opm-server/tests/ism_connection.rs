@@ -4,8 +4,9 @@ mod common;
 
 use axum::http::{Method, StatusCode};
 use common::TestApp;
+use opm_core::dto::TaskState;
 use serde_json::{Value, json};
-use wiremock::matchers::{header, method, path, query_param};
+use wiremock::matchers::{body_json, header, method, path, query_param};
 use wiremock::{Mock, MockServer, ResponseTemplate};
 
 fn info(instance: &str) -> Value {
@@ -23,6 +24,69 @@ fn info(instance: &str) -> Value {
             "direct_writes": "blocked"
         }]
     })
+}
+
+#[tokio::test]
+async fn a_bound_folder_can_request_a_targeted_immich_sync() {
+    let app = TestApp::new().await;
+    let remote = MockServer::start().await;
+    let (volume, _) = app.add_volume("photos").await;
+    let discovery = info("instance-1");
+    Mock::given(method("GET"))
+        .and(path("/api/v1/client/info"))
+        .respond_with(ResponseTemplate::new(200).set_body_json(discovery))
+        .mount(&remote)
+        .await;
+    Mock::given(method("POST"))
+        .and(path("/api/v1/instances/instance-1/immich/sync"))
+        .and(header("authorization", "Bearer fixture-token"))
+        .and(body_json(
+            json!({"root_id": "photos", "path": "library/trip"}),
+        ))
+        .respond_with(ResponseTemplate::new(202))
+        .expect(1)
+        .mount(&remote)
+        .await;
+
+    assert_eq!(
+        app.call(
+            Method::PUT,
+            "/api/ism/connection",
+            Some(json!({"base_url": remote.uri(), "token": "fixture-token"})),
+        )
+        .await
+        .0,
+        StatusCode::OK
+    );
+    sqlx::query(
+        "INSERT INTO ism_volume_roots (volume_id, root_id, root_name, root_prefix)
+         VALUES (?, 'photos', 'Photos', 'library')",
+    )
+    .bind(volume)
+    .execute(app.state.db.write())
+    .await
+    .unwrap();
+
+    let (status, task) = app
+        .call(
+            Method::POST,
+            "/api/ism/sync",
+            Some(json!({"volume_id": volume, "dir": "trip"})),
+        )
+        .await;
+    assert_eq!(status, StatusCode::ACCEPTED);
+    assert_eq!(task["kind"], "immich_sync");
+    let id = task["id"].as_i64().unwrap();
+    tokio::time::timeout(std::time::Duration::from_secs(5), async {
+        loop {
+            if app.state.tasks.get(id).await.unwrap().state == TaskState::Done {
+                break;
+            }
+            tokio::time::sleep(std::time::Duration::from_millis(10)).await;
+        }
+    })
+    .await
+    .unwrap();
 }
 
 #[tokio::test]
